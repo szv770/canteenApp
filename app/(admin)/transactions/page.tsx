@@ -1,0 +1,199 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { Search, Download, RefreshCw, X, Eye } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import { format } from 'date-fns'
+import toast from 'react-hot-toast'
+
+export default function TransactionsPage() {
+  const supabase = createClient()
+  const [orders, setOrders] = useState<any[]>([])
+  const [search, setSearch] = useState('')
+  const [statusFilter, setStatusFilter] = useState('completed')
+  const [loading, setLoading] = useState(true)
+  const [viewOrder, setViewOrder] = useState<any | null>(null)
+
+  useEffect(() => { loadOrders() }, [statusFilter])
+
+  async function loadOrders() {
+    setLoading(true)
+    const q = supabase
+      .from('orders')
+      .select('*, cashier_profiles(name), bochurim_with_id(name,bochur_id)')
+      .order('created_at', { ascending: false })
+      .limit(200)
+
+    if (statusFilter !== 'all') q.eq('status', statusFilter)
+
+    const { data } = await q
+    setOrders(data || [])
+    setLoading(false)
+  }
+
+  const filtered = orders.filter(o =>
+    String(o.order_number).includes(search) ||
+    (o.cashier_profiles?.name || '').toLowerCase().includes(search.toLowerCase()) ||
+    (o.bochurim_with_id?.name || '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  async function voidOrder(order: any) {
+    if (!confirm(`Void order #${order.order_number}?`)) return
+    await supabase.from('orders').update({ status: 'voided' }).eq('id', order.id)
+    toast.success('Order voided')
+    loadOrders()
+  }
+
+  function exportCSV() {
+    const rows = [
+      ['Order #', 'Date', 'Cashier', 'Bochur', 'Total', 'Status'],
+      ...filtered.map(o => [
+        o.order_number,
+        format(new Date(o.created_at), 'MM/dd/yyyy HH:mm'),
+        o.cashier_profiles?.name || '',
+        o.bochurim_with_id?.name || 'Walk-in',
+        o.total,
+        o.status,
+      ])
+    ]
+    const csv = rows.map(r => r.join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `transactions-${format(new Date(), 'yyyy-MM-dd')}.csv`
+    a.click()
+  }
+
+  const statusColors: Record<string, string> = {
+    completed: 'bg-green-100 text-green-700',
+    voided: 'bg-gray-100 text-gray-500',
+    refunded: 'bg-red-100 text-red-600',
+  }
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Transactions</h1>
+          <p className="text-gray-500 text-sm mt-1">{filtered.length} orders</p>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={loadOrders} className="btn-secondary text-sm"><RefreshCw className="w-4 h-4" /></button>
+          <button onClick={exportCSV} className="btn-secondary text-sm"><Download className="w-4 h-4" /> Export CSV</button>
+        </div>
+      </div>
+
+      <div className="flex gap-3 mb-4">
+        <div className="relative flex-1">
+          <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+          <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search orders..." className="input-admin pl-9" />
+        </div>
+        <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="input-admin w-36">
+          <option value="all">All status</option>
+          <option value="completed">Completed</option>
+          <option value="voided">Voided</option>
+          <option value="refunded">Refunded</option>
+        </select>
+      </div>
+
+      <div className="admin-card overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50/50">
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Order</th>
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Date</th>
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Cashier</th>
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Bochur</th>
+              <th className="text-center text-xs font-medium text-gray-400 px-5 py-3">Status</th>
+              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Total</th>
+              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">No transactions found</td></tr>
+            ) : filtered.map(o => (
+              <tr key={o.id} className="table-row">
+                <td className="px-5 py-3 text-sm font-semibold text-gray-900">#{o.order_number}</td>
+                <td className="px-5 py-3 text-sm text-gray-500">{format(new Date(o.created_at), 'MM/dd HH:mm')}</td>
+                <td className="px-5 py-3 text-sm text-gray-700">{o.cashier_profiles?.name || '—'}</td>
+                <td className="px-5 py-3 text-sm text-gray-700">{o.bochurim_with_id?.name || <span className="text-gray-400">Walk-in</span>}</td>
+                <td className="px-5 py-3 text-center">
+                  <span className={`badge ${statusColors[o.status] || 'bg-gray-100 text-gray-500'}`}>{o.status}</span>
+                </td>
+                <td className="px-5 py-3 text-sm font-semibold text-gray-900 text-right">{formatCurrency(o.total)}</td>
+                <td className="px-5 py-3 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => setViewOrder(o)} className="p-1.5 text-blue-500 hover:bg-blue-50 rounded-lg transition-colors">
+                      <Eye className="w-4 h-4" />
+                    </button>
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {viewOrder && (
+        <OrderDetailModal
+          order={viewOrder}
+          onClose={() => setViewOrder(null)}
+          onVoid={() => { voidOrder(viewOrder); setViewOrder(null) }}
+        />
+      )}
+    </div>
+  )
+}
+
+function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () => void; onVoid: () => void }) {
+  const supabase = createClient()
+  const [items, setItems] = useState<any[]>([])
+  const [payments, setPayments] = useState<any[]>([])
+
+  useEffect(() => {
+    Promise.all([
+      supabase.from('order_items').select('*').eq('order_id', order.id),
+      supabase.from('payments').select('*').eq('order_id', order.id),
+    ]).then(([i, p]) => { setItems(i.data || []); setPayments(p.data || []) })
+  }, [order.id])
+
+  return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md animate-scale-in">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <h2 className="font-bold text-gray-900">Order #{order.order_number}</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X className="w-5 h-5 text-gray-400" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div className="space-y-1">
+            {items.map(item => (
+              <div key={item.id} className="flex justify-between text-sm">
+                <span className="text-gray-700">{item.quantity}x {item.product_name}{item.variant_label ? ` (${item.variant_label})` : ''}</span>
+                <span className="font-medium text-gray-900">{formatCurrency(item.total)}</span>
+              </div>
+            ))}
+          </div>
+          <div className="border-t border-gray-100 pt-3 space-y-1">
+            {payments.map(p => (
+              <div key={p.id} className="flex justify-between text-sm">
+                <span className="text-gray-500 capitalize">{p.method.replace('_', ' ')}</span>
+                <span className="font-medium">{formatCurrency(p.amount)}</span>
+              </div>
+            ))}
+            <div className="flex justify-between font-bold text-gray-900 pt-1">
+              <span>Total</span>
+              <span>{formatCurrency(order.total)}</span>
+            </div>
+          </div>
+          {order.status === 'completed' && (
+            <button onClick={onVoid} className="btn-danger w-full text-sm">Void Order</button>
+          )}
+        </div>
+      </div>
+    </div>
+  )
+}

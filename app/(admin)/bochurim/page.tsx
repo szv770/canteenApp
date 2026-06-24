@@ -1,0 +1,298 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { Plus, Search, Archive, DollarSign, X, ChevronDown } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import toast from 'react-hot-toast'
+import type { BochurWithId, AccountType } from '@/types/database'
+
+export default function BochurimPage() {
+  const supabase = createClient()
+  const [bochurim, setBochurim] = useState<BochurWithId[]>([])
+  const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
+  const [search, setSearch] = useState('')
+  const [showArchived, setShowArchived] = useState(false)
+  const [loading, setLoading] = useState(true)
+  const [showAdd, setShowAdd] = useState(false)
+  const [topupBochur, setTopupBochur] = useState<BochurWithId | null>(null)
+
+  useEffect(() => { loadData() }, [showArchived])
+
+  async function loadData() {
+    setLoading(true)
+    const [bRes, atRes] = await Promise.all([
+      supabase.from('bochurim_with_id').select('*, account_type:account_types(*)').eq('is_archived', showArchived).order('name'),
+      supabase.from('account_types').select('*').eq('is_active', true),
+    ])
+    setBochurim(bRes.data || [])
+    setAccountTypes(atRes.data || [])
+    setLoading(false)
+  }
+
+  const filtered = bochurim.filter(b =>
+    b.name.toLowerCase().includes(search.toLowerCase()) ||
+    (b.bochur_id || '').toLowerCase().includes(search.toLowerCase()) ||
+    (b.grade || '').toLowerCase().includes(search.toLowerCase())
+  )
+
+  async function archiveBochur(id: string) {
+    if (!confirm('Archive this bochur? They will no longer appear in POS searches.')) return
+    await supabase.from('bochurim').update({ is_archived: true }).eq('id', id)
+    toast.success('Bochur archived')
+    loadData()
+  }
+
+  return (
+    <div className="p-6">
+      <div className="flex items-center justify-between mb-6">
+        <div>
+          <h1 className="text-2xl font-bold text-gray-900">Bochurim</h1>
+          <p className="text-gray-500 text-sm mt-1">{filtered.length} {showArchived ? 'archived' : 'active'} accounts</p>
+        </div>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowArchived(!showArchived)}
+            className={`btn-secondary text-sm ${showArchived ? 'bg-amber-50 border-amber-200 text-amber-700' : ''}`}
+          >
+            <Archive className="w-4 h-4" />
+            {showArchived ? 'Active' : 'Archived'}
+          </button>
+          <button onClick={() => setShowAdd(true)} className="btn-primary text-sm">
+            <Plus className="w-4 h-4" /> Add Bochur
+          </button>
+        </div>
+      </div>
+
+      {/* Search */}
+      <div className="relative mb-4">
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <input
+          value={search}
+          onChange={e => setSearch(e.target.value)}
+          placeholder="Search by name, ID, or grade..."
+          className="input-admin pl-9"
+        />
+      </div>
+
+      {/* Table */}
+      <div className="admin-card overflow-hidden">
+        <table className="w-full">
+          <thead>
+            <tr className="border-b border-gray-100 bg-gray-50/50">
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">ID</th>
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Name</th>
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Grade</th>
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Account Type</th>
+              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Balance</th>
+              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
+            </tr>
+          </thead>
+          <tbody>
+            {loading ? (
+              <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
+            ) : filtered.length === 0 ? (
+              <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">No bochurim found</td></tr>
+            ) : filtered.map(b => (
+              <tr key={b.id} className="table-row">
+                <td className="px-5 py-3 text-sm font-mono text-gray-500">{b.bochur_id}</td>
+                <td className="px-5 py-3 text-sm font-medium text-gray-900">{b.name}</td>
+                <td className="px-5 py-3 text-sm text-gray-500">{b.grade || '—'}</td>
+                <td className="px-5 py-3 text-sm text-gray-500">{(b as any).account_type?.name}</td>
+                <td className={`px-5 py-3 text-sm font-semibold text-right ${b.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                  {formatCurrency(b.balance)}
+                </td>
+                <td className="px-5 py-3 text-right">
+                  <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={() => setTopupBochur(b)}
+                      className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                      title="Add funds"
+                    >
+                      <DollarSign className="w-4 h-4" />
+                    </button>
+                    {!showArchived && (
+                      <button
+                        onClick={() => archiveBochur(b.id)}
+                        className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 rounded-lg transition-colors"
+                        title="Archive"
+                      >
+                        <Archive className="w-4 h-4" />
+                      </button>
+                    )}
+                  </div>
+                </td>
+              </tr>
+            ))}
+          </tbody>
+        </table>
+      </div>
+
+      {showAdd && (
+        <AddBochurModal
+          accountTypes={accountTypes}
+          onClose={() => setShowAdd(false)}
+          onSaved={() => { setShowAdd(false); loadData() }}
+        />
+      )}
+
+      {topupBochur && (
+        <TopupModal
+          bochur={topupBochur}
+          onClose={() => setTopupBochur(null)}
+          onSaved={() => { setTopupBochur(null); loadData() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function AddBochurModal({ accountTypes, onClose, onSaved }: {
+  accountTypes: AccountType[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [form, setForm] = useState({
+    name: '', grade: '', phone: '',
+    account_type_id: accountTypes[0]?.id || '',
+    allow_negative: false, max_negative_balance: 5, notes: '',
+  })
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (!form.name.trim()) { toast.error('Name is required'); return }
+    setSaving(true)
+    const { error } = await supabase.from('bochurim').insert(form)
+    if (error) { toast.error(error.message); setSaving(false); return }
+    toast.success('Bochur added!')
+    onSaved()
+  }
+
+  return (
+    <Modal title="Add Bochur" onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+          <input className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Moshe Goldberg" />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
+            <input className="input-admin" value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))} placeholder="Aleph" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <input className="input-admin" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Optional" />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+          <select className="input-admin" value={form.account_type_id} onChange={e => setForm(f => ({ ...f, account_type_id: e.target.value }))}>
+            {accountTypes.map(at => <option key={at.id} value={at.id}>{at.name}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+          <input type="checkbox" id="neg" checked={form.allow_negative} onChange={e => setForm(f => ({ ...f, allow_negative: e.target.checked }))} className="rounded" />
+          <label htmlFor="neg" className="text-sm text-gray-700">Allow negative balance</label>
+          {form.allow_negative && (
+            <div className="flex items-center gap-1 ml-auto">
+              <span className="text-xs text-gray-500">Max -$</span>
+              <input type="number" className="input-admin w-20 text-sm" value={form.max_negative_balance} onChange={e => setForm(f => ({ ...f, max_negative_balance: parseFloat(e.target.value) }))} min={0} step={0.5} />
+            </div>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <textarea className="input-admin resize-none" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" />
+        </div>
+        <div className="flex gap-2 pt-2">
+          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button onClick={save} disabled={saving} className="btn-primary flex-1">{saving ? 'Saving...' : 'Add Bochur'}</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function TopupModal({ bochur, onClose, onSaved }: {
+  bochur: BochurWithId
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState('cash')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    const amt = parseFloat(amount)
+    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
+    setSaving(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { data: cashier } = await supabase.from('cashier_profiles').select('id').eq('user_id', user!.id).single()
+
+    const newBalance = bochur.balance + amt
+    await supabase.from('bochurim').update({ balance: newBalance }).eq('id', bochur.id)
+    await supabase.from('balance_ledger').insert({
+      bochur_id: bochur.id, amount: amt, type: 'topup',
+      note: note || `${method} top-up`, cashier_id: cashier?.id,
+    })
+    toast.success(`Added ${formatCurrency(amt)} to ${bochur.name}'s account`)
+    onSaved()
+  }
+
+  return (
+    <Modal title={`Add Funds — ${bochur.name}`} onClose={onClose}>
+      <div className="space-y-4">
+        <div className="p-3 bg-gray-50 rounded-xl flex justify-between">
+          <span className="text-sm text-gray-600">Current balance</span>
+          <span className={`font-bold ${bochur.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(bochur.balance)}</span>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
+          <input type="number" className="input-admin text-lg" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" min={0} step={0.5} />
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
+          <select className="input-admin" value={method} onChange={e => setMethod(e.target.value)}>
+            <option value="cash">Cash</option>
+            <option value="zelle">Zelle</option>
+            <option value="manual">Manual Adjustment</option>
+          </select>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Note (optional)</label>
+          <input className="input-admin" value={note} onChange={e => setNote(e.target.value)} placeholder="Optional note" />
+        </div>
+        {amount && parseFloat(amount) > 0 && (
+          <div className="p-3 bg-emerald-50 rounded-xl flex justify-between">
+            <span className="text-sm text-emerald-700">New balance</span>
+            <span className="font-bold text-emerald-700">{formatCurrency(bochur.balance + parseFloat(amount))}</span>
+          </div>
+        )}
+        <div className="flex gap-2 pt-2">
+          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button onClick={save} disabled={saving} className="btn-success flex-1">{saving ? 'Adding...' : 'Add Funds'}</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
+  return (
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md animate-scale-in">
+        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+          <h2 className="font-bold text-gray-900 text-lg">{title}</h2>
+          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+            <X className="w-5 h-5 text-gray-400" />
+          </button>
+        </div>
+        <div className="p-5">{children}</div>
+      </div>
+    </div>
+  )
+}

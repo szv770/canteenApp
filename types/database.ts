@@ -1,0 +1,146 @@
+export interface AccountType {
+  id: string
+  name: string
+  discount_type: 'none' | 'percentage' | 'cost_price' | 'fixed'
+  discount_value: number
+  excluded_categories: string[]
+  is_active: boolean
+  created_at: string
+}
+
+export interface Category {
+  id: string
+  name: string
+  color: string
+  parent_id: string | null
+  sort_order: number
+  is_active: boolean
+  created_at: string
+}
+
+export interface Product {
+  id: string
+  name: string
+  price: number
+  cost_price: number
+  stock_quantity: number
+  low_stock_threshold: number
+  emoji: string | null
+  has_variants: boolean
+  is_active: boolean
+  show_when_out_of_stock: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface ProductVariant {
+  id: string
+  product_id: string
+  label: string
+  price: number
+  stock_quantity: number
+  sort_order: number
+  is_active: boolean
+}
+
+export interface Supplier {
+  id: string
+  name: string
+  contact_info: string | null
+  created_at: string
+}
+
+export interface Bochur {
+  id: string
+  name: string
+  grade: string | null
+  phone: string | null
+  account_type_id: string
+  balance: number
+  allow_negative: boolean
+  max_negative_balance: number
+  notes: string | null
+  is_archived: boolean
+  created_at: string
+  updated_at: string
+}
+
+export interface BochurWithId extends Bochur {
+  bochur_id: string
+  account_type: AccountType
+}
+
+export interface CashierProfile {
+  id: string
+  user_id: string
+  name: string
+  role: 'admin' | 'cashier' | 'trusted_cashier'
+  pin: string | null
+  is_active: boolean
+  created_at: string
+}
+
+export interface Order {
+  id: string
+  order_number: number
+  bochur_id: string | null
+  cashier_id: string
+  subtotal: number
+  discount_amount: number
+  tax_amount: number
+  total: number
+  status: 'completed' | 'voided' | 'refunded'
+  notes: string | null
+  created_at: string
+}
+
+export interface OrderItem {
+  id: string
+  order_id: string
+  product_id: string
+  variant_id: string | null
+  product_name: string
+  variant_label: string | null
+  quantity: number
+  unit_price: number
+  discount_amount: number
+  total: number
+}
+
+export interface Payment {
+  id: string
+  order_id: string
+  method: 'balance' | 'cash' | 'credit_card' | 'zelle' | 'mixed'
+  amount: number
+  cash_tendered: number | null
+  change_given: number | null
+  cc_fee: number | null
+  created_at: string
+}
+
+export interface BalanceLedger {
+  id: string
+  bochur_id: string
+  amount: number
+  type: 'purchase' | 'topup' | 'refund' | 'adjustment'
+  reference_id: string | null
+  note: string | null
+  cashier_id: string | null
+  created_at: string
+}
+
+export interface AppSettings {
+  key: string
+  value: string
+  updated_at: string
+}
+
+export interface CartItem {
+  product_id: string
+  variant_id: string | null
+  name: string
+  variant_label: string | null
+  emoji: string | null
+  price: number
+  quantity: number
+}
