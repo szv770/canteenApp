@@ -23,7 +23,7 @@ export default function BochurimPage() {
     setLoading(true)
     const [bRes, atRes] = await Promise.all([
       supabase.from('bochurim_with_id').select('*, account_type:account_types(*)').eq('archived', showArchived).order('name'),
-      supabase.from('account_types').select('*').eq('is_active', true),
+      supabase.from('account_types').select('*').order('name'),
     ])
     setBochurim(bRes.data || [])
     setAccountTypes(atRes.data || [])
