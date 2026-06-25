@@ -19,6 +19,7 @@ export default function PosPage() {
 
   const [categories, setCategories] = useState<Category[]>([])
   const [products, setProducts] = useState<Product[]>([])
+  const [productCategoryMap, setProductCategoryMap] = useState<Record<string, string[]>>({})
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [cashierName, setCashierName] = useState('')
   const [cashierRole, setCashierRole] = useState('')
@@ -52,10 +53,11 @@ export default function PosPage() {
   }, [])
 
   async function loadData() {
-    const [cats, prods, setts] = await Promise.all([
+    const [cats, prods, setts, catLinks] = await Promise.all([
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('settings').select('*'),
+      supabase.from('product_categories').select('product_id,category_id'),
     ])
     if (cats.data) setCategories(cats.data)
     if (prods.data) setProducts(prods.data)
@@ -63,6 +65,14 @@ export default function PosPage() {
       const map: Record<string, string> = {}
       setts.data.forEach((s: any) => { map[s.key] = String(s.value) })
       setSettings(map)
+    }
+    if (catLinks.data) {
+      const pcMap: Record<string, string[]> = {}
+      catLinks.data.forEach((row: any) => {
+        if (!pcMap[row.product_id]) pcMap[row.product_id] = []
+        pcMap[row.product_id].push(row.category_id)
+      })
+      setProductCategoryMap(pcMap)
     }
     setLoading(false)
   }
@@ -124,8 +134,7 @@ export default function PosPage() {
     const matchesSearch = !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase())
     if (!matchesSearch) return false
     if (!selectedCategory) return true
-    // Would need product_categories join — for now show all when category selected
-    return true
+    return (productCategoryMap[p.id] || []).includes(selectedCategory)
   })
 
   const outOfStockBehavior = settings['out_of_stock_behavior'] || 'warn'

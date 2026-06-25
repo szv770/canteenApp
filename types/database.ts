@@ -121,7 +121,7 @@ export interface BalanceLedger {
   bochur_id: string
   amount: number
   type: 'purchase' | 'topup' | 'refund' | 'adjustment'
-  reference_id: string | null
+  order_id: string | null
   note: string | null
   cashier_id: string | null
   created_at: string

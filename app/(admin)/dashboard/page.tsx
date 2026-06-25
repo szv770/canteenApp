@@ -40,7 +40,7 @@ export default async function DashboardPage() {
   const stats = await getStats(supabase)
   const { data: lowStockProducts } = await supabase
     .from('products')
-    .select('id,name,stock_quantity,low_stock_threshold,emoji')
+    .select('id,name,stock_quantity,low_stock_threshold,icon')
     .eq('is_active', true)
     .order('stock_quantity')
     .limit(10)

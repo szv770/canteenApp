@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Archive, DollarSign, X, ChevronDown } from 'lucide-react'
+import { Plus, Search, Archive, DollarSign, X, Pencil } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { BochurWithId, AccountType } from '@/types/database'
@@ -15,6 +15,7 @@ export default function BochurimPage() {
   const [showArchived, setShowArchived] = useState(false)
   const [loading, setLoading] = useState(true)
   const [showAdd, setShowAdd] = useState(false)
+  const [editBochur, setEditBochur] = useState<BochurWithId | null>(null)
   const [topupBochur, setTopupBochur] = useState<BochurWithId | null>(null)
 
   useEffect(() => { loadData() }, [showArchived])
@@ -111,6 +112,13 @@ export default function BochurimPage() {
                     >
                       <DollarSign className="w-4 h-4" />
                     </button>
+                    <button
+                      onClick={() => setEditBochur(b)}
+                      className="p-1.5 text-blue-400 hover:bg-blue-50 rounded-lg transition-colors"
+                      title="Edit"
+                    >
+                      <Pencil className="w-4 h-4" />
+                    </button>
                     {!showArchived && (
                       <button
                         onClick={() => archiveBochur(b.id)}
@@ -133,6 +141,15 @@ export default function BochurimPage() {
           accountTypes={accountTypes}
           onClose={() => setShowAdd(false)}
           onSaved={() => { setShowAdd(false); loadData() }}
+        />
+      )}
+
+      {editBochur && (
+        <EditBochurModal
+          bochur={editBochur}
+          accountTypes={accountTypes}
+          onClose={() => setEditBochur(null)}
+          onSaved={() => { setEditBochur(null); loadData() }}
         />
       )}
 
@@ -209,6 +226,79 @@ function AddBochurModal({ accountTypes, onClose, onSaved }: {
         <div className="flex gap-2 pt-2">
           <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
           <button onClick={save} disabled={saving} className="btn-primary flex-1">{saving ? 'Saving...' : 'Add Bochur'}</button>
+        </div>
+      </div>
+    </Modal>
+  )
+}
+
+function EditBochurModal({ bochur, accountTypes, onClose, onSaved }: {
+  bochur: BochurWithId
+  accountTypes: AccountType[]
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [form, setForm] = useState({
+    name: bochur.name,
+    grade: bochur.grade || '',
+    phone: bochur.phone || '',
+    account_type_id: bochur.account_type_id || accountTypes[0]?.id || '',
+    allow_negative: bochur.allow_negative,
+    max_negative_balance: bochur.max_negative_balance,
+    notes: bochur.notes || '',
+  })
+  const [saving, setSaving] = useState(false)
+
+  async function save() {
+    if (!form.name.trim()) { toast.error('Name is required'); return }
+    setSaving(true)
+    const { error } = await supabase.from('bochurim').update(form).eq('id', bochur.id)
+    if (error) { toast.error(error.message); setSaving(false); return }
+    toast.success('Bochur updated!')
+    onSaved()
+  }
+
+  return (
+    <Modal title={`Edit — ${bochur.name}`} onClose={onClose}>
+      <div className="space-y-4">
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
+          <input className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+        </div>
+        <div className="grid grid-cols-2 gap-3">
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
+            <input className="input-admin" value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))} placeholder="Aleph" />
+          </div>
+          <div>
+            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <input className="input-admin" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
+          </div>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+          <select className="input-admin" value={form.account_type_id} onChange={e => setForm(f => ({ ...f, account_type_id: e.target.value }))}>
+            {accountTypes.map(at => <option key={at.id} value={at.id}>{at.name}</option>)}
+          </select>
+        </div>
+        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+          <input type="checkbox" id="neg-edit" checked={form.allow_negative} onChange={e => setForm(f => ({ ...f, allow_negative: e.target.checked }))} className="rounded" />
+          <label htmlFor="neg-edit" className="text-sm text-gray-700">Allow negative balance</label>
+          {form.allow_negative && (
+            <div className="flex items-center gap-1 ml-auto">
+              <span className="text-xs text-gray-500">Max -$</span>
+              <input type="number" className="input-admin w-20 text-sm" value={form.max_negative_balance} onChange={e => setForm(f => ({ ...f, max_negative_balance: parseFloat(e.target.value) }))} min={0} step={0.5} />
+            </div>
+          )}
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <textarea className="input-admin resize-none" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
+        </div>
+        <div className="flex gap-2 pt-2">
+          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button onClick={save} disabled={saving} className="btn-primary flex-1">{saving ? 'Saving...' : 'Save Changes'}</button>
         </div>
       </div>
     </Modal>

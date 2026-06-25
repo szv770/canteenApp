@@ -29,6 +29,18 @@ const SETTINGS_CONFIG: SettingRow[] = [
   { key: 'offline_freeze_hours', label: 'Offline Freeze (hours)', description: 'Auto-freeze POS after X hours offline', type: 'number' },
 ]
 
+const PAYMENT_SETTINGS: SettingRow[] = [
+  { key: 'canteen_name', label: 'Canteen Name', description: 'Shown on the parent landing page', type: 'text' },
+  { key: 'canteen_tagline', label: 'Tagline', description: 'Subtitle shown below the canteen name', type: 'text' },
+  { key: 'payment_zelle_enabled', label: 'Zelle', description: 'Show Zelle as a payment option for parents', type: 'toggle' },
+  { key: 'payment_zelle_info', label: 'Zelle Handle / Phone', description: 'The Zelle phone number or email parents send to', type: 'text' },
+  { key: 'payment_venmo_enabled', label: 'Venmo', description: 'Show Venmo as a payment option for parents', type: 'toggle' },
+  { key: 'payment_venmo_info', label: 'Venmo Handle', description: 'e.g. @YeshivaCanteen', type: 'text' },
+  { key: 'payment_paypal_enabled', label: 'PayPal', description: 'Show PayPal as a payment option for parents', type: 'toggle' },
+  { key: 'payment_paypal_info', label: 'PayPal Link / Email', description: 'PayPal.me link or email address', type: 'text' },
+  { key: 'payment_cash_enabled', label: 'Cash / Check', description: 'Show bring-cash option on the parent page', type: 'toggle' },
+]
+
 export default function SettingsPage() {
   const supabase = createClient()
   const [settings, setSettings] = useState<Record<string, string>>({})
@@ -63,6 +75,38 @@ export default function SettingsPage() {
 
   if (loading) return <div className="p-6 text-gray-400">Loading settings...</div>
 
+  function SettingControl({ s, settings, set }: { s: SettingRow; settings: Record<string, string>; set: (k: string, v: string) => void }) {
+    return (
+      <div className="admin-card p-4 flex items-start justify-between gap-4">
+        <div className="flex-1 min-w-0">
+          <p className="text-sm font-semibold text-gray-900">{s.label}</p>
+          <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>
+        </div>
+        <div className="shrink-0">
+          {s.type === 'toggle' && (
+            <button
+              onClick={() => set(s.key, settings[s.key] === 'true' ? 'false' : 'true')}
+              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings[s.key] === 'true' ? 'bg-brand' : 'bg-gray-200'}`}
+            >
+              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${settings[s.key] === 'true' ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          )}
+          {s.type === 'number' && (
+            <input type="number" className="input-admin w-24 text-right" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} step={0.1} min={0} />
+          )}
+          {s.type === 'select' && (
+            <select className="input-admin w-40" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)}>
+              {s.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+            </select>
+          )}
+          {s.type === 'text' && (
+            <input type="text" className="input-admin w-52" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} />
+          )}
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div className="p-6 max-w-2xl">
       <div className="flex items-center justify-between mb-6">
@@ -75,40 +119,23 @@ export default function SettingsPage() {
         </button>
       </div>
 
-      <div className="space-y-3">
-        {SETTINGS_CONFIG.map(s => (
-          <div key={s.key} className="admin-card p-4 flex items-start justify-between gap-4">
-            <div className="flex-1">
-              <p className="text-sm font-semibold text-gray-900">{s.label}</p>
-              <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>
-            </div>
-            <div className="shrink-0">
-              {s.type === 'toggle' && (
-                <button
-                  onClick={() => set(s.key, settings[s.key] === 'true' ? 'false' : 'true')}
-                  className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings[s.key] === 'true' ? 'bg-brand' : 'bg-gray-200'}`}
-                >
-                  <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${settings[s.key] === 'true' ? 'translate-x-6' : 'translate-x-1'}`} />
-                </button>
-              )}
-              {s.type === 'number' && (
-                <input
-                  type="number"
-                  className="input-admin w-24 text-right"
-                  value={settings[s.key] || ''}
-                  onChange={e => set(s.key, e.target.value)}
-                  step={0.1}
-                  min={0}
-                />
-              )}
-              {s.type === 'select' && (
-                <select className="input-admin w-40" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)}>
-                  {s.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-                </select>
-              )}
-            </div>
+      <div className="space-y-6">
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">POS Behavior</h2>
+          <div className="space-y-3">
+            {SETTINGS_CONFIG.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
           </div>
-        ))}
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Parent Payment Portal</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            These appear on the public landing page at <span className="font-mono bg-gray-100 px-1 rounded">canteen.szvtech.org</span> so parents know where to send money.
+          </p>
+          <div className="space-y-3">
+            {PAYMENT_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
       </div>
     </div>
   )
