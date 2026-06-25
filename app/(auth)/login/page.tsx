@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { useRouter } from 'next/navigation'
 import { Eye, EyeOff, ShoppingBag } from 'lucide-react'
 
 export default function LoginPage() {
@@ -11,7 +10,6 @@ export default function LoginPage() {
   const [showPassword, setShowPassword] = useState(false)
   const [loading, setLoading] = useState(false)
   const [error, setError] = useState('')
-  const router = useRouter()
   const supabase = createClient()
 
   async function handleSubmit(e: React.FormEvent) {
@@ -20,11 +18,13 @@ export default function LoginPage() {
     setError('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      setError(error.message)
+      setError(error.message || 'Login failed — check your email and password.')
       setLoading(false)
     } else {
-      router.refresh()
-      router.push('/pos')
+      // Hard redirect so the server picks up the new session cleanly.
+      // Using router.refresh() + router.push() conflicts with the server
+      // layout's redirect() and causes display glitches.
+      window.location.href = '/pos'
     }
   }
 
