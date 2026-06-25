@@ -11,12 +11,11 @@ async function getStats(supabase: any) {
   const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7)
   const monthAgo = new Date(today); monthAgo.setMonth(monthAgo.getMonth() - 1)
 
-  const [todayOrders, weekOrders, monthOrders, bochurim, lowStock, recentOrders] = await Promise.all([
+  const [todayOrders, weekOrders, monthOrders, bochurim, recentOrders] = await Promise.all([
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', today.toISOString()),
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', weekAgo.toISOString()),
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', monthAgo.toISOString()),
     supabase.from('bochurim_with_id').select('balance').eq('archived', false),
-    supabase.from('products').select('name,stock_quantity,low_stock_threshold').eq('is_active', true).lte('stock_quantity', supabase.raw?.('low_stock_threshold') ?? 5),
     supabase.from('orders').select('*, cashier_profiles(name)').eq('status', 'completed').order('created_at', { ascending: false }).limit(10),
   ])
 

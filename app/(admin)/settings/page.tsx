@@ -51,17 +51,25 @@ export default function SettingsPage() {
     supabase.from('settings').select('*').then(({ data }) => {
       if (data) {
         const map: Record<string, string> = {}
-        data.forEach((s: any) => { map[s.key] = String(s.value) })
+        data.forEach((s: any) => { map[s.key] = s.value == null ? '' : String(s.value) })
         setSettings(map)
       }
       setLoading(false)
     })
   }, [])
 
+  function parseSettingValue(key: string, raw: string): unknown {
+    const config = [...SETTINGS_CONFIG, ...PAYMENT_SETTINGS].find(s => s.key === key)
+    if (!config) return raw
+    if (config.type === 'toggle') return raw === 'true'
+    if (config.type === 'number') return raw === '' ? null : Number(raw)
+    return raw
+  }
+
   async function saveAll() {
     setSaving(true)
     const rows = Object.entries(settings).map(([key, value]) => ({
-      key, value, updated_at: new Date().toISOString()
+      key, value: parseSettingValue(key, value), updated_at: new Date().toISOString()
     }))
     const { error } = await supabase.from('settings').upsert(rows, { onConflict: 'key' })
     if (error) toast.error(error.message)

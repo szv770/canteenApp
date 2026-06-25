@@ -32,7 +32,7 @@ export default function TopupsPage() {
     setLoading(false)
   }
 
-  async function confirm(topup: any) {
+  async function confirmTopup(topup: any) {
     if (!topup.bochur_id) {
       toast.error('Link to a bochur first before confirming')
       return
@@ -160,7 +160,7 @@ export default function TopupsPage() {
                   {t.status === 'pending' && (
                     <div className="flex items-center justify-end gap-1">
                       <button
-                        onClick={() => confirm(t)}
+                        onClick={() => confirmTopup(t)}
                         className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors"
                         title="Confirm & credit"
                       >
