@@ -19,15 +19,16 @@ export default function TransactionsPage() {
 
   async function loadOrders() {
     setLoading(true)
-    const q = supabase
+    let q = supabase
       .from('orders')
       .select('*, cashier_profiles(name), bochurim(name,bochur_number)')
       .order('created_at', { ascending: false })
       .limit(200)
 
-    if (statusFilter !== 'all') q.eq('status', statusFilter)
+    if (statusFilter !== 'all') q = q.eq('status', statusFilter)
 
-    const { data } = await q
+    const { data, error } = await q
+    if (error) toast.error('Failed to load transactions: ' + error.message)
     setOrders(data || [])
     setLoading(false)
   }
