@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Archive, DollarSign, X, Pencil } from 'lucide-react'
+import { Plus, Search, Archive, DollarSign, X, Pencil, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { BochurWithId, AccountType } from '@/types/database'
+import TableSkeleton from '@/components/admin/TableSkeleton'
 
 export default function BochurimPage() {
   const supabase = createClient()
@@ -17,8 +18,10 @@ export default function BochurimPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editBochur, setEditBochur] = useState<BochurWithId | null>(null)
   const [topupBochur, setTopupBochur] = useState<BochurWithId | null>(null)
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 50
 
-  useEffect(() => { loadData() }, [showArchived])
+  useEffect(() => { setPage(0); loadData() }, [showArchived])
 
   async function loadData() {
     setLoading(true)
@@ -36,28 +39,31 @@ export default function BochurimPage() {
     (b.bochur_id || '').toLowerCase().includes(search.toLowerCase()) ||
     (b.grade || '').toLowerCase().includes(search.toLowerCase())
   )
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   async function archiveBochur(id: string) {
     if (!confirm('Archive this bochur? They will no longer appear in POS searches.')) return
-    await supabase.from('bochurim').update({ archived: true }).eq('id', id)
+    const { error } = await supabase.from('bochurim').update({ archived: true }).eq('id', id)
+    if (error) { toast.error(error.message); return }
     toast.success('Bochur archived')
     loadData()
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Bochurim</h1>
-          <p className="text-gray-500 text-sm mt-1">{filtered.length} {showArchived ? 'archived' : 'active'} accounts</p>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Bochurim</h1>
+          <p className="text-slate-500 text-sm mt-1">{filtered.length} {showArchived ? 'archived' : 'active'} accounts</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowArchived(!showArchived)}
             className={`btn-secondary text-sm ${showArchived ? 'bg-amber-50 border-amber-200 text-amber-700' : ''}`}
           >
             <Archive className="w-4 h-4" />
-            {showArchived ? 'Active' : 'Archived'}
+            {showArchived ? 'Show Active' : 'Archived'}
           </button>
           <button onClick={() => setShowAdd(true)} className="btn-primary text-sm">
             <Plus className="w-4 h-4" /> Add Bochur
@@ -67,10 +73,10 @@ export default function BochurimPage() {
 
       {/* Search */}
       <div className="relative mb-4">
-        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
+        <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
         <input
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => { setSearch(e.target.value); setPage(0) }}
           placeholder="Search by name, ID, or grade..."
           className="input-admin pl-9"
         />
@@ -78,63 +84,118 @@ export default function BochurimPage() {
 
       {/* Table */}
       <div className="admin-card overflow-hidden">
-        <table className="w-full">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50/50">
-              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">ID</th>
-              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Name</th>
-              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Grade</th>
-              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Account Type</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Balance</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
-            ) : filtered.length === 0 ? (
-              <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">No bochurim found</td></tr>
-            ) : filtered.map(b => (
-              <tr key={b.id} className="table-row">
-                <td className="px-5 py-3 text-sm font-mono text-gray-500">{b.bochur_id}</td>
-                <td className="px-5 py-3 text-sm font-medium text-gray-900">{b.name}</td>
-                <td className="px-5 py-3 text-sm text-gray-500">{b.grade || '—'}</td>
-                <td className="px-5 py-3 text-sm text-gray-500">{(b as any).account_type?.name}</td>
-                <td className={`px-5 py-3 text-sm font-semibold text-right ${b.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
-                  {formatCurrency(b.balance)}
-                </td>
-                <td className="px-5 py-3 text-right">
-                  <div className="flex items-center justify-end gap-1">
-                    <button
-                      onClick={() => setTopupBochur(b)}
-                      className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
-                      title="Add funds"
-                    >
-                      <DollarSign className="w-4 h-4" />
-                    </button>
-                    <button
-                      onClick={() => setEditBochur(b)}
-                      className="p-1.5 text-blue-400 hover:bg-blue-50 rounded-lg transition-colors"
-                      title="Edit"
-                    >
-                      <Pencil className="w-4 h-4" />
-                    </button>
-                    {!showArchived && (
-                      <button
-                        onClick={() => archiveBochur(b.id)}
-                        className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 rounded-lg transition-colors"
-                        title="Archive"
-                      >
-                        <Archive className="w-4 h-4" />
-                      </button>
-                    )}
-                  </div>
-                </td>
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[600px]">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">ID</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Name</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Grade</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Account Type</th>
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Balance</th>
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading ? (
+                <TableSkeleton cols={6} />
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-400 text-sm">No bochurim found</td></tr>
+              ) : paginated.map(b => (
+                <tr key={b.id} className="table-row">
+                  <td className="px-5 py-3 text-sm font-mono text-slate-500">{b.bochur_id}</td>
+                  <td className="px-5 py-3 text-sm font-semibold text-slate-900">{b.name}</td>
+                  <td className="px-5 py-3 text-sm text-slate-500">{b.grade || '—'}</td>
+                  <td className="px-5 py-3 text-sm text-slate-500">{(b as any).account_type?.name}</td>
+                  <td className={`px-5 py-3 text-sm font-bold text-right ${b.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                    {formatCurrency(b.balance)}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <div className="flex items-center justify-end gap-1">
+                      <button
+                        onClick={() => setTopupBochur(b)}
+                        className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
+                        title="Add funds"
+                      >
+                        <DollarSign className="w-4 h-4" />
+                      </button>
+                      <button
+                        onClick={() => setEditBochur(b)}
+                        className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-lg transition-colors"
+                        title="Edit"
+                      >
+                        <Pencil className="w-4 h-4" />
+                      </button>
+                      {!showArchived && (
+                        <button
+                          onClick={() => archiveBochur(b.id)}
+                          className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-lg transition-colors"
+                          title="Archive"
+                        >
+                          <Archive className="w-4 h-4" />
+                        </button>
+                      )}
+                    </div>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+        {totalPages > 1 && (
+          <div className="flex items-center justify-between px-5 py-3 border-t border-slate-100">
+            <span className="text-xs text-slate-400">
+              {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
+            </span>
+            <div className="flex items-center gap-1">
+              <button
+                onClick={() => setPage(p => Math.max(0, p - 1))}
+                disabled={page === 0}
+                className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-30"
+              >
+                <ChevronLeft className="w-4 h-4" />
+              </button>
+              <span className="text-xs text-slate-600 font-medium px-1">{page + 1} / {totalPages}</span>
+              <button
+                onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+                disabled={page >= totalPages - 1}
+                className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg transition-colors disabled:opacity-30"
+              >
+                <ChevronRight className="w-4 h-4" />
+              </button>
+            </div>
+          </div>
+        )}
       </div>
+
+      {!loading && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 px-1">
+          <p className="text-sm text-gray-400">
+            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="btn-secondary text-sm py-1.5 px-3 disabled:opacity-40"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Prev
+            </button>
+            <span className="text-sm text-gray-500 font-medium">
+              {page + 1} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="btn-secondary text-sm py-1.5 px-3 disabled:opacity-40"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <AddBochurModal
@@ -190,37 +251,37 @@ function AddBochurModal({ accountTypes, onClose, onSaved }: {
     <Modal title="Add Bochur" onClose={onClose}>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-          <input className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Moshe Goldberg" />
+          <label className="block text-sm font-medium text-slate-700 mb-1">Full Name *</label>
+          <input autoFocus className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Moshe Goldberg" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Grade</label>
             <input className="input-admin" value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))} placeholder="Aleph" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
             <input className="input-admin" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} placeholder="Optional" />
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Account Type</label>
           <select className="input-admin" value={form.account_type_id} onChange={e => setForm(f => ({ ...f, account_type_id: e.target.value }))}>
             {accountTypes.map(at => <option key={at.id} value={at.id}>{at.name}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
           <input type="checkbox" id="neg" checked={form.allow_negative} onChange={e => setForm(f => ({ ...f, allow_negative: e.target.checked }))} className="rounded" />
-          <label htmlFor="neg" className="text-sm text-gray-700">Allow negative balance</label>
+          <label htmlFor="neg" className="text-sm text-slate-700">Allow negative balance</label>
           {form.allow_negative && (
             <div className="flex items-center gap-1 ml-auto">
-              <span className="text-xs text-gray-500">Max -$</span>
+              <span className="text-xs text-slate-500">Max -$</span>
               <input type="number" className="input-admin w-20 text-sm" value={form.max_negative_balance} onChange={e => setForm(f => ({ ...f, max_negative_balance: parseFloat(e.target.value) }))} min={0} step={0.5} />
             </div>
           )}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
           <textarea className="input-admin resize-none" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} placeholder="Optional" />
         </div>
         <div className="flex gap-2 pt-2">
@@ -263,37 +324,37 @@ function EditBochurModal({ bochur, accountTypes, onClose, onSaved }: {
     <Modal title={`Edit — ${bochur.name}`} onClose={onClose}>
       <div className="space-y-4">
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-          <input className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          <label className="block text-sm font-medium text-slate-700 mb-1">Full Name *</label>
+          <input autoFocus className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Grade</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Grade</label>
             <input className="input-admin" value={form.grade} onChange={e => setForm(f => ({ ...f, grade: e.target.value }))} placeholder="Aleph" />
           </div>
           <div>
-            <label className="block text-sm font-medium text-gray-700 mb-1">Phone</label>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Phone</label>
             <input className="input-admin" value={form.phone} onChange={e => setForm(f => ({ ...f, phone: e.target.value }))} />
           </div>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Account Type</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Account Type</label>
           <select className="input-admin" value={form.account_type_id} onChange={e => setForm(f => ({ ...f, account_type_id: e.target.value }))}>
             {accountTypes.map(at => <option key={at.id} value={at.id}>{at.name}</option>)}
           </select>
         </div>
-        <div className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl">
+        <div className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl">
           <input type="checkbox" id="neg-edit" checked={form.allow_negative} onChange={e => setForm(f => ({ ...f, allow_negative: e.target.checked }))} className="rounded" />
-          <label htmlFor="neg-edit" className="text-sm text-gray-700">Allow negative balance</label>
+          <label htmlFor="neg-edit" className="text-sm text-slate-700">Allow negative balance</label>
           {form.allow_negative && (
             <div className="flex items-center gap-1 ml-auto">
-              <span className="text-xs text-gray-500">Max -$</span>
+              <span className="text-xs text-slate-500">Max -$</span>
               <input type="number" className="input-admin w-20 text-sm" value={form.max_negative_balance} onChange={e => setForm(f => ({ ...f, max_negative_balance: parseFloat(e.target.value) }))} min={0} step={0.5} />
             </div>
           )}
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Notes</label>
           <textarea className="input-admin resize-none" rows={2} value={form.notes} onChange={e => setForm(f => ({ ...f, notes: e.target.value }))} />
         </div>
         <div className="flex gap-2 pt-2">
@@ -310,7 +371,6 @@ function TopupModal({ bochur, onClose, onSaved }: {
   onClose: () => void
   onSaved: () => void
 }) {
-  const supabase = createClient()
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState('cash')
   const [note, setNote] = useState('')
@@ -320,32 +380,42 @@ function TopupModal({ bochur, onClose, onSaved }: {
     const amt = parseFloat(amount)
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
     setSaving(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: cashier } = await supabase.from('cashier_profiles').select('id').eq('id', user!.id).single()
+    try {
+      const res = await fetch('/api/admin/bochur-topup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ bochur_id: bochur.id, amount: amt, method, note: note || undefined }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to add funds')
 
-    const newBalance = bochur.balance + amt
-    await supabase.from('bochurim').update({ balance: newBalance }).eq('id', bochur.id)
-    await supabase.from('balance_ledger').insert({
-      bochur_id: bochur.id, amount: amt, type: 'topup',
-      note: note || `${method} top-up`, cashier_id: cashier?.id,
-    })
-    toast.success(`Added ${formatCurrency(amt)} to ${bochur.name}'s account`)
-    onSaved()
+      toast.success(`Added ${formatCurrency(amt)} to ${bochur.name}'s account`)
+      onSaved()
+    } catch (err: any) {
+      const msg = err?.message || ''
+      if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network')) {
+        toast.error('Network error — please check your connection and try again', { duration: 5000 })
+      } else {
+        toast.error(msg || 'Failed to add funds — please try again')
+      }
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (
     <Modal title={`Add Funds — ${bochur.name}`} onClose={onClose}>
       <div className="space-y-4">
-        <div className="p-3 bg-gray-50 rounded-xl flex justify-between">
-          <span className="text-sm text-gray-600">Current balance</span>
+        <div className="p-3 bg-slate-50 rounded-xl flex justify-between">
+          <span className="text-sm text-slate-600">Current balance</span>
           <span className={`font-bold ${bochur.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(bochur.balance)}</span>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-          <input type="number" className="input-admin text-lg" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" min={0} step={0.5} />
+          <label className="block text-sm font-medium text-slate-700 mb-1">Amount</label>
+          <input autoFocus type="number" className="input-admin text-lg" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" min={0} step={0.5} />
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Method</label>
           <select className="input-admin" value={method} onChange={e => setMethod(e.target.value)}>
             <option value="cash">Cash</option>
             <option value="zelle">Zelle</option>
@@ -353,7 +423,7 @@ function TopupModal({ bochur, onClose, onSaved }: {
           </select>
         </div>
         <div>
-          <label className="block text-sm font-medium text-gray-700 mb-1">Note (optional)</label>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Note (optional)</label>
           <input className="input-admin" value={note} onChange={e => setNote(e.target.value)} placeholder="Optional note" />
         </div>
         {amount && parseFloat(amount) > 0 && (
@@ -373,15 +443,15 @@ function TopupModal({ bochur, onClose, onSaved }: {
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md animate-scale-in">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900 text-lg">{title}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
-            <X className="w-5 h-5 text-gray-400" />
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md max-h-[95vh] sm:max-h-[90vh] flex flex-col animate-scale-in">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 shrink-0">
+          <h2 className="font-bold text-slate-900 text-lg">{title}</h2>
+          <button onClick={onClose} className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-slate-100 rounded-xl transition-colors">
+            <X className="w-5 h-5 text-slate-400" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="p-4 sm:p-5 overflow-y-auto">{children}</div>
       </div>
     </div>
   )

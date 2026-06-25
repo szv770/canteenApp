@@ -14,19 +14,19 @@ export default function CategoryTabs({ categories, selected, onSelect }: Props) 
   const scrollRef = useRef<HTMLDivElement>(null)
 
   return (
-    <div className="bg-white border-b border-pos-border shrink-0">
+    <div className="bg-white border-b border-slate-100 shrink-0">
       <div
         ref={scrollRef}
-        className="flex items-center gap-2 px-4 py-2.5 overflow-x-auto scrollbar-hide"
+        className="flex items-center gap-1.5 px-3 sm:px-4 py-2.5 overflow-x-auto scrollbar-hide"
         style={{ scrollbarWidth: 'none' }}
       >
         <button
           onClick={() => onSelect(null)}
           className={cn(
-            'shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-150',
+            'shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-150 whitespace-nowrap',
             !selected
-              ? 'bg-brand text-white shadow-sm shadow-brand/20'
-              : 'bg-pos-hover text-pos-subtext hover:text-pos-text hover:bg-gray-100'
+              ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30'
+              : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
           )}
         >
           All Items
@@ -36,10 +36,10 @@ export default function CategoryTabs({ categories, selected, onSelect }: Props) 
             key={cat.id}
             onClick={() => onSelect(cat.id)}
             className={cn(
-              'shrink-0 px-4 py-1.5 rounded-full text-sm font-medium transition-all duration-150 whitespace-nowrap',
+              'shrink-0 px-4 py-2 min-h-[44px] rounded-full text-sm font-medium transition-all duration-150 whitespace-nowrap',
               selected === cat.id
-                ? 'bg-brand text-white shadow-sm shadow-brand/20'
-                : 'bg-pos-hover text-pos-subtext hover:text-pos-text hover:bg-gray-100'
+                ? 'bg-amber-500 text-white shadow-sm shadow-amber-500/30'
+                : 'bg-slate-100 text-slate-600 hover:bg-slate-200 hover:text-slate-800'
             )}
           >
             {cat.name}

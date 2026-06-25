@@ -41,6 +41,39 @@ const PAYMENT_SETTINGS: SettingRow[] = [
   { key: 'payment_cash_enabled', label: 'Cash / Check', description: 'Show bring-cash option on the parent page', type: 'toggle' },
 ]
 
+function SettingControl({ s, settings, set }: { s: SettingRow; settings: Record<string, string>; set: (k: string, v: string) => void }) {
+  const isToggle = s.type === 'toggle'
+  return (
+    <div className={`admin-card p-4 ${isToggle ? 'flex items-start justify-between gap-4' : 'space-y-2'}`}>
+      <div className={isToggle ? 'flex-1 min-w-0' : ''}>
+        <p className="text-sm font-semibold text-gray-900">{s.label}</p>
+        <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>
+      </div>
+      <div className={isToggle ? 'shrink-0' : 'w-full'}>
+        {s.type === 'toggle' && (
+          <button
+            onClick={() => set(s.key, settings[s.key] === 'true' ? 'false' : 'true')}
+            className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${settings[s.key] === 'true' ? 'bg-brand' : 'bg-gray-200'}`}
+          >
+            <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-sm ${settings[s.key] === 'true' ? 'translate-x-6' : 'translate-x-1'}`} />
+          </button>
+        )}
+        {s.type === 'number' && (
+          <input type="number" inputMode="decimal" className="input-admin w-full sm:w-32 text-right" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} step={0.1} min={0} />
+        )}
+        {s.type === 'select' && (
+          <select className="input-admin w-full sm:w-48" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)}>
+            {s.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
+          </select>
+        )}
+        {s.type === 'text' && (
+          <input type="text" className="input-admin w-full" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} />
+        )}
+      </div>
+    </div>
+  )
+}
+
 export default function SettingsPage() {
   const supabase = createClient()
   const [settings, setSettings] = useState<Record<string, string>>({})
@@ -48,8 +81,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    supabase.from('settings').select('*').then(({ data }) => {
-      if (data) {
+    supabase.from('settings').select('*').then(({ data, error }) => {
+      if (error) {
+        toast.error(`Failed to load settings: ${error.message}`)
+      } else if (data) {
         const map: Record<string, string> = {}
         data.forEach((s: any) => { map[s.key] = s.value == null ? '' : String(s.value) })
         setSettings(map)
@@ -83,43 +118,11 @@ export default function SettingsPage() {
 
   if (loading) return <div className="p-6 text-gray-400">Loading settings...</div>
 
-  function SettingControl({ s, settings, set }: { s: SettingRow; settings: Record<string, string>; set: (k: string, v: string) => void }) {
-    return (
-      <div className="admin-card p-4 flex items-start justify-between gap-4">
-        <div className="flex-1 min-w-0">
-          <p className="text-sm font-semibold text-gray-900">{s.label}</p>
-          <p className="text-xs text-gray-400 mt-0.5">{s.description}</p>
-        </div>
-        <div className="shrink-0">
-          {s.type === 'toggle' && (
-            <button
-              onClick={() => set(s.key, settings[s.key] === 'true' ? 'false' : 'true')}
-              className={`relative inline-flex h-6 w-11 items-center rounded-full transition-colors ${settings[s.key] === 'true' ? 'bg-brand' : 'bg-gray-200'}`}
-            >
-              <span className={`inline-block h-4 w-4 transform rounded-full bg-white transition-transform shadow-sm ${settings[s.key] === 'true' ? 'translate-x-6' : 'translate-x-1'}`} />
-            </button>
-          )}
-          {s.type === 'number' && (
-            <input type="number" className="input-admin w-24 text-right" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} step={0.1} min={0} />
-          )}
-          {s.type === 'select' && (
-            <select className="input-admin w-40" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)}>
-              {s.options?.map(o => <option key={o.value} value={o.value}>{o.label}</option>)}
-            </select>
-          )}
-          {s.type === 'text' && (
-            <input type="text" className="input-admin w-52" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} />
-          )}
-        </div>
-      </div>
-    )
-  }
-
   return (
-    <div className="p-6 max-w-2xl">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6 max-w-2xl">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Settings</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Settings</h1>
           <p className="text-gray-500 text-sm mt-1">Configure POS behavior</p>
         </div>
         <button onClick={saveAll} disabled={saving} className="btn-primary text-sm">
