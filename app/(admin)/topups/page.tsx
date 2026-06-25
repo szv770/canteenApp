@@ -121,6 +121,8 @@ export default function TopupsPage() {
                 <td className="px-5 py-3">
                   <p className="text-sm font-medium text-gray-900">{t.student_name || '—'}</p>
                   <p className="text-xs text-gray-400">from {t.sender_name || '—'}</p>
+                  {t.parent_phone && <p className="text-xs text-gray-400">📞 {t.parent_phone}</p>}
+                  {t.parent_email && <p className="text-xs text-gray-400">✉ {t.parent_email}</p>}
                   {t.transaction_ref && <p className="text-xs text-gray-400 font-mono">ref: {t.transaction_ref}</p>}
                   {t.notes && <p className="text-xs text-gray-400 italic">{t.notes}</p>}
                 </td>

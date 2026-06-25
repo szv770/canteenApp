@@ -32,6 +32,8 @@ export default function LandingClient({ loggedIn, settings }: Props) {
   const [step, setStep] = useState<'form' | 'success'>('form')
   const [form, setForm] = useState({
     parentName: '',
+    parentPhone: '',
+    parentEmail: '',
     studentName: '',
     amount: '',
     method: enabledMethods[0] || 'zelle',
@@ -56,6 +58,8 @@ export default function LandingClient({ loggedIn, settings }: Props) {
       amount: amt,
       method: form.method,
       sender_name: form.parentName.trim(),
+      parent_phone: form.parentPhone.trim() || null,
+      parent_email: form.parentEmail.trim() || null,
       student_name: form.studentName.trim(),
       transaction_ref: form.transactionRef.trim() || null,
       notes: form.notes.trim() || null,
@@ -204,6 +208,29 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                         placeholder="Student's name"
                         value={form.studentName}
                         onChange={e => set('studentName', e.target.value)}
+                      />
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-2 gap-3">
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Phone</label>
+                      <input
+                        type="tel"
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
+                        placeholder="(555) 000-0000"
+                        value={form.parentPhone}
+                        onChange={e => set('parentPhone', e.target.value)}
+                      />
+                    </div>
+                    <div>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Email</label>
+                      <input
+                        type="email"
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
+                        placeholder="you@example.com"
+                        value={form.parentEmail}
+                        onChange={e => set('parentEmail', e.target.value)}
                       />
                     </div>
                   </div>
