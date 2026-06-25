@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback } from 'react'
+import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { LogOut, Settings, ShoppingCart } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -14,7 +14,8 @@ import VariantModal from '@/components/pos/VariantModal'
 import type { Category, Product, CartItem, BochurWithId, AppSettings, ProductVariant } from '@/types/database'
 
 export default function PosPage() {
-  const supabase = createClient()
+  const supabaseRef = useRef(createClient())
+  const supabase = supabaseRef.current
   const router = useRouter()
 
   const [categories, setCategories] = useState<Category[]>([])
@@ -238,8 +239,14 @@ export default function PosPage() {
           {/* Grid */}
           <div className="flex-1 overflow-y-auto px-3 sm:px-4 pb-4">
             {loading ? (
-              <div className="flex items-center justify-center h-48 text-pos-muted">
-                Loading products...
+              <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 lg:grid-cols-5 xl:grid-cols-6 gap-3 pt-1">
+                {Array.from({ length: 12 }).map((_, i) => (
+                  <div key={i} className="flex flex-col items-center bg-white rounded-2xl border border-pos-border p-3 animate-pulse">
+                    <div className="w-14 h-14 bg-gray-200 rounded-xl mb-2" />
+                    <div className="h-3 bg-gray-200 rounded w-3/4 mb-1" />
+                    <div className="h-4 bg-gray-200 rounded w-1/2 mt-auto" />
+                  </div>
+                ))}
               </div>
             ) : (
               <ProductGrid

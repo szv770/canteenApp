@@ -6,6 +6,7 @@ import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2 } from 'lucide-
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, Category, ProductVariant } from '@/types/database'
+import TableSkeleton from '@/components/admin/TableSkeleton'
 
 const EMOJIS = ['🍕','🌮','🌯','🥗','🍔','🍟','🍦','🧁','🍰','🍩','🍪','🥤','☕','🧃','🍫','🍬','🍭','🧇','🥞','🌽','🍿','🧀','🥨','🫐','🍓','🍎','🍌','🍉','🍑','🍒']
 
@@ -108,7 +109,7 @@ export default function ProductsPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
+              <TableSkeleton cols={7} />
             ) : filtered.map(p => (
               <tr key={p.id} className="table-row">
                 <td className="px-5 py-3">
@@ -371,7 +372,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
 
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Name *</label>
-            <input className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+            <input autoFocus className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
           </div>
 
           <div className="grid grid-cols-2 gap-3">

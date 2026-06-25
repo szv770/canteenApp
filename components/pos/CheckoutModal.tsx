@@ -138,7 +138,12 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
 
       onSuccess()
     } catch (err: any) {
-      toast.error(err.message || 'Order failed')
+      const msg = err?.message || ''
+      if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network') || msg.toLowerCase().includes('failed to fetch')) {
+        toast.error('Network error — please check your connection and try again', { duration: 5000 })
+      } else {
+        toast.error(msg || 'Order failed — please try again')
+      }
       setProcessing(false)
     }
   }
@@ -238,6 +243,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
                   className="input-field text-base font-semibold min-h-[44px]"
                   min={0}
                   step={0.01}
+                  autoFocus
                 />
                 <div className="grid grid-cols-6 gap-1">
                   {QUICK_CASH.map(amt => (

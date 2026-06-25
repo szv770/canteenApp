@@ -6,6 +6,7 @@ import { RefreshCw, Check, X, Link as LinkIcon } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import TableSkeleton from '@/components/admin/TableSkeleton'
 
 export default function TopupsPage() {
   const supabase = createClient()
@@ -46,17 +47,17 @@ export default function TopupsPage() {
     try {
       const { data: bochur, error: bochurErr } = await supabase
         .from('bochurim').select('balance').eq('id', topup.bochur_id).single()
-      if (bochurErr || !bochur) { toast.error('Bochur not found'); return }
+      if (bochurErr || !bochur) throw new Error('Bochur not found')
 
       const { data: { user } } = await supabase.auth.getUser()
-      if (!user) { toast.error('Not authenticated'); return }
+      if (!user) throw new Error('Not authenticated')
 
       // Update balance
       const { error: balErr } = await supabase
         .from('bochurim')
         .update({ balance: bochur.balance + topup.amount })
         .eq('id', topup.bochur_id)
-      if (balErr) { toast.error(`Balance update failed: ${balErr.message}`); return }
+      if (balErr) throw balErr
 
       // Create ledger entry
       const { error: ledgerErr } = await supabase.from('balance_ledger').insert({
@@ -72,8 +73,7 @@ export default function TopupsPage() {
           .from('bochurim')
           .update({ balance: bochur.balance })
           .eq('id', topup.bochur_id)
-        toast.error(`Ledger entry failed: ${ledgerErr.message}`)
-        return
+        throw ledgerErr
       }
 
       // Mark top-up as confirmed
@@ -82,13 +82,17 @@ export default function TopupsPage() {
         confirmed_by: user.id,
         confirmed_at: new Date().toISOString(),
       }).eq('id', topup.id)
-      if (statusErr) {
-        toast.error(`Status update failed: ${statusErr.message}`)
-        return
-      }
+      if (statusErr) throw statusErr
 
       toast.success('Top-up confirmed and credited!')
       loadAll()
+    } catch (err: any) {
+      const msg = err?.message || ''
+      if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network')) {
+        toast.error('Network error — please check your connection and try again', { duration: 5000 })
+      } else {
+        toast.error(msg || 'Failed to confirm top-up — please try again')
+      }
     } finally {
       setConfirmingId(null)
     }
@@ -157,7 +161,7 @@ export default function TopupsPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
+              <TableSkeleton cols={7} />
             ) : topups.length === 0 ? (
               <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">No top-up requests yet</td></tr>
             ) : [...pending, ...rest].map(t => (
