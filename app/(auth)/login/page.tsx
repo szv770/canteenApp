@@ -18,7 +18,10 @@ export default function LoginPage() {
     setError('')
     const { error } = await supabase.auth.signInWithPassword({ email, password })
     if (error) {
-      setError(error.message || 'Login failed — check your email and password.')
+      const msg = typeof error.message === 'string' && error.message
+        ? error.message
+        : 'Login failed — check your email and password.'
+      setError(msg)
       setLoading(false)
     } else {
       // Hard redirect so the server picks up the new session cleanly.
