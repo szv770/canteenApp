@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, Category } from '@/types/database'
@@ -13,6 +13,8 @@ export default function ProductsPage() {
   const supabase = createClient()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
+  // Map of product_id -> category_id[]
+  const [productCategoryMap, setProductCategoryMap] = useState<Record<string, string[]>>({})
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
@@ -22,18 +24,51 @@ export default function ProductsPage() {
 
   async function loadData() {
     setLoading(true)
-    const [pRes, cRes] = await Promise.all([
+    const [pRes, cRes, pcRes] = await Promise.all([
       supabase.from('products').select('*').order('name'),
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
+      supabase.from('product_categories').select('product_id,category_id'),
     ])
     setProducts(pRes.data || [])
     setCategories(cRes.data || [])
+
+    // Build product -> category[] map
+    const pcMap: Record<string, string[]> = {}
+    if (pcRes.data) {
+      pcRes.data.forEach((row: any) => {
+        if (!pcMap[row.product_id]) pcMap[row.product_id] = []
+        pcMap[row.product_id].push(row.category_id)
+      })
+    }
+    setProductCategoryMap(pcMap)
     setLoading(false)
   }
 
   async function toggleActive(product: Product) {
     await supabase.from('products').update({ is_active: !product.is_active }).eq('id', product.id)
     setProducts(prev => prev.map(p => p.id === product.id ? { ...p, is_active: !p.is_active } : p))
+  }
+
+  async function deleteProduct(product: Product) {
+    const confirmed = window.confirm(`Delete "${product.name}"? This cannot be undone.`)
+    if (!confirmed) return
+    const { error } = await supabase.from('products').delete().eq('id', product.id)
+    if (error) { toast.error(error.message); return }
+    toast.success(`"${product.name}" deleted`)
+    setProducts(prev => prev.filter(p => p.id !== product.id))
+    setProductCategoryMap(prev => {
+      const next = { ...prev }
+      delete next[product.id]
+      return next
+    })
+  }
+
+  // Helper: get category names for a product
+  function getCategoryNames(productId: string): string[] {
+    const ids = productCategoryMap[productId] || []
+    return ids
+      .map(id => categories.find(c => c.id === id)?.name)
+      .filter((n): n is string => Boolean(n))
   }
 
   const filtered = products.filter(p =>
@@ -63,6 +98,7 @@ export default function ProductsPage() {
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Product</th>
+              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Categories</th>
               <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Price</th>
               <th className="text-right text-xs font-medium text-gray-400 px-3 sm:px-5 py-3 hidden sm:table-cell">Cost</th>
               <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Stock</th>
@@ -72,7 +108,7 @@ export default function ProductsPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
+              <tr><td colSpan={7} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
             ) : filtered.map(p => (
               <tr key={p.id} className="table-row">
                 <td className="px-5 py-3">
@@ -82,6 +118,18 @@ export default function ProductsPage() {
                       <p className="text-sm font-medium text-gray-900">{p.name}</p>
                       {p.has_variants && <p className="text-xs text-gray-400">Has variants</p>}
                     </div>
+                  </div>
+                </td>
+                <td className="px-5 py-3">
+                  <div className="flex flex-wrap gap-1">
+                    {getCategoryNames(p.id).length > 0
+                      ? getCategoryNames(p.id).map(name => (
+                          <span key={name} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-brand-light text-brand">
+                            {name}
+                          </span>
+                        ))
+                      : <span className="text-xs text-gray-300">—</span>
+                    }
                   </div>
                 </td>
                 <td className="px-5 py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(p.price)}</td>
@@ -100,9 +148,14 @@ export default function ProductsPage() {
                   </button>
                 </td>
                 <td className="px-5 py-3 text-right">
-                  <button onClick={() => setEditProduct(p)} className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 rounded-lg transition-colors">
-                    <Edit2 className="w-4 h-4" />
-                  </button>
+                  <div className="flex items-center justify-end gap-1">
+                    <button onClick={() => setEditProduct(p)} className="p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-600 rounded-lg transition-colors">
+                      <Edit2 className="w-4 h-4" />
+                    </button>
+                    <button onClick={() => deleteProduct(p)} className="p-1.5 text-gray-400 hover:bg-red-50 hover:text-red-500 rounded-lg transition-colors">
+                      <Trash2 className="w-4 h-4" />
+                    </button>
+                  </div>
                 </td>
               </tr>
             ))}
@@ -115,6 +168,7 @@ export default function ProductsPage() {
         <ProductModal
           product={editProduct}
           categories={categories}
+          initialCategoryIds={editProduct ? (productCategoryMap[editProduct.id] || []) : []}
           onClose={() => { setShowAdd(false); setEditProduct(null) }}
           onSaved={() => { setShowAdd(false); setEditProduct(null); loadData() }}
         />
@@ -123,9 +177,10 @@ export default function ProductsPage() {
   )
 }
 
-function ProductModal({ product, categories, onClose, onSaved }: {
+function ProductModal({ product, categories, initialCategoryIds, onClose, onSaved }: {
   product: Product | null
   categories: Category[]
+  initialCategoryIds: string[]
   onClose: () => void
   onSaved: () => void
 }) {
@@ -141,7 +196,14 @@ function ProductModal({ product, categories, onClose, onSaved }: {
     show_when_out_of_stock: product?.show_when_out_of_stock ?? true,
     is_active: product?.is_active ?? true,
   })
+  const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(initialCategoryIds)
   const [saving, setSaving] = useState(false)
+
+  function toggleCategory(id: string) {
+    setSelectedCategoryIds(prev =>
+      prev.includes(id) ? prev.filter(c => c !== id) : [...prev, id]
+    )
+  }
 
   async function save() {
     if (!form.name.trim()) { toast.error('Name required'); return }
@@ -159,10 +221,31 @@ function ProductModal({ product, categories, onClose, onSaved }: {
       is_active: form.is_active,
     }
     setSaving(true)
-    const { error } = product
-      ? await supabase.from('products').update(payload).eq('id', product.id)
-      : await supabase.from('products').insert(payload)
-    if (error) { toast.error(error.message); setSaving(false); return }
+
+    let productId: string
+    if (product) {
+      const { error } = await supabase.from('products').update(payload).eq('id', product.id)
+      if (error) { toast.error(error.message); setSaving(false); return }
+      productId = product.id
+    } else {
+      const { data, error } = await supabase.from('products').insert(payload).select('id').single()
+      if (error || !data) { toast.error(error?.message || 'Failed to create product'); setSaving(false); return }
+      productId = data.id
+    }
+
+    // Sync product_categories: delete existing then insert selected
+    const { error: delError } = await supabase
+      .from('product_categories')
+      .delete()
+      .eq('product_id', productId)
+    if (delError) { toast.error(delError.message); setSaving(false); return }
+
+    if (selectedCategoryIds.length > 0) {
+      const rows = selectedCategoryIds.map(category_id => ({ product_id: productId, category_id }))
+      const { error: insError } = await supabase.from('product_categories').insert(rows)
+      if (insError) { toast.error(insError.message); setSaving(false); return }
+    }
+
     toast.success(product ? 'Product updated' : 'Product added')
     onSaved()
   }
@@ -214,6 +297,26 @@ function ProductModal({ product, categories, onClose, onSaved }: {
               <input type="number" className="input-admin" value={form.low_stock_threshold} onChange={e => setForm(f => ({ ...f, low_stock_threshold: parseInt(e.target.value) || 0 }))} min={0} />
             </div>
           </div>
+
+          {/* Categories checklist */}
+          {categories.length > 0 && (
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-2">Categories</label>
+              <div className="p-3 bg-gray-50 rounded-xl space-y-1.5 max-h-36 overflow-y-auto">
+                {categories.map(cat => (
+                  <label key={cat.id} className="flex items-center gap-3 cursor-pointer group">
+                    <input
+                      type="checkbox"
+                      checked={selectedCategoryIds.includes(cat.id)}
+                      onChange={() => toggleCategory(cat.id)}
+                      className="rounded"
+                    />
+                    <span className="text-sm text-gray-700 group-hover:text-gray-900">{cat.name}</span>
+                  </label>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="space-y-2">
             <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
