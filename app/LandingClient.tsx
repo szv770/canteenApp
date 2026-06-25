@@ -50,6 +50,8 @@ export default function LandingClient({ loggedIn, settings }: Props) {
     e.preventDefault()
     if (!form.parentName.trim()) { toast.error('Please enter your name'); return }
     if (!form.studentName.trim()) { toast.error("Please enter your son's name"); return }
+    if (!form.parentPhone.trim()) { toast.error('Please enter your phone number'); return }
+    if (!form.parentEmail.trim()) { toast.error('Please enter your email'); return }
     const amt = parseFloat(form.amount)
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
 
@@ -214,7 +216,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
 
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Phone</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Phone *</label>
                       <input
                         type="tel"
                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
@@ -224,7 +226,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                       />
                     </div>
                     <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Email</label>
+                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Email *</label>
                       <input
                         type="email"
                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
