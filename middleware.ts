@@ -1,44 +1,28 @@
-import { createServerClient, type CookieOptions } from '@supabase/ssr'
 import { NextResponse, type NextRequest } from 'next/server'
 
-export async function middleware(request: NextRequest) {
-  let supabaseResponse = NextResponse.next({ request })
+// Middleware runs in Edge Runtime — no Node.js APIs available.
+// We do a lightweight cookie check here for routing; actual token
+// validation happens in server component layouts via createClient().
+export function middleware(request: NextRequest) {
+  const { pathname } = request.nextUrl
+  const isAuthRoute = pathname.startsWith('/login')
+  const isPublicRoute = pathname === '/'
+  const isApiRoute = pathname.startsWith('/api/')
 
-  const supabase = createServerClient(
-    process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.NEXT_PUBLIC_SUPABASE_ANON_KEY!,
-    {
-      cookies: {
-        getAll() {
-          return request.cookies.getAll()
-        },
-        setAll(cookiesToSet: { name: string; value: string; options: CookieOptions }[]) {
-          cookiesToSet.forEach(({ name, value }) =>
-            request.cookies.set(name, value)
-          )
-          supabaseResponse = NextResponse.next({ request })
-          cookiesToSet.forEach(({ name, value, options }) =>
-            supabaseResponse.cookies.set(name, value, options)
-          )
-        },
-      },
-    }
-  )
+  // Supabase stores the session in cookies prefixed with the project ref.
+  // Checking existence is enough for routing; layouts verify the token server-side.
+  const cookies = request.cookies.getAll()
+  const hasSession = cookies.some(c => c.name.startsWith('sb-') && c.name.endsWith('-auth-token'))
 
-  const { data: { user } } = await supabase.auth.getUser()
-
-  const isAuthRoute = request.nextUrl.pathname.startsWith('/login')
-  const isPublicRoute = request.nextUrl.pathname === '/'
-
-  if (!user && !isAuthRoute && !isPublicRoute) {
+  if (!hasSession && !isAuthRoute && !isPublicRoute && !isApiRoute) {
     return NextResponse.redirect(new URL('/login', request.url))
   }
 
-  if (user && isAuthRoute) {
+  if (hasSession && isAuthRoute) {
     return NextResponse.redirect(new URL('/pos', request.url))
   }
 
-  return supabaseResponse
+  return NextResponse.next()
 }
 
 export const config = {
