@@ -39,7 +39,8 @@ export default function BochurimPage() {
 
   async function archiveBochur(id: string) {
     if (!confirm('Archive this bochur? They will no longer appear in POS searches.')) return
-    await supabase.from('bochurim').update({ archived: true }).eq('id', id)
+    const { error } = await supabase.from('bochurim').update({ archived: true }).eq('id', id)
+    if (error) { toast.error(error.message); return }
     toast.success('Bochur archived')
     loadData()
   }
@@ -322,17 +323,33 @@ function TopupModal({ bochur, onClose, onSaved }: {
     const amt = parseFloat(amount)
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
     setSaving(true)
-    const { data: { user } } = await supabase.auth.getUser()
-    const { data: cashier } = await supabase.from('cashier_profiles').select('id').eq('id', user!.id).single()
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { toast.error('Not authenticated'); return }
 
-    const newBalance = bochur.balance + amt
-    await supabase.from('bochurim').update({ balance: newBalance }).eq('id', bochur.id)
-    await supabase.from('balance_ledger').insert({
-      bochur_id: bochur.id, amount: amt, type: 'topup',
-      note: note || `${method} top-up`, cashier_id: cashier?.id,
-    })
-    toast.success(`Added ${formatCurrency(amt)} to ${bochur.name}'s account`)
-    onSaved()
+      const newBalance = bochur.balance + amt
+      const { error: balErr } = await supabase
+        .from('bochurim')
+        .update({ balance: newBalance })
+        .eq('id', bochur.id)
+      if (balErr) { toast.error(balErr.message); return }
+
+      const { error: ledgerErr } = await supabase.from('balance_ledger').insert({
+        bochur_id: bochur.id, amount: amt, type: 'topup',
+        note: note || `${method} top-up`, cashier_id: user.id,
+      })
+      if (ledgerErr) {
+        // Rollback balance change
+        await supabase.from('bochurim').update({ balance: bochur.balance }).eq('id', bochur.id)
+        toast.error(ledgerErr.message)
+        return
+      }
+
+      toast.success(`Added ${formatCurrency(amt)} to ${bochur.name}'s account`)
+      onSaved()
+    } finally {
+      setSaving(false)
+    }
   }
 
   return (

@@ -40,7 +40,8 @@ export default function TransactionsPage() {
 
   async function voidOrder(order: any) {
     if (!confirm(`Void order #${order.order_number}?`)) return
-    await supabase.from('orders').update({ status: 'voided' }).eq('id', order.id)
+    const { error } = await supabase.from('orders').update({ status: 'voided' }).eq('id', order.id)
+    if (error) { toast.error(error.message); return }
     toast.success('Order voided')
     loadOrders()
   }

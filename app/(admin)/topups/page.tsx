@@ -14,6 +14,8 @@ export default function TopupsPage() {
   const [loading, setLoading] = useState(true)
   const [linkingId, setLinkingId] = useState<string | null>(null)
   const [linkBochurId, setLinkBochurId] = useState('')
+  const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  const [rejectingId, setRejectingId] = useState<string | null>(null)
 
   useEffect(() => { loadAll() }, [])
 
@@ -37,39 +39,80 @@ export default function TopupsPage() {
       toast.error('Link to a bochur first before confirming')
       return
     }
-    const { data: bochur } = await supabase.from('bochurim').select('balance').eq('id', topup.bochur_id).single()
-    if (!bochur) { toast.error('Bochur not found'); return }
+    // Guard against double-click
+    if (confirmingId === topup.id) return
+    setConfirmingId(topup.id)
 
-    const { data: { user } } = await supabase.auth.getUser()
+    try {
+      const { data: bochur, error: bochurErr } = await supabase
+        .from('bochurim').select('balance').eq('id', topup.bochur_id).single()
+      if (bochurErr || !bochur) { toast.error('Bochur not found'); return }
 
-    await supabase.from('bochurim').update({ balance: bochur.balance + topup.amount }).eq('id', topup.bochur_id)
-    await supabase.from('balance_ledger').insert({
-      bochur_id: topup.bochur_id,
-      amount: topup.amount,
-      type: 'topup',
-      note: `${topup.method} top-up${topup.sender_name ? ` from ${topup.sender_name}` : ''}`,
-      cashier_id: user?.id ?? null,
-    })
-    await supabase.from('balance_topups').update({
-      status: 'confirmed',
-      confirmed_by: user?.id ?? null,
-      confirmed_at: new Date().toISOString(),
-    }).eq('id', topup.id)
+      const { data: { user } } = await supabase.auth.getUser()
+      if (!user) { toast.error('Not authenticated'); return }
 
-    toast.success('Top-up confirmed and credited!')
-    loadAll()
+      // Update balance
+      const { error: balErr } = await supabase
+        .from('bochurim')
+        .update({ balance: bochur.balance + topup.amount })
+        .eq('id', topup.bochur_id)
+      if (balErr) { toast.error(`Balance update failed: ${balErr.message}`); return }
+
+      // Create ledger entry
+      const { error: ledgerErr } = await supabase.from('balance_ledger').insert({
+        bochur_id: topup.bochur_id,
+        amount: topup.amount,
+        type: 'topup',
+        note: `${topup.method} top-up${topup.sender_name ? ` from ${topup.sender_name}` : ''}`,
+        cashier_id: user.id,
+      })
+      if (ledgerErr) {
+        // Rollback balance change
+        await supabase
+          .from('bochurim')
+          .update({ balance: bochur.balance })
+          .eq('id', topup.bochur_id)
+        toast.error(`Ledger entry failed: ${ledgerErr.message}`)
+        return
+      }
+
+      // Mark top-up as confirmed
+      const { error: statusErr } = await supabase.from('balance_topups').update({
+        status: 'confirmed',
+        confirmed_by: user.id,
+        confirmed_at: new Date().toISOString(),
+      }).eq('id', topup.id)
+      if (statusErr) {
+        toast.error(`Status update failed: ${statusErr.message}`)
+        return
+      }
+
+      toast.success('Top-up confirmed and credited!')
+      loadAll()
+    } finally {
+      setConfirmingId(null)
+    }
   }
 
   async function reject(id: string) {
     if (!confirm('Reject this top-up request?')) return
-    await supabase.from('balance_topups').update({ status: 'rejected' }).eq('id', id)
-    toast.success('Top-up rejected')
-    loadAll()
+    if (rejectingId === id) return
+    setRejectingId(id)
+    try {
+      const { error } = await supabase.from('balance_topups').update({ status: 'rejected' }).eq('id', id)
+      if (error) { toast.error(error.message); return }
+      toast.success('Top-up rejected')
+      loadAll()
+    } finally {
+      setRejectingId(null)
+    }
   }
 
   async function saveLink(topupId: string) {
     if (!linkBochurId) { toast.error('Select a bochur'); return }
-    await supabase.from('balance_topups').update({ bochur_id: linkBochurId }).eq('id', topupId)
+    const { error } = await supabase
+      .from('balance_topups').update({ bochur_id: linkBochurId }).eq('id', topupId)
+    if (error) { toast.error(error.message); return }
     toast.success('Linked to bochur')
     setLinkingId(null)
     setLinkBochurId('')
@@ -162,14 +205,16 @@ export default function TopupsPage() {
                     <div className="flex items-center justify-end gap-1">
                       <button
                         onClick={() => confirmTopup(t)}
-                        className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors"
+                        disabled={confirmingId === t.id || rejectingId === t.id}
+                        className="p-1.5 text-emerald-500 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Confirm & credit"
                       >
                         <Check className="w-4 h-4" />
                       </button>
                       <button
                         onClick={() => reject(t.id)}
-                        className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors"
+                        disabled={confirmingId === t.id || rejectingId === t.id}
+                        className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                         title="Reject"
                       >
                         <X className="w-4 h-4" />

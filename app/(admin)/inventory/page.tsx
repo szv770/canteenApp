@@ -115,27 +115,36 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
     if (qty <= 0) { toast.error('Enter a valid quantity'); return }
     setSaving(true)
 
-    let finalSupplierId = supplierId
-    if (newSupplier.trim()) {
-      const { data } = await supabase.from('suppliers').insert({ name: newSupplier }).select().single()
-      finalSupplierId = data?.id || ''
+    try {
+      let finalSupplierId = supplierId
+      if (newSupplier.trim()) {
+        const { data, error: supErr } = await supabase
+          .from('suppliers').insert({ name: newSupplier }).select().single()
+        if (supErr) { toast.error(supErr.message); return }
+        finalSupplierId = data?.id || ''
+      }
+
+      const { error: entryErr } = await supabase.from('stock_entries').insert({
+        product_id: product.id,
+        quantity_added: qty,
+        cost_per_unit: costPerUnit,
+        supplier_id: finalSupplierId || null,
+        notes: notes || null,
+      })
+      if (entryErr) { toast.error(entryErr.message); return }
+
+      const newStock = product.stock_quantity + qty
+      const updatePayload: any = { stock_quantity: newStock }
+      if (updatePrice) updatePayload.cost_price = costPerUnit
+
+      const { error: prodErr } = await supabase.from('products').update(updatePayload).eq('id', product.id)
+      if (prodErr) { toast.error(prodErr.message); return }
+
+      toast.success(`Restocked ${product.name} (+${qty})`)
+      onSaved()
+    } finally {
+      setSaving(false)
     }
-
-    await supabase.from('stock_entries').insert({
-      product_id: product.id,
-      quantity_added: qty,
-      cost_per_unit: costPerUnit,
-      supplier_id: finalSupplierId || null,
-      notes: notes || null,
-    })
-
-    const newStock = product.stock_quantity + qty
-    const updatePayload: any = { stock_quantity: newStock }
-    if (updatePrice) updatePayload.cost_price = costPerUnit
-
-    await supabase.from('products').update(updatePayload).eq('id', product.id)
-    toast.success(`Restocked ${product.name} (+${qty})`)
-    onSaved()
   }
 
   return (

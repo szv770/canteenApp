@@ -6,10 +6,11 @@ import { format } from 'date-fns'
 export const revalidate = 60
 
 async function getStats(supabase: any) {
-  const today = new Date()
-  today.setHours(0, 0, 0, 0)
-  const weekAgo = new Date(today); weekAgo.setDate(weekAgo.getDate() - 7)
-  const monthAgo = new Date(today); monthAgo.setMonth(monthAgo.getMonth() - 1)
+  // Use UTC midnight so date boundaries are consistent with stored timestamps
+  const now = new Date()
+  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const weekAgo = new Date(today); weekAgo.setUTCDate(weekAgo.getUTCDate() - 7)
+  const monthAgo = new Date(today); monthAgo.setUTCMonth(monthAgo.getUTCMonth() - 1)
 
   const [todayOrders, weekOrders, monthOrders, bochurim, recentOrders] = await Promise.all([
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', today.toISOString()),

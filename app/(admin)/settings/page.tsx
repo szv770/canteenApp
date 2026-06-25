@@ -48,8 +48,10 @@ export default function SettingsPage() {
   const [saving, setSaving] = useState(false)
 
   useEffect(() => {
-    supabase.from('settings').select('*').then(({ data }) => {
-      if (data) {
+    supabase.from('settings').select('*').then(({ data, error }) => {
+      if (error) {
+        toast.error(`Failed to load settings: ${error.message}`)
+      } else if (data) {
         const map: Record<string, string> = {}
         data.forEach((s: any) => { map[s.key] = s.value == null ? '' : String(s.value) })
         setSettings(map)

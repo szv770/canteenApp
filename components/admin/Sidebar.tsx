@@ -29,7 +29,7 @@ export default function AdminSidebar() {
 
   async function signOut() {
     await supabase.auth.signOut()
-    router.push('/login')
+    window.location.href = '/login'
   }
 
   function navigate(href: string) {

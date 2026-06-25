@@ -36,6 +36,15 @@ export default function PosPage() {
     loadData()
     loadCashier()
 
+    // Redirect to login if session expires mid-use
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
+      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
+        if (event === 'SIGNED_OUT') {
+          window.location.href = '/login'
+        }
+      }
+    })
+
     // Real-time product updates
     const channel = supabase
       .channel('pos_realtime')
@@ -50,7 +59,10 @@ export default function PosPage() {
       })
       .subscribe()
 
-    return () => { supabase.removeChannel(channel) }
+    return () => {
+      subscription.unsubscribe()
+      supabase.removeChannel(channel)
+    }
   }, [])
 
   async function loadData() {
@@ -87,7 +99,7 @@ export default function PosPage() {
 
   async function signOut() {
     await supabase.auth.signOut()
-    router.push('/login')
+    window.location.href = '/login'
   }
 
   function addToCart(product: Product, variant?: ProductVariant) {
