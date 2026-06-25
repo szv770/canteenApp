@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
-import type { Product, Category } from '@/types/database'
+import type { Product, Category, ProductVariant } from '@/types/database'
 
 const EMOJIS = ['🍕','🌮','🌯','🥗','🍔','🍟','🍦','🧁','🍰','🍩','🍪','🥤','☕','🧃','🍫','🍬','🍭','🧇','🥞','🌽','🍿','🧀','🥨','🫐','🍓','🍎','🍌','🍉','🍑','🍒']
 
@@ -177,6 +177,19 @@ export default function ProductsPage() {
   )
 }
 
+// A local type for variant rows being edited in the modal (no id until saved)
+type VariantDraft = {
+  id?: string          // present when loaded from DB; absent for newly added rows
+  label: string
+  price: string        // kept as string for controlled input
+  stock_quantity: string
+  is_active: boolean
+}
+
+function emptyVariant(): VariantDraft {
+  return { label: '', price: '', stock_quantity: '', is_active: true }
+}
+
 function ProductModal({ product, categories, initialCategoryIds, onClose, onSaved }: {
   product: Product | null
   categories: Category[]
@@ -197,6 +210,8 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     is_active: product?.is_active ?? true,
   })
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(initialCategoryIds)
+  const [variants, setVariants] = useState<VariantDraft[]>([])
+  const [variantsLoading, setVariantsLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
   function toggleCategory(id: string) {
@@ -205,10 +220,69 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     )
   }
 
+  // Load existing variants when editing a product that has_variants
+  useEffect(() => {
+    if (product?.id && product.has_variants) {
+      setVariantsLoading(true)
+      supabase
+        .from('product_variants')
+        .select('*')
+        .eq('product_id', product.id)
+        .order('sort_order')
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setVariants(data.map((v: ProductVariant) => ({
+              id: v.id,
+              label: v.label,
+              price: String(v.price),
+              stock_quantity: String(v.stock_quantity),
+              is_active: v.is_active,
+            })))
+          } else {
+            setVariants([emptyVariant()])
+          }
+          setVariantsLoading(false)
+        })
+    }
+  }, [])
+
+  // When has_variants is toggled on and there are no rows yet, seed one empty row
+  function handleHasVariantsChange(checked: boolean) {
+    setForm(f => ({ ...f, has_variants: checked }))
+    if (checked && variants.length === 0) {
+      setVariants([emptyVariant()])
+    }
+  }
+
+  function updateVariant(index: number, field: keyof VariantDraft, value: string | boolean) {
+    setVariants(prev => prev.map((v, i) => i === index ? { ...v, [field]: value } : v))
+  }
+
+  function addVariant() {
+    setVariants(prev => [...prev, emptyVariant()])
+  }
+
+  function removeVariant(index: number) {
+    setVariants(prev => prev.filter((_, i) => i !== index))
+  }
+
   async function save() {
     if (!form.name.trim()) { toast.error('Name required'); return }
     const price = parseFloat(form.price)
     if (!form.price || isNaN(price) || price <= 0) { toast.error('Price is required'); return }
+
+    // Validate variants if enabled
+    if (form.has_variants) {
+      for (let i = 0; i < variants.length; i++) {
+        const v = variants[i]
+        if (!v.label.trim()) { toast.error(`Variant ${i + 1}: label is required`); return }
+        const vp = parseFloat(v.price)
+        if (!v.price || isNaN(vp) || vp <= 0) { toast.error(`Variant ${i + 1}: valid price is required`); return }
+      }
+    }
+
+    setSaving(true)
+
     const payload = {
       name: form.name,
       price,
@@ -220,7 +294,6 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
       show_when_out_of_stock: form.show_when_out_of_stock,
       is_active: form.is_active,
     }
-    setSaving(true)
 
     let productId: string
     if (product) {
@@ -234,16 +307,41 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     }
 
     // Sync product_categories: delete existing then insert selected
-    const { error: delError } = await supabase
+    const { error: delCatError } = await supabase
       .from('product_categories')
       .delete()
       .eq('product_id', productId)
-    if (delError) { toast.error(delError.message); setSaving(false); return }
+    if (delCatError) { toast.error(delCatError.message); setSaving(false); return }
 
     if (selectedCategoryIds.length > 0) {
       const rows = selectedCategoryIds.map(category_id => ({ product_id: productId, category_id }))
-      const { error: insError } = await supabase.from('product_categories').insert(rows)
-      if (insError) { toast.error(insError.message); setSaving(false); return }
+      const { error: insCatError } = await supabase.from('product_categories').insert(rows)
+      if (insCatError) { toast.error(insCatError.message); setSaving(false); return }
+    }
+
+    // Handle variants: delete all existing then insert the current list
+    if (form.has_variants) {
+      const { error: delVarError } = await supabase
+        .from('product_variants')
+        .delete()
+        .eq('product_id', productId)
+      if (delVarError) { toast.error(delVarError.message); setSaving(false); return }
+
+      if (variants.length > 0) {
+        const varRows = variants.map((v, i) => ({
+          product_id: productId,
+          label: v.label.trim(),
+          price: parseFloat(v.price) || 0,
+          stock_quantity: parseInt(v.stock_quantity) || 0,
+          is_active: v.is_active,
+          sort_order: i,
+        }))
+        const { error: insVarError } = await supabase.from('product_variants').insert(varRows)
+        if (insVarError) { toast.error(insVarError.message); setSaving(false); return }
+      }
+    } else {
+      // If has_variants was turned off, remove all variants
+      await supabase.from('product_variants').delete().eq('product_id', productId)
     }
 
     toast.success(product ? 'Product updated' : 'Product added')
@@ -320,7 +418,12 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
 
           <div className="space-y-2">
             <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
-              <input type="checkbox" checked={form.has_variants} onChange={e => setForm(f => ({ ...f, has_variants: e.target.checked }))} className="rounded" />
+              <input
+                type="checkbox"
+                checked={form.has_variants}
+                onChange={e => handleHasVariantsChange(e.target.checked)}
+                className="rounded"
+              />
               <span className="text-sm text-gray-700">Has variants (sizes, flavors)</span>
             </label>
             <label className="flex items-center gap-3 p-3 bg-gray-50 rounded-xl cursor-pointer">
@@ -328,6 +431,81 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
               <span className="text-sm text-gray-700">Show when out of stock</span>
             </label>
           </div>
+
+          {/* Variant management — only shown when has_variants is checked */}
+          {form.has_variants && (
+            <div className="border border-gray-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-medium text-gray-700">Variants</p>
+
+              {variantsLoading ? (
+                <p className="text-sm text-gray-400">Loading variants...</p>
+              ) : (
+                <>
+                  {variants.length > 0 && (
+                    <div className="space-y-2">
+                      {/* Column headers */}
+                      <div className="grid grid-cols-[1fr_80px_72px_32px_32px] gap-2 px-1">
+                        <p className="text-xs font-medium text-gray-400">Label</p>
+                        <p className="text-xs font-medium text-gray-400">Price</p>
+                        <p className="text-xs font-medium text-gray-400">Stock</p>
+                        <p className="text-xs font-medium text-gray-400 text-center">On</p>
+                        <span />
+                      </div>
+
+                      {variants.map((v, i) => (
+                        <div key={i} className="grid grid-cols-[1fr_80px_72px_32px_32px] gap-2 items-center">
+                          <input
+                            className="input-admin text-sm"
+                            placeholder="e.g. Small"
+                            value={v.label}
+                            onChange={e => updateVariant(i, 'label', e.target.value)}
+                          />
+                          <input
+                            type="number"
+                            className="input-admin text-sm"
+                            placeholder="0.00"
+                            step={0.25}
+                            min={0}
+                            value={v.price}
+                            onChange={e => updateVariant(i, 'price', e.target.value)}
+                          />
+                          <input
+                            type="number"
+                            className="input-admin text-sm"
+                            placeholder="0"
+                            min={0}
+                            value={v.stock_quantity}
+                            onChange={e => updateVariant(i, 'stock_quantity', e.target.value)}
+                          />
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={v.is_active}
+                              onChange={e => updateVariant(i, 'is_active', e.target.checked)}
+                              className="rounded"
+                            />
+                          </div>
+                          <button
+                            onClick={() => removeVariant(i)}
+                            className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={addVariant}
+                    className="flex items-center gap-1.5 text-sm text-brand font-medium hover:underline"
+                  >
+                    <Plus className="w-4 h-4" /> Add variant
+                  </button>
+                </>
+              )}
+            </div>
+          )}
 
           <div className="flex gap-2 pt-2">
             <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
