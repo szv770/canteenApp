@@ -45,8 +45,9 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
   outOfStockBehavior: string
   onTap: (p: Product) => void
 }) {
-  const outOfStock = product.stock_quantity <= 0
-  const lowStock = !outOfStock && product.stock_quantity <= product.low_stock_threshold
+  // For variant products, stock lives on variants — don't block/hide at the product level
+  const outOfStock = !product.has_variants && product.stock_quantity <= 0
+  const lowStock = !product.has_variants && !outOfStock && product.stock_quantity <= product.low_stock_threshold
   const isBlocked = outOfStock && outOfStockBehavior === 'block'
   const isHidden = outOfStock && (outOfStockBehavior === 'hide' || !product.show_when_out_of_stock)
 
@@ -101,7 +102,7 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
 
       {/* Price */}
       <p className="text-sm font-bold text-amber-600 mt-auto">
-        {formatCurrency(product.price)}
+        {product.has_variants ? `From ${formatCurrency(product.price)}` : formatCurrency(product.price)}
       </p>
     </button>
   )
