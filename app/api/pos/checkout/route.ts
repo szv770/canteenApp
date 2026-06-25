@@ -91,7 +91,7 @@ export async function POST(req: NextRequest) {
   const admin = createAdminClient()
 
   // Fetch all referenced products in one query
-  const productIds = [...new Set(items.map(i => i.product_id))]
+  const productIds = Array.from(new Set(items.map(i => i.product_id)))
   const { data: products, error: prodErr } = await admin
     .from('products')
     .select('id, name, price, stock_quantity, is_active')
