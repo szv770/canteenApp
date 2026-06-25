@@ -397,22 +397,28 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
             </div>
           </div>
 
-          {/* Categories checklist */}
+          {/* Categories */}
           {categories.length > 0 && (
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-2">Categories</label>
-              <div className="p-3 bg-slate-50 rounded-xl space-y-1.5 max-h-36 overflow-y-auto">
-                {categories.map(cat => (
-                  <label key={cat.id} className="flex items-center gap-3 cursor-pointer group">
-                    <input
-                      type="checkbox"
-                      checked={selectedCategoryIds.includes(cat.id)}
-                      onChange={() => toggleCategory(cat.id)}
-                      className="rounded"
-                    />
-                    <span className="text-sm text-slate-700 group-hover:text-slate-900">{cat.name}</span>
-                  </label>
-                ))}
+              <div className="flex flex-wrap gap-2">
+                {categories.map(cat => {
+                  const selected = selectedCategoryIds.includes(cat.id)
+                  return (
+                    <button
+                      key={cat.id}
+                      type="button"
+                      onClick={() => toggleCategory(cat.id)}
+                      className={`px-3 py-1.5 rounded-full text-sm font-medium border transition-all ${
+                        selected
+                          ? 'bg-amber-400 text-white border-amber-400'
+                          : 'bg-white text-slate-600 border-slate-200 hover:border-amber-300'
+                      }`}
+                    >
+                      {cat.name}
+                    </button>
+                  )
+                })}
               </div>
             </div>
           )}

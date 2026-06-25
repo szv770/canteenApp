@@ -66,6 +66,11 @@ export default function VariantModal({ product, onSelect, onClose }: Props) {
                 </div>
               ))}
             </>
+          ) : variants.length === 0 ? (
+            <div className="col-span-2 flex flex-col items-center justify-center py-8 text-center gap-2">
+              <p className="text-slate-500 text-sm font-medium">No variants set up yet</p>
+              <p className="text-slate-400 text-xs">Go to Admin → Products to add sizes/options for this item</p>
+            </div>
           ) : variants.map((v, idx) => (
             <button
               key={v.id}
