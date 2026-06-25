@@ -21,7 +21,7 @@ export default function TransactionsPage() {
     setLoading(true)
     const q = supabase
       .from('orders')
-      .select('*, cashier_profiles(name), bochurim_with_id(name,bochur_id)')
+      .select('*, cashier_profiles(name), bochurim(name,bochur_number)')
       .order('created_at', { ascending: false })
       .limit(200)
 
@@ -35,7 +35,7 @@ export default function TransactionsPage() {
   const filtered = orders.filter(o =>
     String(o.order_number).includes(search) ||
     (o.cashier_profiles?.name || '').toLowerCase().includes(search.toLowerCase()) ||
-    (o.bochurim_with_id?.name || '').toLowerCase().includes(search.toLowerCase())
+    (o.bochurim?.name || '').toLowerCase().includes(search.toLowerCase())
   )
 
   async function voidOrder(order: any) {
@@ -52,7 +52,7 @@ export default function TransactionsPage() {
         o.order_number,
         format(new Date(o.created_at), 'MM/dd/yyyy HH:mm'),
         o.cashier_profiles?.name || '',
-        o.bochurim_with_id?.name || 'Walk-in',
+        o.bochurim?.name || 'Walk-in',
         o.total,
         o.status,
       ])
@@ -120,7 +120,7 @@ export default function TransactionsPage() {
                 <td className="px-5 py-3 text-sm font-semibold text-gray-900">#{o.order_number}</td>
                 <td className="px-5 py-3 text-sm text-gray-500">{format(new Date(o.created_at), 'MM/dd HH:mm')}</td>
                 <td className="px-5 py-3 text-sm text-gray-700">{o.cashier_profiles?.name || '—'}</td>
-                <td className="px-5 py-3 text-sm text-gray-700">{o.bochurim_with_id?.name || <span className="text-gray-400">Walk-in</span>}</td>
+                <td className="px-5 py-3 text-sm text-gray-700">{o.bochurim?.name || <span className="text-gray-400">Walk-in</span>}</td>
                 <td className="px-5 py-3 text-center">
                   <span className={`badge ${statusColors[o.status] || 'bg-gray-100 text-gray-500'}`}>{o.status}</span>
                 </td>

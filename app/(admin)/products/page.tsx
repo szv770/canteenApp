@@ -130,9 +130,9 @@ function ProductModal({ product, categories, onClose, onSaved }: {
   const supabase = createClient()
   const [form, setForm] = useState({
     name: product?.name || '',
-    price: product?.price || 0,
-    cost_price: product?.cost_price || 0,
-    stock_quantity: product?.stock_quantity || 0,
+    price: product ? String(product.price) : '',
+    cost_price: product ? String(product.cost_price ?? '') : '',
+    stock_quantity: product ? String(product.stock_quantity ?? '') : '',
     low_stock_threshold: product?.low_stock_threshold || 5,
     icon: product?.icon || '',
     has_variants: product?.has_variants || false,
@@ -143,10 +143,23 @@ function ProductModal({ product, categories, onClose, onSaved }: {
 
   async function save() {
     if (!form.name.trim()) { toast.error('Name required'); return }
+    const price = parseFloat(form.price)
+    if (!form.price || isNaN(price) || price <= 0) { toast.error('Price is required'); return }
+    const payload = {
+      name: form.name,
+      price,
+      cost_price: form.cost_price !== '' ? parseFloat(form.cost_price) || 0 : 0,
+      stock_quantity: form.stock_quantity !== '' ? parseInt(form.stock_quantity) || 0 : 0,
+      low_stock_threshold: form.low_stock_threshold,
+      icon: form.icon,
+      has_variants: form.has_variants,
+      show_when_out_of_stock: form.show_when_out_of_stock,
+      is_active: form.is_active,
+    }
     setSaving(true)
     const { error } = product
-      ? await supabase.from('products').update(form).eq('id', product.id)
-      : await supabase.from('products').insert(form)
+      ? await supabase.from('products').update(payload).eq('id', product.id)
+      : await supabase.from('products').insert(payload)
     if (error) { toast.error(error.message); setSaving(false); return }
     toast.success(product ? 'Product updated' : 'Product added')
     onSaved()
@@ -180,19 +193,19 @@ function ProductModal({ product, categories, onClose, onSaved }: {
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Price</label>
-              <input type="number" className="input-admin" value={form.price} onChange={e => setForm(f => ({ ...f, price: parseFloat(e.target.value) || 0 }))} step={0.25} min={0} />
+              <label className="block text-sm font-medium text-gray-700 mb-1">Price *</label>
+              <input type="number" className="input-admin" placeholder="0.00" value={form.price} onChange={e => setForm(f => ({ ...f, price: e.target.value }))} step={0.25} min={0} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Cost Price</label>
-              <input type="number" className="input-admin" value={form.cost_price} onChange={e => setForm(f => ({ ...f, cost_price: parseFloat(e.target.value) || 0 }))} step={0.25} min={0} />
+              <input type="number" className="input-admin" placeholder="0.00" value={form.cost_price} onChange={e => setForm(f => ({ ...f, cost_price: e.target.value }))} step={0.25} min={0} />
             </div>
           </div>
 
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Stock Qty</label>
-              <input type="number" className="input-admin" value={form.stock_quantity} onChange={e => setForm(f => ({ ...f, stock_quantity: parseInt(e.target.value) || 0 }))} min={0} />
+              <input type="number" className="input-admin" placeholder="0" value={form.stock_quantity} onChange={e => setForm(f => ({ ...f, stock_quantity: e.target.value }))} min={0} />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Low Stock Alert</label>
