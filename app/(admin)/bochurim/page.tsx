@@ -2,10 +2,11 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Archive, DollarSign, X, Pencil } from 'lucide-react'
+import { Plus, Search, Archive, DollarSign, X, Pencil, ChevronLeft, ChevronRight } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { BochurWithId, AccountType } from '@/types/database'
+import TableSkeleton from '@/components/admin/TableSkeleton'
 
 export default function BochurimPage() {
   const supabase = createClient()
@@ -17,8 +18,10 @@ export default function BochurimPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editBochur, setEditBochur] = useState<BochurWithId | null>(null)
   const [topupBochur, setTopupBochur] = useState<BochurWithId | null>(null)
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 50
 
-  useEffect(() => { loadData() }, [showArchived])
+  useEffect(() => { setPage(0); loadData() }, [showArchived])
 
   async function loadData() {
     setLoading(true)
@@ -36,6 +39,8 @@ export default function BochurimPage() {
     (b.bochur_id || '').toLowerCase().includes(search.toLowerCase()) ||
     (b.grade || '').toLowerCase().includes(search.toLowerCase())
   )
+  const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
+  const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
 
   async function archiveBochur(id: string) {
     if (!confirm('Archive this bochur? They will no longer appear in POS searches.')) return
@@ -71,7 +76,7 @@ export default function BochurimPage() {
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input
           value={search}
-          onChange={e => setSearch(e.target.value)}
+          onChange={e => { setSearch(e.target.value); setPage(0) }}
           placeholder="Search by name, ID, or grade..."
           className="input-admin pl-9"
         />
@@ -93,10 +98,10 @@ export default function BochurimPage() {
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
+              <TableSkeleton cols={6} />
             ) : filtered.length === 0 ? (
               <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">No bochurim found</td></tr>
-            ) : filtered.map(b => (
+            ) : paginated.map(b => (
               <tr key={b.id} className="table-row">
                 <td className="px-5 py-3 text-sm font-mono text-gray-500">{b.bochur_id}</td>
                 <td className="px-5 py-3 text-sm font-medium text-gray-900">{b.name}</td>
@@ -138,6 +143,35 @@ export default function BochurimPage() {
         </table>
         </div>
       </div>
+
+      {!loading && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 px-1">
+          <p className="text-sm text-gray-400">
+            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="btn-secondary text-sm py-1.5 px-3 disabled:opacity-40"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Prev
+            </button>
+            <span className="text-sm text-gray-500 font-medium">
+              {page + 1} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="btn-secondary text-sm py-1.5 px-3 disabled:opacity-40"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
 
       {showAdd && (
         <AddBochurModal
@@ -194,7 +228,7 @@ function AddBochurModal({ accountTypes, onClose, onSaved }: {
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-          <input className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Moshe Goldberg" />
+          <input autoFocus className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} placeholder="Moshe Goldberg" />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -267,7 +301,7 @@ function EditBochurModal({ bochur, accountTypes, onClose, onSaved }: {
       <div className="space-y-4">
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Full Name *</label>
-          <input className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
+          <input autoFocus className="input-admin" value={form.name} onChange={e => setForm(f => ({ ...f, name: e.target.value }))} />
         </div>
         <div className="grid grid-cols-2 gap-3">
           <div>
@@ -361,7 +395,7 @@ function TopupModal({ bochur, onClose, onSaved }: {
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Amount</label>
-          <input type="number" className="input-admin text-lg" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" min={0} step={0.5} />
+          <input autoFocus type="number" className="input-admin text-lg" value={amount} onChange={e => setAmount(e.target.value)} placeholder="0.00" min={0} step={0.5} />
         </div>
         <div>
           <label className="block text-sm font-medium text-gray-700 mb-1">Method</label>
