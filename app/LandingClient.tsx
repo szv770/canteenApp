@@ -40,27 +40,45 @@ export default function LandingClient({ loggedIn, settings }: Props) {
     notes: '',
   })
   const [submitting, setSubmitting] = useState(false)
+  const [formError, setFormError] = useState('')
 
   function set(k: keyof typeof form, v: string) {
     setForm(f => ({ ...f, [k]: v }))
+    setFormError('')
+  }
+
+  function err(msg: string) {
+    setFormError(msg)
+    toast.error(msg)
   }
 
   async function submit(e: React.FormEvent) {
     e.preventDefault()
-    if (!form.parentName.trim()) { toast.error('Please enter your name'); return }
-    if (!form.studentName.trim()) { toast.error("Please enter your son's name"); return }
-    if (!form.parentPhone.trim()) { toast.error('Please enter your phone number'); return }
-    if (!form.parentEmail.trim()) { toast.error('Please enter your email'); return }
+    setFormError('')
+
+    if (!form.parentName.trim()) { err('Please enter your name'); return }
+    if (!form.studentName.trim()) { err("Please enter your son's name"); return }
+
+    const phoneDigits = form.parentPhone.replace(/\D/g, '')
+    if (!form.parentPhone.trim()) { err('Please enter your phone number'); return }
+    if (phoneDigits.length < 7) { err('Please enter a valid phone number'); return }
+
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
+    if (!form.parentEmail.trim()) { err('Please enter your email'); return }
+    if (!emailRegex.test(form.parentEmail.trim())) { err('Please enter a valid email address'); return }
+
     const amt = parseFloat(form.amount)
-    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (!amt || amt <= 0) { err('Please enter a valid amount'); return }
+
+    const method = form.method || 'cash'
 
     setSubmitting(true)
     const { error } = await supabase.from('balance_topups').insert({
       amount: amt,
-      method: form.method,
+      method,
       sender_name: form.parentName.trim(),
-      parent_phone: form.parentPhone.trim() || null,
-      parent_email: form.parentEmail.trim() || null,
+      parent_phone: form.parentPhone.trim(),
+      parent_email: form.parentEmail.trim(),
       student_name: form.studentName.trim(),
       transaction_ref: form.transactionRef.trim() || null,
       notes: form.notes.trim() || null,
@@ -69,7 +87,8 @@ export default function LandingClient({ loggedIn, settings }: Props) {
     setSubmitting(false)
 
     if (error) {
-      toast.error('Failed to submit. Please try again.')
+      console.error('Topup insert error:', error)
+      err('Failed to submit — please try again or contact us directly.')
       return
     }
     setStep('success')
@@ -191,7 +210,12 @@ export default function LandingClient({ loggedIn, settings }: Props) {
             ) : (
               <>
                 <h2 className="text-xl font-bold text-gray-900 mb-5">Request a Top-up</h2>
-                <form onSubmit={submit} className="space-y-4">
+                {formError && (
+                  <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
+                    {formError}
+                  </div>
+                )}
+                <form onSubmit={submit} noValidate className="space-y-4">
                   <div className="grid grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Name *</label>
