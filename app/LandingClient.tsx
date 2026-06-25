@@ -2,7 +2,6 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { createClient } from '@/lib/supabase/client'
 import { ShoppingBag, DollarSign, Send, Check, ChevronRight, Smartphone } from 'lucide-react'
 import toast from 'react-hot-toast'
 
@@ -19,8 +18,6 @@ interface Props {
 }
 
 export default function LandingClient({ loggedIn, settings }: Props) {
-  const supabase = createClient()
-
   const canteenName = settings['canteen_name'] || 'Yeshiva Canteen'
   const tagline = settings['canteen_tagline'] || 'Easy online top-ups for your son\'s canteen account'
 
@@ -68,30 +65,39 @@ export default function LandingClient({ loggedIn, settings }: Props) {
     if (!emailRegex.test(form.parentEmail.trim())) { err('Please enter a valid email address'); return }
 
     const amt = parseFloat(form.amount)
-    if (!amt || amt <= 0) { err('Please enter a valid amount'); return }
+    if (!Number.isFinite(amt) || amt <= 0) { err('Please enter a valid amount'); return }
+    if (amt > 10000) { err('Amount cannot exceed $10,000'); return }
 
     const method = form.method || 'cash'
 
     setSubmitting(true)
-    const { error } = await supabase.from('balance_topups').insert({
-      amount: amt,
-      method,
-      sender_name: form.parentName.trim(),
-      parent_phone: form.parentPhone.trim(),
-      parent_email: form.parentEmail.trim(),
-      student_name: form.studentName.trim(),
-      transaction_ref: form.transactionRef.trim() || null,
-      notes: form.notes.trim() || null,
-      status: 'pending',
-    })
-    setSubmitting(false)
-
-    if (error) {
-      console.error('Topup insert error:', error)
+    try {
+      const res = await fetch('/api/topup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          amount: amt,
+          method,
+          sender_name: form.parentName.trim(),
+          parent_phone: form.parentPhone.trim(),
+          parent_email: form.parentEmail.trim(),
+          student_name: form.studentName.trim(),
+          transaction_ref: form.transactionRef.trim() || null,
+          notes: form.notes.trim() || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        err(json.error || 'Failed to submit — please try again or contact us directly.')
+        return
+      }
+      setStep('success')
+    } catch (e) {
+      console.error('Topup error:', e)
       err('Failed to submit — please try again or contact us directly.')
-      return
+    } finally {
+      setSubmitting(false)
     }
-    setStep('success')
   }
 
   return (
@@ -123,9 +129,9 @@ export default function LandingClient({ loggedIn, settings }: Props) {
         </div>
       </nav>
 
-      <main className="max-w-5xl mx-auto px-4 py-12">
+      <main className="max-w-5xl mx-auto px-4 py-8 sm:py-12">
         {/* Hero */}
-        <div className="text-center mb-12">
+        <div className="text-center mb-8 sm:mb-12">
           <div className="inline-flex items-center gap-2 bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-semibold mb-4">
             <Smartphone className="w-3.5 h-3.5" /> Parent Portal
           </div>
@@ -135,7 +141,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
           <p className="text-gray-500 text-lg max-w-xl mx-auto">{tagline}</p>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-10 items-start">
+        <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10 items-start">
           {/* Payment instructions */}
           <div className="space-y-5">
             <h2 className="text-xl font-bold text-gray-900">How to add funds</h2>
@@ -189,7 +195,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
           </div>
 
           {/* Form */}
-          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-6">
+          <div className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6">
             {step === 'success' ? (
               <div className="text-center py-8">
                 <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -216,11 +222,11 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                   </div>
                 )}
                 <form onSubmit={submit} noValidate className="space-y-4">
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Name *</label>
                       <input
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
                         placeholder="Parent's name"
                         value={form.parentName}
                         onChange={e => set('parentName', e.target.value)}
@@ -229,7 +235,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Son's Name *</label>
                       <input
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
                         placeholder="Student's name"
                         value={form.studentName}
                         onChange={e => set('studentName', e.target.value)}
@@ -237,12 +243,12 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                     </div>
                   </div>
 
-                  <div className="grid grid-cols-2 gap-3">
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Phone *</label>
                       <input
                         type="tel"
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
                         placeholder="(555) 000-0000"
                         value={form.parentPhone}
                         onChange={e => set('parentPhone', e.target.value)}
@@ -252,7 +258,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Email *</label>
                       <input
                         type="email"
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
                         placeholder="you@example.com"
                         value={form.parentEmail}
                         onChange={e => set('parentEmail', e.target.value)}
@@ -266,7 +272,8 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                       <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
                       <input
                         type="number"
-                        className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
+                        inputMode="decimal"
+                        className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
                         placeholder="0.00"
                         min="1"
                         step="0.01"
@@ -279,7 +286,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                   <div>
                     <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method *</label>
                     <select
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all bg-white"
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all bg-white min-h-[44px]"
                       value={form.method}
                       onChange={e => set('method', e.target.value)}
                     >
@@ -295,7 +302,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                         Confirmation / Reference # <span className="text-gray-400 font-normal">(optional)</span>
                       </label>
                       <input
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all"
+                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
                         placeholder="Transaction ID or last 4 digits"
                         value={form.transactionRef}
                         onChange={e => set('transactionRef', e.target.value)}
@@ -308,7 +315,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                       Notes <span className="text-gray-400 font-normal">(optional)</span>
                     </label>
                     <textarea
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all resize-none"
+                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all resize-none"
                       rows={2}
                       placeholder="Any extra info..."
                       value={form.notes}
@@ -319,7 +326,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                   <button
                     type="submit"
                     disabled={submitting}
-                    className="w-full flex items-center justify-center gap-2 bg-amber-400 hover:bg-amber-500 disabled:opacity-60 text-white font-semibold py-3 rounded-xl transition-colors text-sm"
+                    className="w-full flex items-center justify-center gap-2 bg-amber-400 hover:bg-amber-500 disabled:opacity-60 text-white font-semibold py-3 min-h-[48px] rounded-xl transition-colors text-sm"
                   >
                     {submitting ? (
                       <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
