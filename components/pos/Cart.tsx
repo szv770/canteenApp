@@ -1,6 +1,7 @@
 'use client'
 
-import { ShoppingCart, Trash2, Plus, Minus } from 'lucide-react'
+import { useState } from 'react'
+import { ShoppingCart, Trash2, Plus, Minus, X } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { CartItem, BochurWithId } from '@/types/database'
 
@@ -10,9 +11,13 @@ interface Props {
   loadedBochur: BochurWithId | null
   settings: Record<string, string>
   onCheckout: () => void
+  /** Mobile: whether the cart drawer is open */
+  mobileOpen?: boolean
+  /** Mobile: close the cart drawer */
+  onMobileClose?: () => void
 }
 
-export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout }: Props) {
+export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, mobileOpen, onMobileClose }: Props) {
   function updateQty(productId: string, variantId: string | null, delta: number) {
     setCart(prev =>
       prev.flatMap(item => {
@@ -34,17 +39,28 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
     ? (loadedBochur.balance >= subtotal ? 'text-emerald-600' : 'text-red-500')
     : 'text-pos-subtext'
 
-  return (
-    <div className="w-72 lg:w-80 xl:w-96 bg-white border-l border-pos-border flex flex-col h-full shrink-0">
+  const cartBody = (
+    <div className="w-full flex flex-col h-full">
       {/* Cart header */}
       <div className="px-4 py-3 border-b border-pos-border flex items-center justify-between shrink-0">
         <div className="flex items-center gap-2">
           <ShoppingCart className="w-5 h-5 text-pos-text" />
           <span className="font-semibold text-pos-text">Order</span>
         </div>
-        {itemCount > 0 && (
-          <span className="badge bg-brand-light text-brand">{itemCount} item{itemCount !== 1 ? 's' : ''}</span>
-        )}
+        <div className="flex items-center gap-2">
+          {itemCount > 0 && (
+            <span className="badge bg-brand-light text-brand">{itemCount} item{itemCount !== 1 ? 's' : ''}</span>
+          )}
+          {/* Close button on mobile */}
+          {onMobileClose && (
+            <button
+              onClick={onMobileClose}
+              className="lg:hidden p-2 hover:bg-pos-hover rounded-xl transition-colors min-w-[44px] min-h-[44px] flex items-center justify-center"
+            >
+              <X className="w-5 h-5 text-pos-muted" />
+            </button>
+          )}
+        </div>
       </div>
 
       {/* Items */}
@@ -63,7 +79,7 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
                 className="group flex items-center gap-2 p-2 rounded-xl hover:bg-pos-hover transition-colors"
               >
                 {/* Emoji */}
-                <div className="w-9 h-9 bg-pos-bg rounded-lg flex items-center justify-center shrink-0 text-xl">
+                <div className="w-10 h-10 bg-pos-bg rounded-lg flex items-center justify-center shrink-0 text-xl">
                   {item.icon || '📦'}
                 </div>
 
@@ -80,22 +96,25 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
                 <div className="flex items-center gap-1 shrink-0">
                   <button
                     onClick={() => updateQty(item.product_id, item.variant_id, -1)}
-                    className="w-6 h-6 flex items-center justify-center rounded-lg bg-pos-hover hover:bg-gray-200 transition-colors"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-pos-hover hover:bg-gray-200 transition-colors"
+                    aria-label="Decrease quantity"
                   >
-                    <Minus className="w-3 h-3 text-pos-subtext" />
+                    <Minus className="w-3.5 h-3.5 text-pos-subtext" />
                   </button>
-                  <span className="w-5 text-center text-xs font-semibold text-pos-text">{item.quantity}</span>
+                  <span className="w-6 text-center text-xs font-semibold text-pos-text">{item.quantity}</span>
                   <button
                     onClick={() => updateQty(item.product_id, item.variant_id, 1)}
-                    className="w-6 h-6 flex items-center justify-center rounded-lg bg-pos-hover hover:bg-gray-200 transition-colors"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg bg-pos-hover hover:bg-gray-200 transition-colors"
+                    aria-label="Increase quantity"
                   >
-                    <Plus className="w-3 h-3 text-pos-subtext" />
+                    <Plus className="w-3.5 h-3.5 text-pos-subtext" />
                   </button>
                   <button
                     onClick={() => removeItem(item.product_id, item.variant_id)}
-                    className="w-6 h-6 flex items-center justify-center rounded-lg text-pos-muted hover:bg-red-50 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 ml-1"
+                    className="w-8 h-8 flex items-center justify-center rounded-lg text-pos-muted hover:bg-red-50 hover:text-red-500 transition-colors opacity-0 group-hover:opacity-100 ml-1"
+                    aria-label="Remove item"
                   >
-                    <Trash2 className="w-3 h-3" />
+                    <Trash2 className="w-3.5 h-3.5" />
                   </button>
                 </div>
               </div>
@@ -130,5 +149,31 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
         </button>
       </div>
     </div>
+  )
+
+  return (
+    <>
+      {/* Mobile overlay backdrop */}
+      {mobileOpen && (
+        <div
+          className="lg:hidden fixed inset-0 bg-black/40 z-30"
+          onClick={onMobileClose}
+        />
+      )}
+
+      {/* Mobile slide-in drawer */}
+      <div
+        className={`lg:hidden fixed inset-y-0 right-0 z-40 w-80 max-w-[90vw] bg-white shadow-2xl flex flex-col transition-transform duration-200 ${
+          mobileOpen ? 'translate-x-0' : 'translate-x-full'
+        }`}
+      >
+        {cartBody}
+      </div>
+
+      {/* Desktop sidebar */}
+      <div className="hidden lg:flex w-72 xl:w-80 bg-white border-l border-pos-border flex-col h-full shrink-0">
+        {cartBody}
+      </div>
+    </>
   )
 }

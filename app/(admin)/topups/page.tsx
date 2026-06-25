@@ -86,10 +86,10 @@ export default function TopupsPage() {
   const rest = topups.filter(t => t.status !== 'pending')
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Balance Top-ups</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Balance Top-ups</h1>
           <p className="text-gray-500 text-sm mt-1">
             {pending.length > 0 && <span className="text-amber-600 font-semibold">{pending.length} pending · </span>}
             Parent payment requests
@@ -99,7 +99,8 @@ export default function TopupsPage() {
       </div>
 
       <div className="admin-card overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[700px]">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Parent / Student</th>
@@ -180,6 +181,7 @@ export default function TopupsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
     </div>
   )

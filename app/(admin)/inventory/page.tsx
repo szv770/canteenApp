@@ -31,10 +31,10 @@ export default function InventoryPage() {
   const filtered = products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Inventory</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Inventory</h1>
           <p className="text-gray-500 text-sm mt-1">Track stock levels and restock products</p>
         </div>
       </div>
@@ -45,13 +45,14 @@ export default function InventoryPage() {
       </div>
 
       <div className="admin-card overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[400px]">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Product</th>
               <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Stock</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Alert At</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Cost</th>
+              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Alert At</th>
+              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Cost</th>
               <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
             </tr>
           </thead>
@@ -71,8 +72,8 @@ export default function InventoryPage() {
                     {p.stock_quantity}
                   </span>
                 </td>
-                <td className="px-5 py-3 text-sm text-gray-500 text-right">{p.low_stock_threshold}</td>
-                <td className="px-5 py-3 text-sm text-gray-500 text-right">{formatCurrency(p.cost_price)}</td>
+                <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{p.low_stock_threshold}</td>
+                <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{formatCurrency(p.cost_price)}</td>
                 <td className="px-5 py-3 text-right">
                   <button onClick={() => setRestockProduct(p)} className="btn-secondary text-xs py-1.5 px-3">
                     <Plus className="w-3.5 h-3.5" /> Restock
@@ -82,6 +83,7 @@ export default function InventoryPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {restockProduct && (
@@ -137,13 +139,13 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md animate-scale-in">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+    <div className="fixed inset-0 bg-black/40 flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md animate-scale-in max-h-[95vh] sm:max-h-[90vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-gray-100 shrink-0">
           <h2 className="font-bold text-gray-900">Restock — {product.icon} {product.name}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X className="w-5 h-5 text-gray-400" /></button>
+          <button onClick={onClose} className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-gray-100 rounded-xl"><X className="w-5 h-5 text-gray-400" /></button>
         </div>
-        <div className="p-5 space-y-4">
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
           <div className="p-3 bg-gray-50 rounded-xl flex justify-between">
             <span className="text-sm text-gray-600">Current stock</span>
             <span className="font-bold text-gray-900">{product.stock_quantity}</span>

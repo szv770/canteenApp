@@ -41,10 +41,10 @@ export default function ProductsPage() {
   )
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Products</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Products</h1>
           <p className="text-gray-500 text-sm mt-1">{products.filter(p => p.is_active).length} active products</p>
         </div>
         <button onClick={() => setShowAdd(true)} className="btn-primary text-sm">
@@ -58,12 +58,13 @@ export default function ProductsPage() {
       </div>
 
       <div className="admin-card overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[500px]">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Product</th>
               <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Price</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Cost</th>
+              <th className="text-right text-xs font-medium text-gray-400 px-3 sm:px-5 py-3 hidden sm:table-cell">Cost</th>
               <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Stock</th>
               <th className="text-center text-xs font-medium text-gray-400 px-5 py-3">Status</th>
               <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
@@ -84,7 +85,7 @@ export default function ProductsPage() {
                   </div>
                 </td>
                 <td className="px-5 py-3 text-sm font-medium text-gray-900 text-right">{formatCurrency(p.price)}</td>
-                <td className="px-5 py-3 text-sm text-gray-500 text-right">{formatCurrency(p.cost_price)}</td>
+                <td className="px-3 sm:px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{formatCurrency(p.cost_price)}</td>
                 <td className="px-5 py-3 text-right">
                   <span className={`badge ${p.stock_quantity <= 0 ? 'bg-red-100 text-red-600' : p.stock_quantity <= p.low_stock_threshold ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
                     {p.stock_quantity}
@@ -107,6 +108,7 @@ export default function ProductsPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {(showAdd || editProduct) && (
@@ -166,11 +168,11 @@ function ProductModal({ product, categories, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg animate-scale-in max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-lg animate-scale-in max-h-[95vh] sm:max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between p-5 border-b border-gray-100 sticky top-0 bg-white">
           <h2 className="font-bold text-gray-900 text-lg">{product ? 'Edit Product' : 'Add Product'}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors"><X className="w-5 h-5 text-gray-400" /></button>
+          <button onClick={onClose} className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors"><X className="w-5 h-5 text-gray-400" /></button>
         </div>
         <div className="p-5 space-y-4">
           {/* Emoji picker */}

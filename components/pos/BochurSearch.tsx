@@ -78,7 +78,7 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: 
           onChange={e => { setQuery(e.target.value); search(e.target.value) }}
           onFocus={() => results.length > 0 && setOpen(true)}
           onBlur={() => setTimeout(() => setOpen(false), 150)}
-          className="flex-1 text-sm text-pos-text placeholder-pos-muted bg-transparent outline-none"
+          className="flex-1 text-base text-pos-text placeholder-pos-muted bg-transparent outline-none"
         />
         {loading && <div className="w-4 h-4 border-2 border-brand/40 border-t-brand rounded-full animate-spin shrink-0" />}
       </div>

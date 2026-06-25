@@ -45,13 +45,13 @@ export default function BochurimPage() {
   }
 
   return (
-    <div className="p-6">
-      <div className="flex items-center justify-between mb-6">
+    <div className="p-4 sm:p-6">
+      <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-gray-900">Bochurim</h1>
+          <h1 className="text-xl sm:text-2xl font-bold text-gray-900">Bochurim</h1>
           <p className="text-gray-500 text-sm mt-1">{filtered.length} {showArchived ? 'archived' : 'active'} accounts</p>
         </div>
-        <div className="flex items-center gap-2">
+        <div className="flex items-center gap-2 flex-wrap">
           <button
             onClick={() => setShowArchived(!showArchived)}
             className={`btn-secondary text-sm ${showArchived ? 'bg-amber-50 border-amber-200 text-amber-700' : ''}`}
@@ -78,7 +78,8 @@ export default function BochurimPage() {
 
       {/* Table */}
       <div className="admin-card overflow-hidden">
-        <table className="w-full">
+        <div className="overflow-x-auto">
+        <table className="w-full min-w-[600px]">
           <thead>
             <tr className="border-b border-gray-100 bg-gray-50/50">
               <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">ID</th>
@@ -134,6 +135,7 @@ export default function BochurimPage() {
             ))}
           </tbody>
         </table>
+        </div>
       </div>
 
       {showAdd && (
@@ -373,15 +375,15 @@ function TopupModal({ bochur, onClose, onSaved }: {
 
 function Modal({ title, onClose, children }: { title: string; onClose: () => void; children: React.ReactNode }) {
   return (
-    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50 p-4">
-      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md animate-scale-in">
-        <div className="flex items-center justify-between p-5 border-b border-gray-100">
+    <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md max-h-[95vh] sm:max-h-[90vh] flex flex-col animate-scale-in">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-gray-100 shrink-0">
           <h2 className="font-bold text-gray-900 text-lg">{title}</h2>
-          <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl transition-colors">
+          <button onClick={onClose} className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-gray-100 rounded-xl transition-colors">
             <X className="w-5 h-5 text-gray-400" />
           </button>
         </div>
-        <div className="p-5">{children}</div>
+        <div className="p-4 sm:p-5 overflow-y-auto">{children}</div>
       </div>
     </div>
   )
