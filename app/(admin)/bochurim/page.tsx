@@ -168,6 +168,35 @@ export default function BochurimPage() {
         )}
       </div>
 
+      {!loading && totalPages > 1 && (
+        <div className="flex items-center justify-between mt-4 px-1">
+          <p className="text-sm text-gray-400">
+            Showing {page * PAGE_SIZE + 1}–{Math.min((page + 1) * PAGE_SIZE, filtered.length)} of {filtered.length}
+          </p>
+          <div className="flex items-center gap-2">
+            <button
+              onClick={() => setPage(p => Math.max(0, p - 1))}
+              disabled={page === 0}
+              className="btn-secondary text-sm py-1.5 px-3 disabled:opacity-40"
+            >
+              <ChevronLeft className="w-4 h-4" />
+              Prev
+            </button>
+            <span className="text-sm text-gray-500 font-medium">
+              {page + 1} / {totalPages}
+            </span>
+            <button
+              onClick={() => setPage(p => Math.min(totalPages - 1, p + 1))}
+              disabled={page >= totalPages - 1}
+              className="btn-secondary text-sm py-1.5 px-3 disabled:opacity-40"
+            >
+              Next
+              <ChevronRight className="w-4 h-4" />
+            </button>
+          </div>
+        </div>
+      )}
+
       {showAdd && (
         <AddBochurModal
           accountTypes={accountTypes}
