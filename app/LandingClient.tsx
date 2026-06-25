@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import Link from 'next/link'
 import { createClient } from '@/lib/supabase/client'
 import { ShoppingBag, DollarSign, Send, Check, ChevronRight, Smartphone } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -19,7 +19,6 @@ interface Props {
 }
 
 export default function LandingClient({ loggedIn, settings }: Props) {
-  const router = useRouter()
   const supabase = createClient()
 
   const canteenName = settings['canteen_name'] || 'Yeshiva Canteen'
@@ -88,19 +87,19 @@ export default function LandingClient({ loggedIn, settings }: Props) {
             <span className="font-bold text-gray-900">{canteenName}</span>
           </div>
           {loggedIn ? (
-            <button
-              onClick={() => router.push('/pos')}
+            <Link
+              href="/pos"
               className="flex items-center gap-1.5 bg-amber-400 hover:bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
             >
               Go to POS <ChevronRight className="w-4 h-4" />
-            </button>
+            </Link>
           ) : (
-            <button
-              onClick={() => router.push('/login')}
+            <Link
+              href="/login"
               className="text-sm text-gray-500 hover:text-gray-800 font-medium transition-colors"
             >
               Staff Login
-            </button>
+            </Link>
           )}
         </div>
       </nav>
