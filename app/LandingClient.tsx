@@ -41,7 +41,7 @@ export default function LandingClient({ loggedIn, settings }: Props) {
 
   function set(k: keyof typeof form, v: string) {
     setForm(f => ({ ...f, [k]: v }))
-    setFormError('')
+    if (formError) setFormError('')
   }
 
   function err(msg: string) {
@@ -257,7 +257,9 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Email *</label>
                       <input
-                        type="email"
+                        type="text"
+                        inputMode="email"
+                        autoComplete="email"
                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
                         placeholder="you@example.com"
                         value={form.parentEmail}
