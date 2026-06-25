@@ -79,8 +79,8 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
 
       {/* Emoji / icon */}
       <div className="w-14 h-14 flex items-center justify-center mb-2">
-        {product.emoji ? (
-          <span className="text-4xl leading-none select-none">{product.emoji}</span>
+        {product.icon ? (
+          <span className="text-4xl leading-none select-none">{product.icon}</span>
         ) : (
           <div className="w-12 h-12 bg-pos-hover rounded-xl flex items-center justify-center">
             <Package className="w-6 h-6 text-pos-muted" />

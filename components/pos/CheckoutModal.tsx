@@ -56,21 +56,14 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
       const { data: { user } } = await supabase.auth.getUser()
       if (!user) throw new Error('Not authenticated')
 
-      const { data: cashier } = await supabase
-        .from('cashier_profiles')
-        .select('id')
-        .eq('user_id', user.id)
-        .single()
-
       // Create order
       const { data: order, error: orderErr } = await supabase
         .from('orders')
         .insert({
           bochur_id: loadedBochur?.id ?? null,
-          cashier_id: cashier?.id,
+          cashier_id: user.id,
           subtotal: rawSubtotal,
           discount_amount: 0,
-          tax_amount: 0,
           total: method === 'credit_card' ? total : rawSubtotal,
           status: 'completed',
         })
@@ -115,8 +108,8 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
           bochur_id: loadedBochur.id,
           amount: -rawSubtotal,
           type: 'purchase',
-          reference_id: order.id,
-          cashier_id: cashier?.id,
+          order_id: order.id,
+          cashier_id: user.id,
         })
       }
 

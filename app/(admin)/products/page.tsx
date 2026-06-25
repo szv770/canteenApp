@@ -76,7 +76,7 @@ export default function ProductsPage() {
               <tr key={p.id} className="table-row">
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl">{p.emoji || '📦'}</span>
+                    <span className="text-xl">{p.icon || '📦'}</span>
                     <div>
                       <p className="text-sm font-medium text-gray-900">{p.name}</p>
                       {p.has_variants && <p className="text-xs text-gray-400">Has variants</p>}
@@ -134,7 +134,7 @@ function ProductModal({ product, categories, onClose, onSaved }: {
     cost_price: product?.cost_price || 0,
     stock_quantity: product?.stock_quantity || 0,
     low_stock_threshold: product?.low_stock_threshold || 5,
-    emoji: product?.emoji || '',
+    icon: product?.icon || '',
     has_variants: product?.has_variants || false,
     show_when_out_of_stock: product?.show_when_out_of_stock ?? true,
     is_active: product?.is_active ?? true,
@@ -165,8 +165,8 @@ function ProductModal({ product, categories, onClose, onSaved }: {
             <label className="block text-sm font-medium text-gray-700 mb-2">Icon</label>
             <div className="flex flex-wrap gap-1.5 p-3 bg-gray-50 rounded-xl max-h-28 overflow-y-auto">
               {EMOJIS.map(e => (
-                <button key={e} onClick={() => setForm(f => ({ ...f, emoji: e }))}
-                  className={`w-8 h-8 text-xl flex items-center justify-center rounded-lg transition-all ${form.emoji === e ? 'bg-brand-light ring-2 ring-brand' : 'hover:bg-gray-200'}`}>
+                <button key={e} onClick={() => setForm(f => ({ ...f, icon: e }))}
+                  className={`w-8 h-8 text-xl flex items-center justify-center rounded-lg transition-all ${form.icon === e ? 'bg-brand-light ring-2 ring-brand' : 'hover:bg-gray-200'}`}>
                   {e}
                 </button>
               ))}

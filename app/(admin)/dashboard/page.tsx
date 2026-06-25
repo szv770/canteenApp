@@ -15,7 +15,7 @@ async function getStats(supabase: any) {
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', today.toISOString()),
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', weekAgo.toISOString()),
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', monthAgo.toISOString()),
-    supabase.from('bochurim_with_id').select('balance').eq('is_archived', false),
+    supabase.from('bochurim_with_id').select('balance').eq('archived', false),
     supabase.from('products').select('name,stock_quantity,low_stock_threshold').eq('is_active', true).lte('stock_quantity', supabase.raw?.('low_stock_threshold') ?? 5),
     supabase.from('orders').select('*, cashier_profiles(name)').eq('status', 'completed').order('created_at', { ascending: false }).limit(10),
   ])
@@ -126,7 +126,7 @@ export default async function DashboardPage() {
             ) : actualLowStock.map((p: any) => (
               <div key={p.id} className="flex items-center justify-between p-2 rounded-lg hover:bg-gray-50">
                 <div className="flex items-center gap-2">
-                  <span className="text-lg">{p.emoji || '📦'}</span>
+                  <span className="text-lg">{p.icon || '📦'}</span>
                   <span className="text-sm text-gray-700 font-medium">{p.name}</span>
                 </div>
                 <span className={`badge ${p.stock_quantity <= 0 ? 'bg-red-100 text-red-600' : 'bg-amber-100 text-amber-600'}`}>

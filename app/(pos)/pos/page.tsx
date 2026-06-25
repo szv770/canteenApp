@@ -61,7 +61,7 @@ export default function PosPage() {
     if (prods.data) setProducts(prods.data)
     if (setts.data) {
       const map: Record<string, string> = {}
-      setts.data.forEach((s: AppSettings) => { map[s.key] = s.value })
+      setts.data.forEach((s: any) => { map[s.key] = String(s.value) })
       setSettings(map)
     }
     setLoading(false)
@@ -70,7 +70,7 @@ export default function PosPage() {
   async function loadCashier() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
-    const { data } = await supabase.from('cashier_profiles').select('name,role').eq('user_id', user.id).single()
+    const { data } = await supabase.from('cashier_profiles').select('name,role').eq('id', user.id).single()
     if (data) { setCashierName(data.name); setCashierRole(data.role) }
   }
 
@@ -101,7 +101,7 @@ export default function PosPage() {
         variant_id: variantId,
         name: product.name,
         variant_label: variantLabel,
-        emoji: product.emoji,
+        icon: product.icon,
         price,
         quantity: 1,
       }]

@@ -39,7 +39,7 @@ export default function SettingsPage() {
     supabase.from('settings').select('*').then(({ data }) => {
       if (data) {
         const map: Record<string, string> = {}
-        data.forEach((s: any) => { map[s.key] = s.value })
+        data.forEach((s: any) => { map[s.key] = String(s.value) })
         setSettings(map)
       }
       setLoading(false)

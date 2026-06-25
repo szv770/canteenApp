@@ -64,7 +64,7 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
               >
                 {/* Emoji */}
                 <div className="w-9 h-9 bg-pos-bg rounded-lg flex items-center justify-center shrink-0 text-xl">
-                  {item.emoji || '📦'}
+                  {item.icon || '📦'}
                 </div>
 
                 {/* Name + variant */}

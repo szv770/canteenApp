@@ -31,7 +31,7 @@ export default function VariantModal({ product, onSelect, onClose }: Props) {
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm animate-scale-in">
         <div className="flex items-center justify-between p-5 border-b border-pos-border">
           <div>
-            <p className="font-bold text-pos-text text-lg">{product.emoji} {product.name}</p>
+            <p className="font-bold text-pos-text text-lg">{product.icon} {product.name}</p>
             <p className="text-pos-subtext text-sm">Choose a size</p>
           </div>
           <button onClick={onClose} className="p-2 hover:bg-pos-hover rounded-xl transition-colors">

@@ -37,7 +37,7 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: 
         .from('bochurim_with_id')
         .select('*, account_type:account_types(*)')
         .or(`name.ilike.%${q}%,bochur_id.ilike.%${q}%`)
-        .eq('is_archived', false)
+        .eq('archived', false)
         .limit(6)
       setResults(data || [])
       setOpen(true)

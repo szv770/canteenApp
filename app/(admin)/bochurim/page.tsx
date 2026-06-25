@@ -22,7 +22,7 @@ export default function BochurimPage() {
   async function loadData() {
     setLoading(true)
     const [bRes, atRes] = await Promise.all([
-      supabase.from('bochurim_with_id').select('*, account_type:account_types(*)').eq('is_archived', showArchived).order('name'),
+      supabase.from('bochurim_with_id').select('*, account_type:account_types(*)').eq('archived', showArchived).order('name'),
       supabase.from('account_types').select('*').eq('is_active', true),
     ])
     setBochurim(bRes.data || [])
@@ -38,7 +38,7 @@ export default function BochurimPage() {
 
   async function archiveBochur(id: string) {
     if (!confirm('Archive this bochur? They will no longer appear in POS searches.')) return
-    await supabase.from('bochurim').update({ is_archived: true }).eq('id', id)
+    await supabase.from('bochurim').update({ archived: true }).eq('id', id)
     toast.success('Bochur archived')
     loadData()
   }
@@ -231,7 +231,7 @@ function TopupModal({ bochur, onClose, onSaved }: {
     if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
-    const { data: cashier } = await supabase.from('cashier_profiles').select('id').eq('user_id', user!.id).single()
+    const { data: cashier } = await supabase.from('cashier_profiles').select('id').eq('id', user!.id).single()
 
     const newBalance = bochur.balance + amt
     await supabase.from('bochurim').update({ balance: newBalance }).eq('id', bochur.id)

@@ -10,7 +10,7 @@ export default async function AdminLayout({ children }: { children: React.ReactN
   const { data: profile } = await supabase
     .from('cashier_profiles')
     .select('role')
-    .eq('user_id', user.id)
+    .eq('id', user.id)
     .single()
 
   if (!profile || profile.role !== 'admin') redirect('/pos')

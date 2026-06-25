@@ -62,7 +62,7 @@ export default function InventoryPage() {
               <tr key={p.id} className="table-row">
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl">{p.emoji || '📦'}</span>
+                    <span className="text-xl">{p.icon || '📦'}</span>
                     <span className="text-sm font-medium text-gray-900">{p.name}</span>
                   </div>
                 </td>
@@ -121,7 +121,7 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
 
     await supabase.from('stock_entries').insert({
       product_id: product.id,
-      quantity: qty,
+      quantity_added: qty,
       cost_per_unit: costPerUnit,
       supplier_id: finalSupplierId || null,
       notes: notes || null,
@@ -140,7 +140,7 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
     <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50 p-4">
       <div className="bg-white rounded-2xl shadow-xl w-full max-w-md animate-scale-in">
         <div className="flex items-center justify-between p-5 border-b border-gray-100">
-          <h2 className="font-bold text-gray-900">Restock — {product.emoji} {product.name}</h2>
+          <h2 className="font-bold text-gray-900">Restock — {product.icon} {product.name}</h2>
           <button onClick={onClose} className="p-2 hover:bg-gray-100 rounded-xl"><X className="w-5 h-5 text-gray-400" /></button>
         </div>
         <div className="p-5 space-y-4">

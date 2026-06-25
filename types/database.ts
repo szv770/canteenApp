@@ -25,7 +25,7 @@ export interface Product {
   cost_price: number
   stock_quantity: number
   low_stock_threshold: number
-  emoji: string | null
+  icon: string | null
   has_variants: boolean
   is_active: boolean
   show_when_out_of_stock: boolean
@@ -46,7 +46,7 @@ export interface ProductVariant {
 export interface Supplier {
   id: string
   name: string
-  contact_info: string | null
+  contact: string | null
   created_at: string
 }
 
@@ -60,7 +60,7 @@ export interface Bochur {
   allow_negative: boolean
   max_negative_balance: number
   notes: string | null
-  is_archived: boolean
+  archived: boolean
   created_at: string
   updated_at: string
 }
@@ -72,10 +72,8 @@ export interface BochurWithId extends Bochur {
 
 export interface CashierProfile {
   id: string
-  user_id: string
   name: string
-  role: 'admin' | 'cashier' | 'trusted_cashier'
-  pin: string | null
+  role: 'admin' | 'cashier'
   is_active: boolean
   created_at: string
 }
@@ -140,7 +138,7 @@ export interface CartItem {
   variant_id: string | null
   name: string
   variant_label: string | null
-  emoji: string | null
+  icon: string | null
   price: number
   quantity: number
 }
