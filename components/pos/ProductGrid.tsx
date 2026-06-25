@@ -43,7 +43,7 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
   const outOfStock = product.stock_quantity <= 0
   const lowStock = !outOfStock && product.stock_quantity <= product.low_stock_threshold
   const isBlocked = outOfStock && outOfStockBehavior === 'block'
-  const isHidden = outOfStock && !product.show_when_out_of_stock
+  const isHidden = outOfStock && (outOfStockBehavior === 'hide' || !product.show_when_out_of_stock)
 
   if (isHidden) return null
 

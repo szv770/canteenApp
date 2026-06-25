@@ -108,6 +108,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
           bochur_id: loadedBochur.id,
           amount: -rawSubtotal,
           type: 'purchase',
+          method: 'balance',
           order_id: order.id,
           cashier_id: user.id,
         })

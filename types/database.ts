@@ -85,7 +85,6 @@ export interface Order {
   cashier_id: string
   subtotal: number
   discount_amount: number
-  tax_amount: number
   total: number
   status: 'completed' | 'voided' | 'refunded'
   notes: string | null
@@ -121,6 +120,7 @@ export interface BalanceLedger {
   bochur_id: string
   amount: number
   type: 'purchase' | 'topup' | 'refund' | 'adjustment'
+  method: string | null
   order_id: string | null
   note: string | null
   cashier_id: string | null

@@ -23,8 +23,8 @@ export default function LoginPage() {
       setError(error.message)
       setLoading(false)
     } else {
-      router.push('/pos')
       router.refresh()
+      router.push('/pos')
     }
   }
 
