@@ -194,7 +194,7 @@ function BundleModal({ bundle, onClose, onSaved }: {
       quantity: bi.quantity,
     })) || []
   )
-  const [products, setProducts] = useState<Product[]>([])
+  const [products, setProducts] = useState<Pick<Product, 'id' | 'name' | 'icon' | 'price'>[]>([])
   const [productSearch, setProductSearch] = useState('')
   const [saving, setSaving] = useState(false)
 
@@ -212,7 +212,7 @@ function BundleModal({ bundle, onClose, onSaved }: {
     !bundleItems.find(bi => bi.product_id === p.id)
   )
 
-  function addProduct(p: Product) {
+  function addProduct(p: Pick<Product, 'id' | 'name' | 'icon' | 'price'>) {
     setBundleItems(prev => [...prev, {
       product_id: p.id,
       product_name: p.name,

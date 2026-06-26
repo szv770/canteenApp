@@ -390,7 +390,7 @@ export default function ReportsPage() {
         bochurimInRange.add(o.bochur_id)
       }
     }
-    for (const bid of bochurimInRange) {
+    for (const bid of Array.from(bochurimInRange)) {
       if (firstOrderDate[bid] >= fromISO && firstOrderDate[bid] < toISO) {
         newC++
       } else {
@@ -728,7 +728,7 @@ export default function ReportsPage() {
                     ))}
                   </Pie>
                   <Tooltip
-                    formatter={(value: number) => formatCurrency(value)}
+                    formatter={(value) => formatCurrency(Number(value))}
                   />
                 </PieChart>
               </ResponsiveContainer>
