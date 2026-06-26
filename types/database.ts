@@ -31,6 +31,24 @@ export interface Product {
   show_when_out_of_stock: boolean
   created_at: string
   updated_at: string
+  sale_price?: number | null
+  sale_active?: boolean
+  sale_label?: string | null
+  sale_ends_at?: string | null
+}
+
+export interface DiscountCode {
+  id: string
+  code: string
+  description: string | null
+  type: 'percent' | 'fixed'
+  value: number
+  min_order_amount: number
+  max_uses: number | null
+  uses_count: number
+  is_active: boolean
+  expires_at: string | null
+  created_at: string
 }
 
 export interface ProductVariant {
@@ -41,6 +59,16 @@ export interface ProductVariant {
   stock_quantity: number
   sort_order: number
   is_active: boolean
+}
+
+export interface ProductAddon {
+  id: string
+  product_id: string
+  name: string
+  price_addition: number
+  is_active: boolean
+  sort_order: number
+  created_at: string
 }
 
 export interface Supplier {
@@ -61,6 +89,8 @@ export interface Bochur {
   max_negative_balance: number
   notes: string | null
   archived: boolean
+  is_frozen: boolean
+  freeze_reason: string | null
   created_at: string
   updated_at: string
 }
@@ -141,4 +171,34 @@ export interface CartItem {
   icon: string | null
   price: number
   quantity: number
+  addon_ids?: string[]
+  addon_names?: string[]
+  addon_total?: number
+  is_bundle?: boolean
+  bundle_item_ids?: string[]
+  bundle_included_names?: string[]
+}
+
+export interface ProductBundle {
+  id: string
+  name: string
+  description: string | null
+  price: number
+  original_price: number | null
+  icon: string | null
+  is_active: boolean
+  sort_order: number
+}
+
+export interface BundleItem {
+  id: string
+  bundle_id: string
+  product_id: string
+  quantity: number
+  // joined
+  products?: { name: string; icon: string | null }
+}
+
+export interface ProductBundleWithItems extends ProductBundle {
+  bundle_items: BundleItem[]
 }

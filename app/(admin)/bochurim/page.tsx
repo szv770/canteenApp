@@ -7,6 +7,7 @@ import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { BochurWithId, AccountType } from '@/types/database'
 import TableSkeleton from '@/components/admin/TableSkeleton'
+import BochurProfileModal from './BochurProfileModal'
 
 export default function BochurimPage() {
   const supabase = createClient()
@@ -18,6 +19,7 @@ export default function BochurimPage() {
   const [showAdd, setShowAdd] = useState(false)
   const [editBochur, setEditBochur] = useState<BochurWithId | null>(null)
   const [topupBochur, setTopupBochur] = useState<BochurWithId | null>(null)
+  const [profileBochur, setProfileBochur] = useState<BochurWithId | null>(null)
   const [page, setPage] = useState(0)
   const PAGE_SIZE = 50
 
@@ -102,9 +104,22 @@ export default function BochurimPage() {
               ) : filtered.length === 0 ? (
                 <tr><td colSpan={6} className="px-5 py-12 text-center text-slate-400 text-sm">No bochurim found</td></tr>
               ) : paginated.map(b => (
-                <tr key={b.id} className="table-row">
+                <tr
+                  key={b.id}
+                  className="table-row cursor-pointer"
+                  onClick={() => setProfileBochur(b)}
+                >
                   <td className="px-5 py-3 text-sm font-mono text-slate-500">{b.bochur_id}</td>
-                  <td className="px-5 py-3 text-sm font-semibold text-slate-900">{b.name}</td>
+                  <td className="px-5 py-3 text-sm font-semibold text-slate-900">
+                    <div className="flex items-center gap-2">
+                      {b.name}
+                      {b.is_frozen && (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-red-100 text-red-600 text-xs font-semibold border border-red-200">
+                          Frozen
+                        </span>
+                      )}
+                    </div>
+                  </td>
                   <td className="px-5 py-3 text-sm text-slate-500">{b.grade || '—'}</td>
                   <td className="px-5 py-3 text-sm text-slate-500">{(b as any).account_type?.name}</td>
                   <td className={`px-5 py-3 text-sm font-bold text-right ${b.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
@@ -113,14 +128,14 @@ export default function BochurimPage() {
                   <td className="px-5 py-3 text-right">
                     <div className="flex items-center justify-end gap-1">
                       <button
-                        onClick={() => setTopupBochur(b)}
+                        onClick={e => { e.stopPropagation(); setTopupBochur(b) }}
                         className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors"
                         title="Add funds"
                       >
                         <DollarSign className="w-4 h-4" />
                       </button>
                       <button
-                        onClick={() => setEditBochur(b)}
+                        onClick={e => { e.stopPropagation(); setEditBochur(b) }}
                         className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-lg transition-colors"
                         title="Edit"
                       >
@@ -128,7 +143,7 @@ export default function BochurimPage() {
                       </button>
                       {!showArchived && (
                         <button
-                          onClick={() => archiveBochur(b.id)}
+                          onClick={e => { e.stopPropagation(); archiveBochur(b.id) }}
                           className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-lg transition-colors"
                           title="Archive"
                         >
@@ -219,6 +234,15 @@ export default function BochurimPage() {
           bochur={topupBochur}
           onClose={() => setTopupBochur(null)}
           onSaved={() => { setTopupBochur(null); loadData() }}
+        />
+      )}
+
+      {profileBochur && (
+        <BochurProfileModal
+          bochur={profileBochur}
+          accountTypes={accountTypes}
+          onClose={() => setProfileBochur(null)}
+          onUpdated={() => { setProfileBochur(null); loadData() }}
         />
       )}
     </div>
