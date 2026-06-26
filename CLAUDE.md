@@ -160,3 +160,4 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-06-26 | Feat: bochur profile modal — stats, spending chart, transactions, ledger, freeze/unfreeze |
 | 2026-06-26 | Fix: settings inputs losing focus (SettingControl moved to top-level) |
 | 2026-06-26 | Docs: CLAUDE.md created for auto-load context at session start |
+| 2026-06-26 | Fix: build TS errors — bundles page Product type mismatch, reports Set iteration, recharts Tooltip formatter |
