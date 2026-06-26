@@ -33,7 +33,7 @@ async function getStats(supabase: any) {
     supabase.from('bochurim_with_id').select('balance').eq('archived', false),
     supabase
       .from('orders')
-      .select('id, order_number, bochur_id, total, created_at, cashier_profiles(name)')
+      .select('id, order_number, bochur_id, total, created_at, cashier_profiles!cashier_id(name)')
       .eq('status', 'completed')
       .order('created_at', { ascending: false })
       .limit(10),

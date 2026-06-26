@@ -34,7 +34,9 @@ export interface Product {
   sale_price?: number | null
   sale_active?: boolean
   sale_label?: string | null
+  sale_starts_at?: string | null
   sale_ends_at?: string | null
+  allow_preorder?: boolean
 }
 
 export interface DiscountCode {
@@ -118,7 +120,62 @@ export interface Order {
   total: number
   status: 'completed' | 'voided' | 'refunded'
   notes: string | null
+  void_reason: string | null
+  voided_by: string | null
   created_at: string
+}
+
+export interface PreOrder {
+  id: string
+  bochur_id: string
+  scheduled_date: string
+  meal_period: 'breakfast' | 'lunch' | 'dinner' | 'snack'
+  notes: string | null
+  status: 'pending' | 'ready' | 'collected' | 'cancelled'
+  cashier_id: string | null
+  total: number
+  created_at: string
+}
+
+export interface PreOrderItem {
+  id: string
+  pre_order_id: string
+  product_id: string | null
+  product_name: string
+  quantity: number
+  unit_price: number
+}
+
+export interface TopupRequest {
+  id: string
+  bochur_id: string | null
+  parent_name: string | null
+  amount: number
+  method: 'cash' | 'zelle' | 'credit_card' | 'check' | 'other'
+  parent_notes: string | null
+  admin_notes: string | null
+  status: 'pending' | 'approved' | 'rejected'
+  reviewed_by: string | null
+  reviewed_at: string | null
+  created_at: string
+}
+
+export interface PurchaseOrder {
+  id: string
+  supplier: string | null
+  notes: string | null
+  total_cost: number
+  created_at: string
+  created_by: string | null
+}
+
+export interface PurchaseOrderItem {
+  id: string
+  po_id: string
+  product_id: string | null
+  product_name: string
+  quantity_added: number
+  unit_cost: number
 }
 
 export interface OrderItem {

@@ -231,7 +231,9 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     sale_active: product?.sale_active ?? false,
     sale_price: product?.sale_price != null ? String(product.sale_price) : '',
     sale_label: product?.sale_label || '',
+    sale_starts_at: product?.sale_starts_at ? product.sale_starts_at.slice(0, 16) : '',
     sale_ends_at: product?.sale_ends_at ? product.sale_ends_at.slice(0, 16) : '',
+    allow_preorder: product?.allow_preorder ?? false,
   })
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(initialCategoryIds)
   const [variants, setVariants] = useState<VariantDraft[]>([])
@@ -368,7 +370,9 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
       sale_active: form.sale_active,
       sale_price: salePrice,
       sale_label: form.sale_label.trim() || null,
+      sale_starts_at: form.sale_starts_at ? new Date(form.sale_starts_at).toISOString() : null,
       sale_ends_at: form.sale_ends_at ? new Date(form.sale_ends_at).toISOString() : null,
+      allow_preorder: form.allow_preorder,
     }
 
     let productId: string
@@ -540,14 +544,25 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
                     onChange={e => setForm(f => ({ ...f, sale_label: e.target.value }))}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Sale Ends <span className="text-slate-400 font-normal">(optional)</span></label>
-                  <input
-                    type="datetime-local"
-                    className="input-admin"
-                    value={form.sale_ends_at}
-                    onChange={e => setForm(f => ({ ...f, sale_ends_at: e.target.value }))}
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Sale Starts <span className="text-slate-400 font-normal">(optional)</span></label>
+                    <input
+                      type="datetime-local"
+                      className="input-admin"
+                      value={form.sale_starts_at}
+                      onChange={e => setForm(f => ({ ...f, sale_starts_at: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Sale Ends <span className="text-slate-400 font-normal">(optional)</span></label>
+                    <input
+                      type="datetime-local"
+                      className="input-admin"
+                      value={form.sale_ends_at}
+                      onChange={e => setForm(f => ({ ...f, sale_ends_at: e.target.value }))}
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -612,6 +627,10 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
             <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
               <input type="checkbox" checked={form.show_when_out_of_stock} onChange={e => setForm(f => ({ ...f, show_when_out_of_stock: e.target.checked }))} className="rounded" />
               <span className="text-sm text-slate-700">Show when out of stock</span>
+            </label>
+            <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
+              <input type="checkbox" checked={form.allow_preorder} onChange={e => setForm(f => ({ ...f, allow_preorder: e.target.checked }))} className="rounded" />
+              <span className="text-sm text-slate-700">Allow pre-ordering</span>
             </label>
           </div>
 

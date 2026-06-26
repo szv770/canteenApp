@@ -213,6 +213,10 @@ export default function PosPage() {
             loadedBochur={loadedBochur}
             onBochurLoaded={setLoadedBochur}
             onClear={() => setLoadedBochur(null)}
+            onUsualTap={(productId) => {
+              const product = products.find(p => p.id === productId)
+              if (product) handleProductTap(product)
+            }}
           />
         </div>
 
