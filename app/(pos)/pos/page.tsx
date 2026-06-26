@@ -11,7 +11,8 @@ import ProductGrid from '@/components/pos/ProductGrid'
 import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
 import VariantModal from '@/components/pos/VariantModal'
-import type { Category, Product, CartItem, BochurWithId, AppSettings, ProductVariant } from '@/types/database'
+import AddonModal from '@/components/pos/AddonModal'
+import type { Category, Product, CartItem, BochurWithId, AppSettings, ProductVariant, ProductAddon } from '@/types/database'
 
 export default function PosPage() {
   const supabaseRef = useRef(createClient())
@@ -30,6 +31,8 @@ export default function PosPage() {
   const [loadedBochur, setLoadedBochur] = useState<BochurWithId | null>(null)
   const [showCheckout, setShowCheckout] = useState(false)
   const [variantProduct, setVariantProduct] = useState<Product | null>(null)
+  const [addonProduct, setAddonProduct] = useState<Product | null>(null)
+  const [addonVariant, setAddonVariant] = useState<ProductVariant | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
 
@@ -103,19 +106,41 @@ export default function PosPage() {
     window.location.href = '/login'
   }
 
-  function addToCart(product: Product, variant?: ProductVariant) {
-    const key = variant ? `${product.id}-${variant.id}` : product.id
-    const price = variant ? variant.price : product.price
+  function addToCart(product: Product, variant?: ProductVariant, addons?: ProductAddon[]) {
+    const basePrice = variant ? variant.price : product.price
+    const price = !variant && product.sale_active && product.sale_price != null
+      ? product.sale_price
+      : basePrice
     const variantLabel = variant?.label ?? null
     const variantId = variant?.id ?? null
+    const addonIds = addons && addons.length > 0 ? addons.map(a => a.id) : undefined
+    const addonNames = addons && addons.length > 0 ? addons.map(a => a.name) : undefined
+    const addonTotal = addons && addons.length > 0 ? addons.reduce((sum, a) => sum + a.price_addition, 0) : undefined
 
     setCart(prev => {
+      // If item has addons, always add as new line (don't merge)
+      if (addonIds && addonIds.length > 0) {
+        return [...prev, {
+          product_id: product.id,
+          variant_id: variantId,
+          name: product.name,
+          variant_label: variantLabel,
+          icon: product.icon,
+          price,
+          quantity: 1,
+          addon_ids: addonIds,
+          addon_names: addonNames,
+          addon_total: addonTotal,
+        }]
+      }
       const existing = prev.find(i =>
-        i.product_id === product.id && i.variant_id === variantId
+        i.product_id === product.id && i.variant_id === variantId &&
+        (!i.addon_ids || i.addon_ids.length === 0)
       )
       if (existing) {
         return prev.map(i =>
-          i.product_id === product.id && i.variant_id === variantId
+          i.product_id === product.id && i.variant_id === variantId &&
+          (!i.addon_ids || i.addon_ids.length === 0)
             ? { ...i, quantity: i.quantity + 1 }
             : i
         )
@@ -136,11 +161,26 @@ export default function PosPage() {
     })
   }
 
+  async function checkAndShowAddonModal(product: Product, variant?: ProductVariant) {
+    const { data } = await supabase
+      .from('product_addons')
+      .select('id')
+      .eq('product_id', product.id)
+      .eq('is_active', true)
+      .limit(1)
+    if (data && data.length > 0) {
+      setAddonProduct(product)
+      setAddonVariant(variant)
+    } else {
+      addToCart(product, variant)
+    }
+  }
+
   function handleProductTap(product: Product) {
     if (product.has_variants) {
       setVariantProduct(product)
     } else {
-      addToCart(product)
+      checkAndShowAddonModal(product)
     }
   }
 
@@ -275,10 +315,31 @@ export default function PosPage() {
         <VariantModal
           product={variantProduct}
           onSelect={(variant) => {
-            addToCart(variantProduct, variant)
+            const p = variantProduct
             setVariantProduct(null)
+            checkAndShowAddonModal(p, variant)
           }}
           onClose={() => setVariantProduct(null)}
+        />
+      )}
+
+      {addonProduct && (
+        <AddonModal
+          product={addonProduct}
+          onConfirm={(selectedAddons) => {
+            addToCart(addonProduct, addonVariant, selectedAddons)
+            setAddonProduct(null)
+            setAddonVariant(undefined)
+          }}
+          onSkip={() => {
+            addToCart(addonProduct, addonVariant)
+            setAddonProduct(null)
+            setAddonVariant(undefined)
+          }}
+          onClose={() => {
+            setAddonProduct(null)
+            setAddonVariant(undefined)
+          }}
         />
       )}
 

@@ -16,6 +16,18 @@ interface Props {
 }
 
 export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, mobileOpen, onMobileClose }: Props) {
+  function updateQtyByIndex(index: number, qty: number) {
+    if (qty <= 0) {
+      setCart(prev => prev.filter((_, i) => i !== index))
+    } else {
+      setCart(prev => prev.map((item, i) => i === index ? { ...item, quantity: qty } : item))
+    }
+  }
+
+  function removeItemByIndex(index: number) {
+    setCart(prev => prev.filter((_, i) => i !== index))
+  }
+
   function updateQty(productId: string, variantId: string | null, qty: number) {
     if (qty <= 0) {
       setCart(prev => prev.filter(i => !(i.product_id === productId && i.variant_id === variantId)))
@@ -37,7 +49,7 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
     if (window.confirm('Clear all items from the cart?')) setCart([])
   }
 
-  const subtotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0)
+  const subtotal = cart.reduce((sum, i) => sum + (i.price + (i.addon_total || 0)) * i.quantity, 0)
   const itemCount = cart.reduce((sum, i) => sum + i.quantity, 0)
   const balanceColor = loadedBochur
     ? (loadedBochur.balance >= subtotal ? 'text-emerald-600' : 'text-red-500')
@@ -89,12 +101,12 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
           </div>
         ) : (
           <div className="p-3 space-y-0.5">
-            {cart.map(item => (
+            {cart.map((item, idx) => (
               <CartRow
-                key={`${item.product_id}-${item.variant_id}`}
+                key={`${item.product_id}-${item.variant_id}-${idx}`}
                 item={item}
-                onQtyChange={(qty) => updateQty(item.product_id, item.variant_id, qty)}
-                onRemove={() => removeItem(item.product_id, item.variant_id)}
+                onQtyChange={(qty) => updateQtyByIndex(idx, qty)}
+                onRemove={() => removeItemByIndex(idx)}
               />
             ))}
           </div>
@@ -178,7 +190,10 @@ function CartRow({ item, onQtyChange, onRemove }: {
       <div className="flex-1 min-w-0">
         <p className="text-[13px] font-semibold text-slate-800 truncate leading-snug">{item.name}</p>
         {item.variant_label && <p className="text-xs text-slate-400">{item.variant_label}</p>}
-        <p className="text-xs font-bold text-amber-600">{formatCurrency(item.price * item.quantity)}</p>
+        {item.addon_names && item.addon_names.length > 0 && (
+          <p className="text-xs text-slate-400">+ {item.addon_names.join(', ')}</p>
+        )}
+        <p className="text-xs font-bold text-amber-600">{formatCurrency((item.price + (item.addon_total || 0)) * item.quantity)}</p>
       </div>
 
       {/* Qty controls */}

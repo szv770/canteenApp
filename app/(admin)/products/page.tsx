@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
-import type { Product, Category, ProductVariant } from '@/types/database'
+import type { Product, Category, ProductVariant, ProductAddon } from '@/types/database'
 import TableSkeleton from '@/components/admin/TableSkeleton'
 
 const EMOJIS = ['🍕','🌮','🌯','🥗','🍔','🍟','🍦','🧁','🍰','🍩','🍪','🥤','☕','🧃','🍫','🍬','🍭','🧇','🥞','🌽','🍿','🧀','🥨','🫐','🍓','🍎','🍌','🍉','🍑','🍒']
@@ -116,7 +116,14 @@ export default function ProductsPage() {
                   <div className="flex items-center gap-2">
                     <span className="text-xl">{p.icon || '📦'}</span>
                     <div>
-                      <p className="text-sm font-semibold text-slate-900">{p.name}</p>
+                      <div className="flex items-center gap-1.5">
+                        <p className="text-sm font-semibold text-slate-900">{p.name}</p>
+                        {p.sale_active && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full text-[10px] font-bold bg-red-500 text-white leading-none">
+                            SALE
+                          </span>
+                        )}
+                      </div>
                       {p.has_variants && <p className="text-xs text-slate-400">Has variants</p>}
                     </div>
                   </div>
@@ -191,6 +198,18 @@ function emptyVariant(): VariantDraft {
   return { label: '', price: '', stock_quantity: '', is_active: true }
 }
 
+// A local type for addon rows being edited in the modal
+type AddonDraft = {
+  id?: string
+  name: string
+  price_addition: string  // kept as string for controlled input
+  is_active: boolean
+}
+
+function emptyAddon(): AddonDraft {
+  return { name: '', price_addition: '', is_active: true }
+}
+
 function ProductModal({ product, categories, initialCategoryIds, onClose, onSaved }: {
   product: Product | null
   categories: Category[]
@@ -209,10 +228,17 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     has_variants: product?.has_variants || false,
     show_when_out_of_stock: product?.show_when_out_of_stock ?? true,
     is_active: product?.is_active ?? true,
+    sale_active: product?.sale_active ?? false,
+    sale_price: product?.sale_price != null ? String(product.sale_price) : '',
+    sale_label: product?.sale_label || '',
+    sale_ends_at: product?.sale_ends_at ? product.sale_ends_at.slice(0, 16) : '',
   })
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(initialCategoryIds)
   const [variants, setVariants] = useState<VariantDraft[]>([])
   const [variantsLoading, setVariantsLoading] = useState(false)
+  const [hasAddons, setHasAddons] = useState(false)
+  const [addons, setAddons] = useState<AddonDraft[]>([])
+  const [addonsLoading, setAddonsLoading] = useState(false)
   const [saving, setSaving] = useState(false)
 
   function toggleCategory(id: string) {
@@ -246,6 +272,49 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
         })
     }
   }, [])
+
+  // Load existing add-ons when editing a product
+  useEffect(() => {
+    if (product?.id) {
+      setAddonsLoading(true)
+      supabase
+        .from('product_addons')
+        .select('*')
+        .eq('product_id', product.id)
+        .order('sort_order')
+        .then(({ data }) => {
+          if (data && data.length > 0) {
+            setHasAddons(true)
+            setAddons(data.map((a: ProductAddon) => ({
+              id: a.id,
+              name: a.name,
+              price_addition: String(a.price_addition),
+              is_active: a.is_active,
+            })))
+          }
+          setAddonsLoading(false)
+        })
+    }
+  }, [])
+
+  function handleHasAddonsChange(checked: boolean) {
+    setHasAddons(checked)
+    if (checked && addons.length === 0) {
+      setAddons([emptyAddon()])
+    }
+  }
+
+  function updateAddon(index: number, field: keyof AddonDraft, value: string | boolean) {
+    setAddons(prev => prev.map((a, i) => i === index ? { ...a, [field]: value } : a))
+  }
+
+  function addAddon() {
+    setAddons(prev => [...prev, emptyAddon()])
+  }
+
+  function removeAddon(index: number) {
+    setAddons(prev => prev.filter((_, i) => i !== index))
+  }
 
   // When has_variants is toggled on and there are no rows yet, seed one empty row
   function handleHasVariantsChange(checked: boolean) {
@@ -284,6 +353,8 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
 
     setSaving(true)
 
+    const salePrice = form.sale_active && form.sale_price !== '' ? parseFloat(form.sale_price) : null
+
     const payload = {
       name: form.name,
       price,
@@ -294,6 +365,10 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
       has_variants: form.has_variants,
       show_when_out_of_stock: form.show_when_out_of_stock,
       is_active: form.is_active,
+      sale_active: form.sale_active,
+      sale_price: salePrice,
+      sale_label: form.sale_label.trim() || null,
+      sale_ends_at: form.sale_ends_at ? new Date(form.sale_ends_at).toISOString() : null,
     }
 
     let productId: string
@@ -343,6 +418,25 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     } else {
       // If has_variants was turned off, remove all variants
       await supabase.from('product_variants').delete().eq('product_id', productId)
+    }
+
+    // Handle add-ons: delete all existing then insert current list
+    const { error: delAddonError } = await supabase
+      .from('product_addons')
+      .delete()
+      .eq('product_id', productId)
+    if (delAddonError) { toast.error(delAddonError.message); setSaving(false); return }
+
+    if (hasAddons && addons.length > 0) {
+      const addonRows = addons.map((a, i) => ({
+        product_id: productId,
+        name: a.name.trim(),
+        price_addition: parseFloat(a.price_addition) || 0,
+        is_active: a.is_active,
+        sort_order: i,
+      }))
+      const { error: insAddonError } = await supabase.from('product_addons').insert(addonRows)
+      if (insAddonError) { toast.error(insAddonError.message); setSaving(false); return }
     }
 
     toast.success(product ? 'Product updated' : 'Product added')
@@ -411,6 +505,54 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
             </div>
           </div>
 
+          {/* Sale / Promotion */}
+          <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.sale_active}
+                onChange={e => setForm(f => ({ ...f, sale_active: e.target.checked }))}
+                className="rounded"
+              />
+              <span className="text-sm font-medium text-slate-700">On Sale</span>
+            </label>
+            {form.sale_active && (
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Sale Price *</label>
+                  <input
+                    type="number"
+                    className="input-admin"
+                    placeholder="0.00"
+                    value={form.sale_price}
+                    onChange={e => setForm(f => ({ ...f, sale_price: e.target.value }))}
+                    step={0.25}
+                    min={0}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Sale Label <span className="text-slate-400 font-normal">(optional, e.g. "20% off")</span></label>
+                  <input
+                    type="text"
+                    className="input-admin"
+                    placeholder="e.g. Weekend Special"
+                    value={form.sale_label}
+                    onChange={e => setForm(f => ({ ...f, sale_label: e.target.value }))}
+                  />
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Sale Ends <span className="text-slate-400 font-normal">(optional)</span></label>
+                  <input
+                    type="datetime-local"
+                    className="input-admin"
+                    value={form.sale_ends_at}
+                    onChange={e => setForm(f => ({ ...f, sale_ends_at: e.target.value }))}
+                  />
+                </div>
+              </div>
+            )}
+          </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Stock Qty</label>
@@ -457,6 +599,15 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
                 className="rounded"
               />
               <span className="text-sm text-slate-700">Has variants (sizes, flavors)</span>
+            </label>
+            <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
+              <input
+                type="checkbox"
+                checked={hasAddons}
+                onChange={e => handleHasAddonsChange(e.target.checked)}
+                className="rounded"
+              />
+              <span className="text-sm text-slate-700">Has add-ons (toppings, extras)</span>
             </label>
             <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
               <input type="checkbox" checked={form.show_when_out_of_stock} onChange={e => setForm(f => ({ ...f, show_when_out_of_stock: e.target.checked }))} className="rounded" />
@@ -533,6 +684,72 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
                     className="flex items-center gap-1.5 text-sm text-amber-600 font-medium hover:underline"
                   >
                     <Plus className="w-4 h-4" /> Add variant
+                  </button>
+                </>
+              )}
+            </div>
+          )}
+
+          {/* Add-on management — only shown when hasAddons is checked */}
+          {hasAddons && (
+            <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+              <p className="text-sm font-medium text-slate-700">Add-ons</p>
+
+              {addonsLoading ? (
+                <p className="text-sm text-slate-400">Loading add-ons...</p>
+              ) : (
+                <>
+                  {addons.length > 0 && (
+                    <div className="space-y-2">
+                      {/* Column headers */}
+                      <div className="grid grid-cols-[1fr_90px_32px_32px] gap-2 px-1">
+                        <p className="text-xs font-medium text-slate-400">Name</p>
+                        <p className="text-xs font-medium text-slate-400">+Price</p>
+                        <p className="text-xs font-medium text-slate-400 text-center">On</p>
+                        <span />
+                      </div>
+
+                      {addons.map((a, i) => (
+                        <div key={i} className="grid grid-cols-[1fr_90px_32px_32px] gap-2 items-center">
+                          <input
+                            className="input-admin text-sm"
+                            placeholder="e.g. Extra cheese"
+                            value={a.name}
+                            onChange={e => updateAddon(i, 'name', e.target.value)}
+                          />
+                          <input
+                            type="number"
+                            className="input-admin text-sm"
+                            placeholder="0.00"
+                            step={0.25}
+                            min={0}
+                            value={a.price_addition}
+                            onChange={e => updateAddon(i, 'price_addition', e.target.value)}
+                          />
+                          <div className="flex items-center justify-center">
+                            <input
+                              type="checkbox"
+                              checked={a.is_active}
+                              onChange={e => updateAddon(i, 'is_active', e.target.checked)}
+                              className="rounded"
+                            />
+                          </div>
+                          <button
+                            onClick={() => removeAddon(i)}
+                            className="flex items-center justify-center w-8 h-8 text-gray-400 hover:text-red-500 hover:bg-red-50 rounded-lg transition-colors"
+                          >
+                            <Trash2 className="w-4 h-4" />
+                          </button>
+                        </div>
+                      ))}
+                    </div>
+                  )}
+
+                  <button
+                    onClick={addAddon}
+                    className="flex items-center gap-1.5 text-sm text-amber-600 font-medium hover:underline"
+                  >
+                    <Plus className="w-4 h-4" /> Add add-on
                   </button>
                 </>
               )}

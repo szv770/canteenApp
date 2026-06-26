@@ -51,6 +51,9 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
   const isBlocked = outOfStock && outOfStockBehavior === 'block'
   const isHidden = outOfStock && (outOfStockBehavior === 'hide' || !product.show_when_out_of_stock)
 
+  const onSale = product.sale_active && product.sale_price != null
+  const effectivePrice = onSale ? product.sale_price! : product.price
+
   if (isHidden) return null
 
   return (
@@ -65,7 +68,12 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
           : 'hover:shadow-md hover:-translate-y-0.5 hover:border-amber-200 active:scale-[0.97] active:shadow-sm cursor-pointer'
       )}
     >
-      {/* Stock badges */}
+      {/* Stock / Sale badges */}
+      {onSale && !outOfStock && (
+        <span className="absolute top-2 left-2 badge bg-red-500 text-white text-[10px] leading-none py-0.5 px-1.5">
+          SALE
+        </span>
+      )}
       {outOfStock && (
         <span className="absolute top-2 left-2 badge bg-red-50 text-red-500 border border-red-100 text-[10px] leading-none py-0.5 px-1.5">
           Out
@@ -97,9 +105,16 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
       </p>
 
       {/* Price */}
-      <p className="text-sm font-bold text-amber-600 mt-auto pt-1.5">
-        {product.has_variants ? `From ${formatCurrency(product.price)}` : formatCurrency(product.price)}
-      </p>
+      <div className="mt-auto pt-1.5 flex flex-col items-center gap-0.5">
+        {onSale && (
+          <span className="text-[11px] text-slate-400 line-through leading-none">
+            {product.has_variants ? `From ${formatCurrency(product.price)}` : formatCurrency(product.price)}
+          </span>
+        )}
+        <p className={`text-sm font-bold ${onSale ? 'text-red-500' : 'text-amber-600'}`}>
+          {product.has_variants ? `From ${formatCurrency(effectivePrice)}` : formatCurrency(effectivePrice)}
+        </p>
+      </div>
     </button>
   )
 }

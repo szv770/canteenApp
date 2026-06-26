@@ -23,24 +23,54 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
   const [method, setMethod] = useState<PayMethod>(loadedBochur ? 'balance' : 'cash')
   const [cashTendered, setCashTendered] = useState('')
   const [processing, setProcessing] = useState(false)
+  const [discountCodeInput, setDiscountCodeInput] = useState('')
+  const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; amount: number; description: string } | null>(null)
+  const [discountError, setDiscountError] = useState('')
+  const [applyingDiscount, setApplyingDiscount] = useState(false)
 
   const coinRounding = settings['coin_rounding'] === 'true'
   const ccFeePercent = parseFloat(settings['cc_fee_percent'] || '3')
 
   const rawSubtotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0)
-  const subtotal = coinRounding && method === 'cash' ? roundCash(rawSubtotal) : rawSubtotal
-  const ccFee = method === 'credit_card' ? calcCCFee(rawSubtotal, ccFeePercent) : 0
-  const total = rawSubtotal + ccFee
-  const displayTotal = coinRounding && method === 'cash' ? roundCash(rawSubtotal) : total
+  const discountAmount = appliedDiscount?.amount ?? 0
+  const subtotalAfterDiscount = Math.max(0, Math.round((rawSubtotal - discountAmount) * 100) / 100)
+  const subtotal = coinRounding && method === 'cash' ? roundCash(subtotalAfterDiscount) : subtotalAfterDiscount
+  const ccFee = method === 'credit_card' ? calcCCFee(subtotalAfterDiscount, ccFeePercent) : 0
+  const total = subtotalAfterDiscount + ccFee
+  const displayTotal = coinRounding && method === 'cash' ? roundCash(subtotalAfterDiscount) : total
 
   const tendered = parseFloat(cashTendered) || 0
   const change = Math.max(0, Math.round((tendered - displayTotal) * 100) / 100)
 
-  const balanceAfter = loadedBochur ? loadedBochur.balance - rawSubtotal : 0
-  const insufficientBalance = loadedBochur && loadedBochur.balance < rawSubtotal
+  const balanceAfter = loadedBochur ? loadedBochur.balance - subtotalAfterDiscount : 0
+  const insufficientBalance = loadedBochur && loadedBochur.balance < subtotalAfterDiscount
   const allowNegative = loadedBochur?.allow_negative ?? false
   const maxNeg = loadedBochur?.max_negative_balance ?? 0
   const balanceBlocked = insufficientBalance && (!allowNegative || (allowNegative && -balanceAfter > maxNeg))
+
+  async function applyDiscountCode() {
+    if (!discountCodeInput.trim()) return
+    setApplyingDiscount(true)
+    setDiscountError('')
+    setAppliedDiscount(null)
+    try {
+      const res = await fetch('/api/pos/apply-discount', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ code: discountCodeInput.trim(), subtotal: rawSubtotal }),
+      })
+      const json = await res.json()
+      if (json.valid) {
+        setAppliedDiscount({ code: json.code, amount: json.discount_amount, description: json.description })
+      } else {
+        setDiscountError(json.error || 'Invalid code')
+      }
+    } catch {
+      setDiscountError('Failed to apply code — check your connection')
+    } finally {
+      setApplyingDiscount(false)
+    }
+  }
 
   async function processOrder() {
     if (processing) return
@@ -60,6 +90,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
           method,
           bochur_id: loadedBochur?.id ?? null,
           cash_tendered: method === 'cash' ? tendered : null,
+          discount_code: appliedDiscount?.code ?? null,
           items: cart.map(item => ({
             product_id: item.product_id,
             variant_id: item.variant_id,

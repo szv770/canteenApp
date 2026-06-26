@@ -87,6 +87,8 @@ export async function POST(req: NextRequest) {
     items.push({ product_id, variant_id, quantity })
   }
 
+  const discountCodeRaw = typeof body.discount_code === 'string' ? body.discount_code.trim() : null
+
   // --- Re-fetch prices from DB (never trust client-supplied prices) ---
   const admin = createAdminClient()
 
@@ -94,7 +96,7 @@ export async function POST(req: NextRequest) {
   const productIds = Array.from(new Set(items.map(i => i.product_id)))
   const { data: products, error: prodErr } = await admin
     .from('products')
-    .select('id, name, price, stock_quantity, is_active')
+    .select('id, name, price, sale_price, sale_active, stock_quantity, is_active')
     .in('id', productIds)
 
   if (prodErr || !products) {
@@ -165,7 +167,9 @@ export async function POST(req: NextRequest) {
       unitPrice = variant.price
       variantLabel = variant.label
     } else {
-      unitPrice = product.price
+      // Apply sale price if active
+      const p = product as typeof product & { sale_price?: number | null; sale_active?: boolean }
+      unitPrice = (p.sale_active && p.sale_price != null) ? p.sale_price : product.price
     }
 
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
@@ -188,6 +192,36 @@ export async function POST(req: NextRequest) {
 
   subtotal = Math.round(subtotal * 100) / 100
 
+  // --- Validate and apply discount code ---
+  let discountAmount = 0
+  let discountCodeId: string | null = null
+
+  if (discountCodeRaw) {
+    const { data: dc } = await admin
+      .from('discount_codes')
+      .select('*')
+      .ilike('code', discountCodeRaw)
+      .single()
+
+    if (dc && dc.is_active) {
+      const notExpired = !dc.expires_at || new Date(dc.expires_at) > new Date()
+      const usesOk = dc.max_uses == null || dc.uses_count < dc.max_uses
+      const minOk = subtotal >= dc.min_order_amount
+
+      if (notExpired && usesOk && minOk) {
+        if (dc.type === 'percent') {
+          discountAmount = Math.round(subtotal * (dc.value / 100) * 100) / 100
+        } else {
+          discountAmount = Math.min(dc.value, subtotal)
+          discountAmount = Math.round(discountAmount * 100) / 100
+        }
+        discountCodeId = dc.id
+      }
+    }
+  }
+
+  const subtotalAfterDiscount = Math.round((subtotal - discountAmount) * 100) / 100
+
   // Fetch cc_fee_percent from settings
   const { data: ccFeeSetting } = await admin
     .from('settings')
@@ -195,8 +229,8 @@ export async function POST(req: NextRequest) {
     .eq('key', 'cc_fee_percent')
     .single()
   const ccFeePercent = Math.max(0, Math.min(50, parseFloat(String(ccFeeSetting?.value ?? '3'))))
-  const ccFee = method === 'credit_card' ? Math.round(subtotal * (ccFeePercent / 100) * 100) / 100 : 0
-  const total = Math.round((subtotal + ccFee) * 100) / 100
+  const ccFee = method === 'credit_card' ? Math.round(subtotalAfterDiscount * (ccFeePercent / 100) * 100) / 100 : 0
+  const total = Math.round((subtotalAfterDiscount + ccFee) * 100) / 100
 
   // --- Balance check for bochur payments ---
   let bochurData: { balance: number; allow_negative: boolean; max_negative_balance: number } | null = null
@@ -218,7 +252,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Bochur not found' }, { status: 400 })
     }
     bochurData = bochur
-    const balanceAfter = bochur.balance - subtotal
+    const balanceAfter = bochur.balance - subtotalAfterDiscount
     const blocked =
       balanceAfter < 0 &&
       (!bochur.allow_negative || -balanceAfter > bochur.max_negative_balance)
@@ -244,7 +278,7 @@ export async function POST(req: NextRequest) {
       bochur_id: bochurId,
       cashier_id: user.id,
       subtotal,
-      discount_amount: 0,
+      discount_amount: discountAmount,
       total,
       status: 'completed',
     })
@@ -277,16 +311,24 @@ export async function POST(req: NextRequest) {
 
   // Balance deduction
   if (method === 'balance' && bochurId && bochurData) {
-    const balanceAfter = Math.round((bochurData.balance - subtotal) * 100) / 100
+    const balanceAfter = Math.round((bochurData.balance - subtotalAfterDiscount) * 100) / 100
     await admin.from('bochurim').update({ balance: balanceAfter }).eq('id', bochurId)
     await admin.from('balance_ledger').insert({
       bochur_id: bochurId,
-      amount: -subtotal,
+      amount: -subtotalAfterDiscount,
       type: 'purchase',
       method: 'balance',
       order_id: order.id,
       cashier_id: user.id,
     })
+  }
+
+  // Increment discount code uses_count
+  if (discountCodeId) {
+    const { data: dcRow } = await admin.from('discount_codes').select('uses_count').eq('id', discountCodeId).single()
+    if (dcRow) {
+      await admin.from('discount_codes').update({ uses_count: dcRow.uses_count + 1 }).eq('id', discountCodeId)
+    }
   }
 
   // Stock updates
