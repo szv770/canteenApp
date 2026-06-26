@@ -357,17 +357,42 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
           <button onClick={onClose} className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-slate-100 rounded-xl transition-colors"><X className="w-5 h-5 text-slate-400" /></button>
         </div>
         <div className="p-5 space-y-4">
-          {/* Emoji picker */}
+          {/* Icon picker */}
           <div>
-            <label className="block text-sm font-medium text-slate-700 mb-2">Icon</label>
-            <div className="flex flex-wrap gap-1.5 p-3 bg-slate-50 rounded-xl max-h-28 overflow-y-auto">
-              {EMOJIS.map(e => (
-                <button key={e} onClick={() => setForm(f => ({ ...f, icon: e }))}
-                  className={`w-8 h-8 text-xl flex items-center justify-center rounded-lg transition-all ${form.icon === e ? 'bg-amber-100 ring-2 ring-amber-400' : 'hover:bg-slate-200'}`}>
-                  {e}
+            <label className="block text-sm font-medium text-slate-700 mb-2">Icon <span className="text-slate-400 font-normal">(optional)</span></label>
+            <div className="flex items-center gap-2 mb-2">
+              <div className="w-11 h-11 bg-slate-100 rounded-xl flex items-center justify-center text-2xl shrink-0">
+                {form.icon || <span className="text-slate-300 text-sm">None</span>}
+              </div>
+              <input
+                type="text"
+                className="input-admin flex-1"
+                placeholder="Paste or type any emoji, e.g. 🍕"
+                value={form.icon}
+                onChange={e => setForm(f => ({ ...f, icon: e.target.value.trim() }))}
+                maxLength={8}
+              />
+              {form.icon && (
+                <button
+                  type="button"
+                  onClick={() => setForm(f => ({ ...f, icon: '' }))}
+                  className="px-3 py-2 text-sm text-slate-500 hover:text-red-500 hover:bg-red-50 rounded-xl transition-colors border border-slate-200"
+                >
+                  Clear
                 </button>
-              ))}
+              )}
             </div>
+            <details className="group">
+              <summary className="text-xs text-amber-600 cursor-pointer hover:underline list-none">Show quick-pick emojis</summary>
+              <div className="flex flex-wrap gap-1.5 p-3 bg-slate-50 rounded-xl max-h-28 overflow-y-auto mt-2">
+                {EMOJIS.map(e => (
+                  <button key={e} type="button" onClick={() => setForm(f => ({ ...f, icon: e }))}
+                    className={`w-8 h-8 text-xl flex items-center justify-center rounded-lg transition-all ${form.icon === e ? 'bg-amber-100 ring-2 ring-amber-400' : 'hover:bg-slate-200'}`}>
+                    {e}
+                  </button>
+                ))}
+              </div>
+            </details>
           </div>
 
           <div>

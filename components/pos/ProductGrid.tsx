@@ -84,24 +84,20 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
         </div>
       )}
 
-      {/* Emoji / icon */}
-      <div className="w-12 h-12 sm:w-14 sm:h-14 flex items-center justify-center mb-2 sm:mb-2.5">
-        {product.icon ? (
-          <span className="text-3xl sm:text-4xl leading-none select-none">{product.icon}</span>
-        ) : (
-          <div className="w-10 h-10 sm:w-12 sm:h-12 bg-slate-100 rounded-xl flex items-center justify-center">
-            <Package className="w-5 h-5 sm:w-6 sm:h-6 text-slate-300" />
-          </div>
-        )}
-      </div>
+      {/* Icon — compact, shown only if set */}
+      {product.icon && (
+        <div className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center mb-1.5 shrink-0">
+          <span className="text-2xl sm:text-3xl leading-none select-none">{product.icon}</span>
+        </div>
+      )}
 
-      {/* Name */}
-      <p className="text-xs sm:text-[13px] font-semibold text-slate-800 text-center line-clamp-2 leading-snug w-full mb-1.5">
+      {/* Name — always prominent */}
+      <p className={`text-xs sm:text-[13px] font-semibold text-slate-800 text-center line-clamp-3 leading-snug w-full ${product.icon ? '' : 'mt-2'}`}>
         {product.name}
       </p>
 
       {/* Price */}
-      <p className="text-sm font-bold text-amber-600 mt-auto">
+      <p className="text-sm font-bold text-amber-600 mt-auto pt-1.5">
         {product.has_variants ? `From ${formatCurrency(product.price)}` : formatCurrency(product.price)}
       </p>
     </button>
