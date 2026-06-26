@@ -21,7 +21,7 @@ export default function TransactionsPage() {
     setLoading(true)
     let q = supabase
       .from('orders')
-      .select('*, cashier_profiles(name), bochurim(name,bochur_number)')
+      .select('*, cashier_profiles!cashier_id(name), bochurim!bochur_id(name,bochur_number)')
       .order('created_at', { ascending: false })
       .limit(200)
 
