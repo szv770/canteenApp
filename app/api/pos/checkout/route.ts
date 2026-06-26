@@ -233,7 +233,7 @@ export async function POST(req: NextRequest) {
   const total = Math.round((subtotalAfterDiscount + ccFee) * 100) / 100
 
   // --- Balance check for bochur payments ---
-  let bochurData: { balance: number; allow_negative: boolean; max_negative_balance: number } | null = null
+  let bochurData: { balance: number; allow_negative: boolean; max_negative_balance: number; is_frozen: boolean } | null = null
   if (method === 'balance') {
     if (!bochurId) {
       return NextResponse.json(
@@ -243,13 +243,16 @@ export async function POST(req: NextRequest) {
     }
     const { data: bochur } = await admin
       .from('bochurim')
-      .select('balance, allow_negative, max_negative_balance')
+      .select('balance, allow_negative, max_negative_balance, is_frozen')
       .eq('id', bochurId)
       .eq('archived', false)
       .single()
 
     if (!bochur) {
       return NextResponse.json({ error: 'Bochur not found' }, { status: 400 })
+    }
+    if (bochur.is_frozen) {
+      return NextResponse.json({ error: 'This account is frozen. Please contact an admin.' }, { status: 403 })
     }
     bochurData = bochur
     const balanceAfter = bochur.balance - subtotalAfterDiscount

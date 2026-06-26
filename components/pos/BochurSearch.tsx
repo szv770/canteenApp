@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, X, User } from 'lucide-react'
+import { Search, X, User, AlertTriangle } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { BochurWithId } from '@/types/database'
 
@@ -49,22 +49,33 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: 
     const colorClass = ACCOUNT_TYPE_COLORS[loadedBochur.account_type?.name] || 'bg-slate-100 text-slate-600 border border-slate-200'
     const balanceColor = loadedBochur.balance >= 0 ? 'text-emerald-600' : 'text-red-500'
     return (
-      <div className="flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-3 py-2 min-w-0 focus-within:ring-2 focus-within:ring-amber-400/40 focus-within:border-amber-400 transition-all">
-        <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
-          <User className="w-4 h-4 text-amber-600" />
+      <div className="space-y-1.5">
+        <div className={`flex items-center gap-2.5 bg-white border rounded-xl px-3 py-2 min-w-0 focus-within:ring-2 focus-within:ring-amber-400/40 transition-all ${loadedBochur.is_frozen ? 'border-red-300 bg-red-50/30' : 'border-slate-200 focus-within:border-amber-400'}`}>
+          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${loadedBochur.is_frozen ? 'bg-red-100' : 'bg-amber-100'}`}>
+            <User className={`w-4 h-4 ${loadedBochur.is_frozen ? 'text-red-600' : 'text-amber-600'}`} />
+          </div>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center gap-1.5 flex-wrap">
+              <span className="font-semibold text-slate-900 text-sm truncate">{loadedBochur.name}</span>
+              {loadedBochur.account_type?.name && (
+                <span className={`badge ${colorClass} text-xs`}>{loadedBochur.account_type.name}</span>
+              )}
+            </div>
+            <span className={`text-xs font-bold ${balanceColor}`}>{formatCurrency(loadedBochur.balance)}</span>
+          </div>
+          <button onClick={onClear} className="shrink-0 p-1 hover:bg-slate-100 rounded-lg transition-colors">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
         </div>
-        <div className="min-w-0 flex-1">
-          <div className="flex items-center gap-1.5 flex-wrap">
-            <span className="font-semibold text-slate-900 text-sm truncate">{loadedBochur.name}</span>
-            {loadedBochur.account_type?.name && (
-              <span className={`badge ${colorClass} text-xs`}>{loadedBochur.account_type.name}</span>
+        {loadedBochur.is_frozen && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-red-700">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-semibold">Account Frozen</span>
+            {loadedBochur.freeze_reason && (
+              <span className="text-xs text-red-500 truncate">— {loadedBochur.freeze_reason}</span>
             )}
           </div>
-          <span className={`text-xs font-bold ${balanceColor}`}>{formatCurrency(loadedBochur.balance)}</span>
-        </div>
-        <button onClick={onClear} className="shrink-0 p-1 hover:bg-slate-100 rounded-lg transition-colors">
-          <X className="w-4 h-4 text-slate-400" />
-        </button>
+        )}
       </div>
     )
   }

@@ -89,6 +89,8 @@ export interface Bochur {
   max_negative_balance: number
   notes: string | null
   archived: boolean
+  is_frozen: boolean
+  freeze_reason: string | null
   created_at: string
   updated_at: string
 }
