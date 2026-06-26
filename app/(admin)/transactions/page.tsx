@@ -39,9 +39,8 @@ export default function TransactionsPage() {
     (o.bochurim?.name || '').toLowerCase().includes(search.toLowerCase())
   )
 
-  async function voidOrder(order: any) {
-    if (!confirm(`Void order #${order.order_number}?`)) return
-    const { error } = await supabase.from('orders').update({ status: 'voided' }).eq('id', order.id)
+  async function voidOrder(order: any, reason: string) {
+    const { error } = await supabase.from('orders').update({ status: 'voided', void_reason: reason || null }).eq('id', order.id)
     if (error) { toast.error(error.message); return }
     toast.success('Order voided')
     loadOrders()
@@ -146,17 +145,22 @@ export default function TransactionsPage() {
         <OrderDetailModal
           order={viewOrder}
           onClose={() => setViewOrder(null)}
-          onVoid={() => { voidOrder(viewOrder); setViewOrder(null) }}
+          onVoid={(reason) => { voidOrder(viewOrder, reason); setViewOrder(null) }}
         />
       )}
     </div>
   )
 }
 
-function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () => void; onVoid: () => void }) {
+const VOID_REASONS = ['Wrong item scanned', 'Student changed mind', 'Item unavailable', 'Pricing error', 'Duplicate order', 'Other']
+
+function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () => void; onVoid: (reason: string) => void }) {
   const supabase = createClient()
   const [items, setItems] = useState<any[]>([])
   const [payments, setPayments] = useState<any[]>([])
+  const [showVoidModal, setShowVoidModal] = useState(false)
+  const [voidReason, setVoidReason] = useState('')
+  const [voidOther, setVoidOther] = useState('')
 
   useEffect(() => {
     Promise.all([
@@ -193,8 +197,37 @@ function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () 
               <span>{formatCurrency(order.total)}</span>
             </div>
           </div>
+          {order.void_reason && (
+            <div className="p-3 bg-slate-50 rounded-xl text-sm text-slate-600">
+              <span className="font-medium">Void reason:</span> {order.void_reason}
+            </div>
+          )}
           {order.status === 'completed' && (
-            <button onClick={onVoid} className="btn-danger w-full text-sm">Void Order</button>
+            <button onClick={() => setShowVoidModal(true)} className="btn-danger w-full text-sm">Void Order</button>
+          )}
+          {showVoidModal && (
+            <div className="border border-red-200 rounded-xl p-4 bg-red-50 space-y-3">
+              <p className="text-sm font-semibold text-red-700">Select void reason</p>
+              <div className="flex flex-wrap gap-2">
+                {VOID_REASONS.map(r => (
+                  <button key={r} onClick={() => setVoidReason(r)}
+                    className={`px-3 py-1.5 rounded-full text-xs font-medium border transition-all ${voidReason === r ? 'bg-red-500 text-white border-red-500' : 'bg-white text-slate-600 border-slate-200 hover:border-red-300'}`}>
+                    {r}
+                  </button>
+                ))}
+              </div>
+              {voidReason === 'Other' && (
+                <input className="input-admin text-sm" placeholder="Describe reason..." value={voidOther} onChange={e => setVoidOther(e.target.value)} />
+              )}
+              <div className="flex gap-2">
+                <button onClick={() => setShowVoidModal(false)} className="btn-secondary flex-1 text-sm">Cancel</button>
+                <button
+                  onClick={() => { if (!voidReason) { return } onVoid(voidReason === 'Other' ? voidOther || 'Other' : voidReason) }}
+                  disabled={!voidReason || (voidReason === 'Other' && !voidOther.trim())}
+                  className="btn-danger flex-1 text-sm disabled:opacity-40"
+                >Confirm Void</button>
+              </div>
+            </div>
           )}
         </div>
       </div>

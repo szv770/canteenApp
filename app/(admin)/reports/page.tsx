@@ -82,6 +82,15 @@ interface BochurCredit {
   seenRecently: boolean
 }
 
+interface ABCProduct {
+  name: string
+  revenue: number
+  units: number
+  share: number
+  cumulative: number
+  tier: 'A' | 'B' | 'C'
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getDateRange(range: DateRange): { from: Date; to: Date } {
@@ -202,6 +211,7 @@ export default function ReportsPage() {
   const [bottomSellers, setBottomSellers] = useState<TopProduct[]>([])
   const [pairs, setPairs] = useState<ProductPair[]>([])
   const [credits, setCredits] = useState<BochurCredit[]>([])
+  const [abcProducts, setAbcProducts] = useState<ABCProduct[]>([])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -407,7 +417,24 @@ export default function ReportsPage() {
       .slice(0, 10)
     setBottomSellers(bottom10)
 
-    // ── 12: Frequently bought together ────────────────────────────────────────
+    // ── 12: ABC product analysis ──────────────────────────────────────────────
+
+    const allProducts = Object.values(productMap).sort((a, b) => b.revenue - a.revenue)
+    const totalRevenue = allProducts.reduce((s, p) => s + p.revenue, 0)
+    let cumRev = 0
+    const abcList: ABCProduct[] = allProducts.map(p => {
+      cumRev += p.revenue
+      const cumPct = totalRevenue > 0 ? (cumRev / totalRevenue) * 100 : 100
+      const share = totalRevenue > 0 ? (p.revenue / totalRevenue) * 100 : 0
+      const tier: 'A' | 'B' | 'C' =
+        (cumRev - p.revenue) / (totalRevenue || 1) * 100 < 70 ? 'A'
+        : cumPct <= 90 ? 'B'
+        : 'C'
+      return { name: p.name, revenue: p.revenue, units: p.units, share, cumulative: cumPct, tier }
+    })
+    setAbcProducts(abcList)
+
+    // ── 13: Frequently bought together ────────────────────────────────────────
 
     // Build order -> [products] map from already-fetched order items
     const orderProducts: Record<string, { id: string; name: string }[]> = {}
@@ -954,7 +981,7 @@ export default function ReportsPage() {
         )}
       </SectionCard>
 
-      {/* ── Section 12: Frequently Bought Together ────────────────────────────── */}
+      {/* ── Section 14: Frequently Bought Together ───────────────────────────── */}
       <SectionCard title="Frequently Bought Together" subtitle="Top product pairs co-occurring in the same order">
         {loading ? (
           <ChartSkeleton height={200} />
@@ -986,7 +1013,65 @@ export default function ReportsPage() {
         )}
       </SectionCard>
 
-      {/* ── Section 13: Unspent Credit ────────────────────────────────────────── */}
+      {/* ── Section 13: ABC Product Analysis ─────────────────────────────────── */}
+      <SectionCard
+        title="ABC Product Analysis"
+        subtitle="A = top 70% revenue · B = next 20% · C = bottom 10%"
+      >
+        {loading ? (
+          <ChartSkeleton height={240} />
+        ) : abcProducts.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-10">No sales data in this period</p>
+        ) : (
+          <div>
+            <div className="flex gap-3 mb-4 flex-wrap">
+              {(['A', 'B', 'C'] as const).map(tier => {
+                const tierProducts = abcProducts.filter(p => p.tier === tier)
+                const tierRevenue = tierProducts.reduce((s, p) => s + p.revenue, 0)
+                const colors = { A: 'bg-emerald-50 text-emerald-700 border-emerald-200', B: 'bg-amber-50 text-amber-700 border-amber-200', C: 'bg-red-50 text-red-700 border-red-200' }
+                return (
+                  <div key={tier} className={`flex-1 min-w-[120px] border rounded-xl px-4 py-3 ${colors[tier]}`}>
+                    <div className="text-xs font-semibold uppercase tracking-wider mb-1">Tier {tier}</div>
+                    <div className="text-lg font-bold">{tierProducts.length} products</div>
+                    <div className="text-xs mt-0.5">{formatCurrency(tierRevenue)}</div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Product</th>
+                    <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Revenue</th>
+                    <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Share</th>
+                    <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Cumulative</th>
+                    <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wide py-2">Tier</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {abcProducts.map((p, i) => {
+                    const tierColors = { A: 'bg-emerald-100 text-emerald-700', B: 'bg-amber-100 text-amber-700', C: 'bg-red-100 text-red-600' }
+                    return (
+                      <tr key={i} className="border-b border-slate-50 last:border-0">
+                        <td className="py-2.5 pr-4 text-sm font-medium text-slate-800">{p.name}</td>
+                        <td className="py-2.5 pr-4 text-sm text-slate-700 text-right">{formatCurrency(p.revenue)}</td>
+                        <td className="py-2.5 pr-4 text-sm text-slate-500 text-right">{p.share.toFixed(1)}%</td>
+                        <td className="py-2.5 pr-4 text-sm text-slate-400 text-right">{p.cumulative.toFixed(1)}%</td>
+                        <td className="py-2.5 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${tierColors[p.tier]}`}>{p.tier}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── Section 15: Unspent Credit ────────────────────────────────────────── */}
       <SectionCard title="Unspent Credit (Top Balances)" subtitle="Bochurim with credit who may need reminding">
         {loading ? (
           <ChartSkeleton height={240} />
