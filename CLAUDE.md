@@ -161,3 +161,4 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-06-26 | Fix: settings inputs losing focus (SettingControl moved to top-level) |
 | 2026-06-26 | Docs: CLAUDE.md created for auto-load context at session start |
 | 2026-06-26 | Fix: build TS errors — bundles page Product type mismatch, reports Set iteration, recharts Tooltip formatter |
+| 2026-06-26 | Fix: transactions/dashboard/reports PostgREST join failure — orders.cashier_id FK pointed to auth.users not cashier_profiles; added orders_cashier_id_cashier_profiles_fkey to DB and !cashier_id hints to dashboard/reports queries |

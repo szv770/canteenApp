@@ -219,7 +219,7 @@ export default function ReportsPage() {
       // All orders in range (any status) for void/refund stats
       supabase
         .from('orders')
-        .select('id, status, total, bochur_id, created_at, cashier_profiles(name)')
+        .select('id, status, total, bochur_id, created_at, cashier_profiles!cashier_id(name)')
         .gte('created_at', fromISO)
         .lt('created_at', toISO),
 
