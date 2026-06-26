@@ -5,7 +5,7 @@
 **Supabase project:** `hlseiqquxspdfunrclfv`  
 **Stack:** Next.js 14 App Router · Supabase JS v2 · Tailwind CSS · recharts
 
-> **Rule for Claude:** At the start of every session, read this file. After completing any feature or fix, update the relevant section before committing.
+> **This file is auto-loaded by Claude Code at session start.** After completing any feature or fix, update the relevant section and commit this file along with the code changes.
 
 ---
 
