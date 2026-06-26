@@ -1,11 +1,18 @@
 # Canteen App — Project State
 
-**Repo:** `szv770/canteenApp` | **Prod branch:** `main` → canteen.szvtech.org  
+**Repo:** `szv770/canteenApp` | **Prod:** `main` → canteen.szvtech.org  
 **Dev branch:** `claude/practical-meitner-je2psm`  
 **Supabase project:** `hlseiqquxspdfunrclfv`  
 **Stack:** Next.js 14 App Router · Supabase JS v2 · Tailwind CSS · recharts
 
-> **This file is auto-loaded by Claude Code at session start.** After completing any feature or fix, update the relevant section and commit this file along with the code changes.
+---
+
+## CLAUDE INSTRUCTIONS (read every session)
+
+1. **Read this entire file before doing anything.**
+2. **After every fix or feature — no matter how small — update this file** (mark items done, add new gotchas, update the changelog) and include `CLAUDE.md` in the same commit as the code change.
+3. Always push to `claude/practical-meitner-je2psm`, create a PR, and merge to `main` when work is complete. Merging is Claude's job.
+4. When user reports a bug, check "Known Issues / Gotchas" first — it may already be documented.
 
 ---
 
@@ -13,137 +20,143 @@
 
 ```
 app/
-  (admin)/           # Admin panel (authenticated layout)
+  (admin)/
     dashboard/       # Quick-glance stats cards
-    products/        # Full product editor (variants, add-ons, sale prices, icon picker)
+    products/        # Product editor (variants, add-ons, sale prices, icon picker)
     categories/      # Category management
-    bochurim/        # Student account management + profile modal
-    cashiers/        # Cashier account management
+    bochurim/        # Student accounts + BochurProfileModal (click any row)
+    cashiers/        # Cashier accounts
     transactions/    # Order history + void
     reports/         # Full analytics (charts, heatmaps, tables)
-    bundles/         # Combo deal bundles
-    settings/        # App-wide settings (tax, cc fee, etc.)
+    bundles/         # Combo deal bundles admin
+    settings/        # App-wide settings (tax, cc fee, out-of-stock behavior)
     inventory/       # Stock management
     topups/          # Balance top-up log
-  (pos)/             # POS terminal (cashier-facing)
-    page.tsx         # Main POS page
-  api/
-    pos/
-      checkout/      # POST: validates cart, writes order, deducts balance
-      apply-discount/# POST: validates coupon code (does not increment uses_count)
+  (pos)/
+    page.tsx         # Main POS terminal
+  api/pos/
+    checkout/        # POST: validate cart, write order, deduct balance, block frozen accounts
+    apply-discount/  # POST: validate coupon (does NOT increment uses_count)
 
 components/
   admin/
-    Sidebar.tsx      # Nav: Dashboard, Products, Categories, Bochurim, Cashiers,
-                     #      Transactions, Reports, Bundles, Discount Codes, Settings
+    Sidebar.tsx      # Nav links
+    TableSkeleton.tsx
   pos/
-    ProductGrid.tsx  # Product cards — name-first, icon optional, SALE badge, "From $X" for variants
-    Cart.tsx         # CartPanel + CartRow — clear button, type-in quantity, addon subtotals
-    BochurSearch.tsx # Student lookup — shows frozen warning banner when is_frozen=true
-    CategoryTabs.tsx # Category filter + "Deals" tab for bundles
-    CheckoutModal.tsx# Payment flow (balance/cash/card/mixed) + discount code entry
-    VariantModal.tsx # Size/option picker (fetches product_variants)
-    AddonModal.tsx   # Extras/toppings picker (fetches product_addons, toggles)
-    BundleGrid.tsx   # Combo deal cards shown on "Deals" tab
+    ProductGrid.tsx  # Name-first cards, icon optional, SALE badge, "From $X" for variants
+    Cart.tsx         # Clear button, type-in qty, addon subtotals
+    BochurSearch.tsx # Student lookup — red frozen warning banner when is_frozen=true
+    CategoryTabs.tsx # Category filter + "Deals" tab
+    CheckoutModal.tsx# Payment flow (balance/cash/card/mixed) + coupon field
+    VariantModal.tsx # Size/option picker
+    AddonModal.tsx   # Extras/toppings picker (toggle chips, running total)
+    BundleGrid.tsx   # Combo deal cards on "Deals" tab
 
-types/database.ts    # All TS interfaces
+types/database.ts    # All TS interfaces — update here when adding DB columns
 lib/utils.ts         # formatCurrency, cn
 ```
 
 ---
 
-## Database Tables (Supabase)
+## Database (Supabase)
 
-| Table | Notes |
+| Table | Key columns / notes |
 |---|---|
-| `bochurim` | Students. `is_frozen` (bool, default false), `freeze_reason` (text) added via migration |
-| `cashier_profiles` | Staff. FK `orders.cashier_id → cashier_profiles.id` |
+| `bochurim` | `is_frozen bool DEFAULT false`, `freeze_reason text` — added 2026-06-26 |
+| `cashier_profiles` | FK: `orders.cashier_id → cashier_profiles.id` |
 | `products` | `sale_price`, `sale_active`, `sale_label`, `sale_ends_at`, `has_variants`, `icon` |
 | `product_variants` | `label`, `price`, `stock_quantity`, `sort_order`, `is_active` |
 | `product_addons` | `name`, `price_addition`, `is_active`, `sort_order` |
-| `categories` | Simple name + colour |
-| `orders` | `cashier_id` → cashier_profiles, `bochur_id` → bochurim. `discount_amount` column |
-| `order_items` | Snapshot of product name/price at time of sale |
+| `orders` | `cashier_id`, `bochur_id`, `discount_amount`, `status` |
+| `order_items` | Snapshot of name/price at sale time |
 | `payments` | `method`: balance / cash / credit_card / zelle / mixed |
-| `balance_ledger` | Audit trail for every balance change |
-| `discount_codes` | `type` (percent/fixed), `value`, `max_uses`, `uses_count`, `expires_at` |
-| `product_bundles` | Combo deals with `price`, `original_price` |
+| `balance_ledger` | Full audit trail for every balance change |
+| `discount_codes` | `type` percent/fixed, `value`, `max_uses`, `uses_count`, `expires_at` |
+| `product_bundles` | `price`, `original_price` |
 | `bundle_items` | `bundle_id`, `product_id`, `quantity` |
-| `app_settings` | Key/value store for tax rate, cc fee, out-of-stock behavior, etc. |
-
-**Critical PostgREST join syntax** (column name ≠ table name):
-```ts
-// WRONG — causes "Could not find a relationship" error
-.select('*, cashier_profiles(name), bochurim(name)')
-
-// CORRECT — use explicit FK hint
-.select('*, cashier_profiles!cashier_id(name), bochurim!bochur_id(name,bochur_number)')
-```
+| `app_settings` | Key/value: tax_rate, cc_fee_percent, out_of_stock_behavior, etc. |
 
 ---
 
-## Features — Status
+## Feature Status
 
-### ✅ Complete & Merged to Main
-- Core POS: product grid, cart, variants, checkout (balance/cash/card/mixed)
-- Admin: products CRUD, categories, cashiers, bochurim, inventory, topups, settings
-- Dashboard: quick stats cards (daily revenue, orders, low stock, top product)
-- **Transactions page** — fixed PostgREST join error with explicit FK hints
-- **Clear cart button** — with confirm dialog
-- **Type-in cart quantity** — tap number to enter edit mode, Enter commits
-- **Better icon picker** — type any emoji or paste, Clear button, optional collapsible grid
-- **POS name-first cards** — icon is compact/optional; name and price always shown
-- **SALE badge on products** — orange badge, strikethrough original price, red sale price
-- **Product add-ons** — admin editor per product, AddonModal in POS after variant selection
-- **Reports/Analytics page** — hourly heatmap, top sellers, payment breakdown, cashier table, low stock donut, frequently bought together, unspent credit list
-- **Sales & Discounts** — discount codes admin, `apply-discount` API, coupon field at checkout
-- **Combo Bundles** — admin editor, BundleGrid in POS "Deals" tab, checkout handles bundle items
-- **Settings focus fix** — SettingControl moved to top-level to prevent input losing focus on keystroke
+### ✅ Working (merged to main)
 
-### 🔄 In Progress (agent running)
-- **Bochur profile modal** (`app/(admin)/bochurim/BochurProfileModal.tsx`)
-  - DB migration: `is_frozen`, `freeze_reason` columns — **DONE** (applied)
-  - Checkout blocks frozen accounts — **DONE**
-  - BochurSearch shows frozen warning banner — **DONE**
-  - BochurProfileModal component — IN PROGRESS
-  - Bochurim page — clickable rows — pending
-  - Modal contents: spending stats, 30-day chart (recharts), transaction history, balance ledger, freeze/unfreeze controls
+| Feature | Files | Notes |
+|---|---|---|
+| Core POS (product grid, cart, checkout) | `app/(pos)/page.tsx`, `components/pos/*` | Balance/cash/card/mixed payment |
+| Admin CRUD (products, categories, cashiers, bochurim) | `app/(admin)/*/page.tsx` | Full management |
+| Dashboard stats | `app/(admin)/dashboard/page.tsx` | Daily revenue, orders, low stock, top product |
+| Transactions page | `app/(admin)/transactions/page.tsx` | Fixed PostgREST join error (FK hints) |
+| Product variants (sizes) | `components/pos/VariantModal.tsx` | Stock lives on variants, not product |
+| Product add-ons (toppings/extras) | `components/pos/AddonModal.tsx`, `app/(admin)/products/page.tsx` | Toggle chips, price additions |
+| SALE badge + sale prices | `components/pos/ProductGrid.tsx` | Strikethrough + red price, set per product |
+| Combo bundles | `app/(admin)/bundles/page.tsx`, `components/pos/BundleGrid.tsx` | "Deals" tab in POS |
+| Discount/coupon codes | `app/(admin)/discount-codes/` (if missing, verify), `app/api/pos/apply-discount/` | Applied at checkout |
+| Full reports/analytics | `app/(admin)/reports/page.tsx` | Hourly heatmap, top sellers, payment breakdown, cashier stats, low stock donut, FBT, unspent credit |
+| Bochur profile modal | `app/(admin)/bochurim/BochurProfileModal.tsx` | Click any row — stats, chart, transactions, ledger, freeze/unfreeze, add funds, edit |
+| Freeze/unfreeze accounts | `bochurim` table, `app/api/pos/checkout/route.ts`, `components/pos/BochurSearch.tsx` | Checkout returns 403; POS shows red warning |
+| Clear cart button | `components/pos/Cart.tsx` | Confirm dialog before clear |
+| Type-in cart quantity | `components/pos/Cart.tsx` (CartRow) | Tap number → input, Enter commits |
+| Better icon picker | `app/(admin)/products/page.tsx` | Any emoji input, Clear button, collapsible quick grid |
+| Name-first POS cards | `components/pos/ProductGrid.tsx` | Icon is compact/optional |
+| Settings input focus fix | `app/(admin)/settings/page.tsx` | SettingControl at top-level (not inside page fn) |
 
 ### ❌ Not Yet Built
-- Inventory burn-rate trendline (projects when stock runs out based on velocity)
-- Daily revenue vs target gauge
-- Wastage/spoilage tracking (no DB support yet)
-- Declined/low-balance transaction alert log
-- Discount codes admin page (bundles agent may have left incomplete)
-- Bochur-level discount rules or spending limits
+
+| Feature | Notes |
+|---|---|
+| Inventory burn-rate trendline | Projects stock-out date from sales velocity — no DB support yet |
+| Daily revenue vs target gauge | Need target_revenue in app_settings |
+| Wastage/spoilage tracking | No DB table yet |
+| Declined/low-balance alert log | Would need a new `failed_transactions` table or column |
+| Bochur-level spending limits / discounts | Per-account rules, not yet designed |
 
 ---
 
 ## Known Issues / Gotchas
 
-1. **Variant products + stock**: `stock_quantity` at product level stays 0 when variants exist. `ProductGrid` already guards this with `!product.has_variants` check. Do not re-add stock check for variant products.
-2. **PostgREST join hints**: Always use `table!fk_column(fields)` when the FK column name differs from the table name.
-3. **SettingControl component**: Must be defined at module top-level, NOT inside SettingsPage. If moved inside, inputs lose focus on every keystroke.
-4. **Category assignment**: Use `<button>` tap-to-toggle pills, NOT `<label>` + `<input type="checkbox">` — the label can double-fire onChange on mobile.
-5. **recharts**: Already installed. Use `ResponsiveContainer` → `BarChart`/`LineChart`/`PieChart`.
-6. **RLS**: All admin tables use `auth.role() = 'authenticated'` for ALL operations. No public reads.
+1. **PostgREST joins with mismatched FK column names** — always use explicit FK hint:
+   ```ts
+   // WRONG → "Could not find a relationship" error
+   .select('*, cashier_profiles(name)')
+   // CORRECT
+   .select('*, cashier_profiles!cashier_id(name), bochurim!bochur_id(name)')
+   ```
+
+2. **Variant products + stock** — `stock_quantity` is 0 at the product level when variants exist (real stock is per-variant). `ProductGrid` guards with `!product.has_variants`. Never add stock check for has_variants products.
+
+3. **SettingControl must be top-level** — defining it inside `SettingsPage` causes inputs to lose focus on every keystroke because React remounts the DOM node.
+
+4. **Category pill buttons, not checkboxes** — `<label>` wrapping `<input type="checkbox">` double-fires onChange on mobile. Use `<button>` tap-to-toggle pills instead.
+
+5. **recharts already installed** — import from `recharts`. Use `ResponsiveContainer` wrapping `BarChart`/`LineChart`/`PieChart`.
+
+6. **RLS** — all admin tables require `auth.role() = 'authenticated'` for all operations. No public reads.
+
+7. **TypeScript Set spread** — `[...new Set(...)]` fails without `downlevelIteration`. Use `Array.from(new Set(...))`.
 
 ---
 
 ## Deployment
 
-- Vercel auto-deploys `main` → canteen.szvtech.org on every push
-- After feature work: commit on `claude/practical-meitner-je2psm`, push, create PR, merge to `main`
-- Claude handles merges (per user instruction)
+- Vercel auto-deploys `main` → canteen.szvtech.org
+- Dev branch: `claude/practical-meitner-je2psm`
+- Workflow: code on dev branch → push → create PR → merge to main (Claude does this)
 
 ---
 
-## Session Log
+## Changelog
 
-| Date | What was done |
+| Date | Change |
 |---|---|
-| 2026-06-26 | Transactions fix, clear cart, type-in qty, icon picker, name-first POS cards, add-ons, reports page, discounts/coupons, combo bundles, bochur profile modal (in progress) |
-
----
-
-*Last updated: 2026-06-26 — bochur profile modal agent still running*
+| 2026-06-26 | Initial full build: core POS, admin, dashboard, variants |
+| 2026-06-26 | Fix: transactions PostgREST join error (FK hints for cashier_profiles, bochurim) |
+| 2026-06-26 | Feat: clear cart, type-in quantity, emoji icon picker, name-first POS cards |
+| 2026-06-26 | Feat: product add-ons (AddonModal), SALE badges, variant out-of-stock fix |
+| 2026-06-26 | Feat: full reports/analytics page with recharts |
+| 2026-06-26 | Feat: discount/coupon codes system (admin + checkout) |
+| 2026-06-26 | Feat: combo bundles (admin + Deals tab in POS) |
+| 2026-06-26 | Feat: bochur profile modal — stats, spending chart, transactions, ledger, freeze/unfreeze |
+| 2026-06-26 | Fix: settings inputs losing focus (SettingControl moved to top-level) |
+| 2026-06-26 | Docs: CLAUDE.md created for auto-load context at session start |
