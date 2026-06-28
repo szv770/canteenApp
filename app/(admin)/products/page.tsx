@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
+import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2, Star } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, Category, ProductVariant, ProductAddon } from '@/types/database'
@@ -20,18 +20,21 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
     setLoading(true)
-    const [pRes, cRes, pcRes] = await Promise.all([
+    const [pRes, cRes, pcRes, featuredRes] = await Promise.all([
       supabase.from('products').select('*').order('name'),
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('product_categories').select('product_id,category_id'),
+      supabase.from('featured_items').select('product_id').eq('active', true),
     ])
     setProducts(pRes.data || [])
     setCategories(cRes.data || [])
+    setPinnedIds(new Set((featuredRes.data || []).map((f: any) => f.product_id)))
 
     // Build product -> category[] map
     const pcMap: Record<string, string[]> = {}
@@ -62,6 +65,21 @@ export default function ProductsPage() {
       delete next[product.id]
       return next
     })
+  }
+
+  async function togglePin(product: Product) {
+    const isPinned = pinnedIds.has(product.id)
+    if (isPinned) {
+      await supabase.from('featured_items').delete().eq('product_id', product.id)
+      setPinnedIds(prev => { const next = new Set(prev); next.delete(product.id); return next })
+      toast.success(`${product.name} removed from Usuals shelf`)
+    } else {
+      const count = pinnedIds.size
+      if (count >= 2) { toast.error('Max 2 items pinned to Usuals shelf — remove one first'); return }
+      await supabase.from('featured_items').insert({ product_id: product.id, product_name: product.name, label: 'Pinned', active: true, sort_order: count })
+      setPinnedIds(prev => new Set([...Array.from(prev), product.id]))
+      toast.success(`${product.name} pinned to Usuals shelf`)
+    }
   }
 
   // Helper: get category names for a product
@@ -157,6 +175,13 @@ export default function ProductsPage() {
                 </td>
                 <td className="px-5 py-3 text-right">
                   <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={() => togglePin(p)}
+                      title={pinnedIds.has(p.id) ? 'Remove from Usuals shelf' : 'Pin to Usuals shelf (max 2)'}
+                      className={`p-1.5 rounded-lg transition-colors ${pinnedIds.has(p.id) ? 'text-amber-500 bg-amber-50 hover:bg-amber-100' : 'text-slate-300 hover:bg-amber-50 hover:text-amber-400'}`}
+                    >
+                      <Star className={`w-4 h-4 ${pinnedIds.has(p.id) ? 'fill-amber-400' : ''}`} />
+                    </button>
                     <button onClick={() => setEditProduct(p)} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-lg transition-colors">
                       <Edit2 className="w-4 h-4" />
                     </button>

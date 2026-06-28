@@ -21,20 +21,21 @@
 ```
 app/
   (admin)/
-    dashboard/       # Quick-glance stats cards
-    products/        # Product editor (variants, add-ons, sale prices, icon picker)
+    dashboard/       # Quick-glance stats cards + daily revenue gauge
+    products/        # Product editor (variants, add-ons, sale prices, icon picker, pin to Usuals ⭐)
     categories/      # Category management
     bochurim/        # Student accounts + BochurProfileModal (click any row)
     cashiers/        # Cashier accounts
     transactions/    # Order history + void
-    reports/         # Full analytics (charts, heatmaps, tables)
+    reports/         # Full analytics (charts, heatmaps, dead stock, burn rate, wastage, cashier filter)
     bundles/         # Combo deal bundles admin
-    settings/        # App-wide settings (tax, cc fee, out-of-stock behavior)
+    settings/        # App-wide settings (tax, cc fee, out-of-stock, revenue target, budget limits)
     inventory/       # Stock management
     topups/          # Balance top-up log
     topup-requests/  # Admin review/approve/reject parent topup requests
     preorders/       # Pre-order management + printable view
     purchase-orders/ # Purchase order log (supplier stock-in)
+    wastage/         # Wastage/spoilage log — log losses, deduct stock, view reports
   topup-request/
     page.tsx         # Generic public topup form (no bochur)
     [id]/page.tsx    # Personal parent topup form for a specific bochur
@@ -48,18 +49,17 @@ app/
 
 components/
   admin/
-    Sidebar.tsx      # Nav links
+    Sidebar.tsx      # Nav links (includes Wastage Log)
     TableSkeleton.tsx
   pos/
     ProductGrid.tsx  # Name-first cards, icon optional, SALE badge, "From $X" for variants
     Cart.tsx         # Clear button, type-in qty, addon subtotals
-    BochurSearch.tsx # Student lookup — red frozen warning banner when is_frozen=true
+    BochurSearch.tsx # Student lookup — frozen warning, low balance warning, Usuals + featured items
     CategoryTabs.tsx # Category filter + "Deals" tab
     CheckoutModal.tsx# Payment flow (balance/cash/card/mixed) + coupon field
     VariantModal.tsx # Size/option picker
     AddonModal.tsx   # Extras/toppings picker (toggle chips, running total)
     BundleGrid.tsx   # Combo deal cards on "Deals" tab
-    BochurSearch.tsx # Also shows "Usuals" amber pill buttons for quick reorder (top 5 frequent items)
 
 types/database.ts    # All TS interfaces — update here when adding DB columns
 lib/utils.ts         # formatCurrency, cn
@@ -88,7 +88,9 @@ lib/utils.ts         # formatCurrency, cn
 | `discount_codes` | `type` percent/fixed, `value`, `max_uses`, `uses_count`, `expires_at` |
 | `product_bundles` | `price`, `original_price` |
 | `bundle_items` | `bundle_id`, `product_id`, `quantity` |
-| `app_settings` | Key/value: tax_rate, cc_fee_percent, out_of_stock_behavior, etc. |
+| `app_settings` | Key/value: tax_rate, cc_fee_percent, out_of_stock_behavior, low_balance_threshold, daily_revenue_target, budget_limit_bochurim, budget_limit_staff, budget_limit_type, budget_override_requires_pin, purchase_notification_enabled |
+| `wastage_log` | `product_id`, `product_name`, `quantity`, `unit_cost`, `unit_price`, `reason`, `notes`, `cashier_id` |
+| `featured_items` | `product_id`, `product_name`, `label`, `sort_order`, `active` — admin-pinned products shown in POS Usuals shelf (max 2) |
 
 ---
 
@@ -107,7 +109,7 @@ lib/utils.ts         # formatCurrency, cn
 | SALE badge + sale prices | `components/pos/ProductGrid.tsx` | Strikethrough + red price, set per product |
 | Combo bundles | `app/(admin)/bundles/page.tsx`, `components/pos/BundleGrid.tsx` | "Deals" tab in POS |
 | Discount/coupon codes | `app/(admin)/discount-codes/` (if missing, verify), `app/api/pos/apply-discount/` | Applied at checkout |
-| Full reports/analytics | `app/(admin)/reports/page.tsx` | Hourly heatmap, top sellers, payment breakdown, cashier stats, low stock donut, FBT, ABC analysis, unspent credit |
+| Full reports/analytics | `app/(admin)/reports/page.tsx` | Hourly heatmap (per-cashier filter), top sellers, payment breakdown, cashier stats, low stock donut, FBT, ABC analysis, unspent credit, wastage analytics, dead stock table, inventory burn rate |
 | Bochur profile modal | `app/(admin)/bochurim/BochurProfileModal.tsx` | Click any row — stats, chart, transactions, ledger, freeze/unfreeze, add funds, edit |
 | Freeze/unfreeze accounts | `bochurim` table, `app/api/pos/checkout/route.ts`, `components/pos/BochurSearch.tsx` | Checkout returns 403; POS shows red warning |
 | Clear cart button | `components/pos/Cart.tsx` | Confirm dialog before clear |
@@ -124,15 +126,33 @@ lib/utils.ts         # formatCurrency, cn
 | ABC Product Analysis | `app/(admin)/reports/page.tsx` | Color-coded A/B/C tier table; A=top 70% revenue, B=next 20%, C=bottom 10% |
 | Purchase Order Log | `app/(admin)/purchase-orders/page.tsx` | Log supplier purchases; auto-updates product stock on save |
 
+| Wastage/spoilage log | `app/(admin)/wastage/page.tsx` | Log losses by product + reason + cashier; deducts stock; Sidebar nav entry |
+| Daily revenue gauge | `app/(admin)/dashboard/page.tsx` | Progress bar vs `daily_revenue_target` setting; only shown when target > 0 |
+| Admin-pushed featured items | `app/(admin)/products/page.tsx`, `components/pos/BochurSearch.tsx` | Star button pins up to 2 products; shown as indigo ⭐ pills in POS alongside Usuals |
+| Low balance warning at POS | `components/pos/BochurSearch.tsx` | Amber banner when balance < `low_balance_threshold` setting |
+| Dead stock table | `app/(admin)/reports/page.tsx` | Active products with zero sales in date range; sorted by stock value |
+| Inventory burn rate | `app/(admin)/reports/page.tsx` | Daily velocity + projected stock-out date; red ≤3 days, amber ≤7 |
+| Wastage analytics in reports | `app/(admin)/reports/page.tsx` | Total $ lost, by-product and by-cashier breakdowns |
+| Per-cashier heatmap filter | `app/(admin)/reports/page.tsx` | Dropdown to isolate any single cashier's hourly pattern |
+| New settings | `app/(admin)/settings/page.tsx` | purchase_notification_enabled, low_balance_threshold, daily_revenue_target, budget limits, budget_override_requires_pin |
+
 ### ❌ Not Yet Built
 
 | Feature | Notes |
 |---|---|
-| Inventory burn-rate trendline | Projects stock-out date from sales velocity — no DB support yet |
-| Daily revenue vs target gauge | Need target_revenue in app_settings |
-| Wastage/spoilage tracking | No DB table yet |
-| Declined/low-balance alert log | Would need a new `failed_transactions` table or column |
-| Bochur-level spending limits / discounts | Per-account rules, not yet designed |
+| Purchase confirmation toast | Setting added (`purchase_notification_enabled`) but checkout not wired up yet |
+| Budget/spending limits enforcement | Settings added (budget_limit_bochurim/staff, type, PIN) but checkout not enforcing yet |
+| Tips system | Optional tip at checkout → cashier's bochur balance or cash payout log |
+| Treat a friend / Split bill | Cashier picks secondary bochur during order or at checkout |
+| Loyalty points | Admin configures point rules, deals, toggles visibility |
+| Happy Hour / Flash Sales | Admin sets time window + items + discount |
+| Kiosk lock with cashier PINs | Browser fullscreen, each cashier has PIN |
+| Barcode scanner support | UPC on products, USB HID scanner |
+| Account withdrawal | Admin pulls money out of one or multiple bochur accounts (cash/zelle) |
+| Bulk mass credit | Give all or filtered bochurim $X at once |
+| End-of-session refund workflow | Track refunds with method (zelle/cash), batch processing |
+| Staff discounts | Individual or all-staff configurable % discount |
+| Debt report | List bochurim with negative balances |
 
 ---
 
@@ -202,3 +222,9 @@ These pages intentionally have no auth guard — parents access them from a QR c
 | 2026-06-26 | Feat: Sale scheduler — sale_starts_at + sale_ends_at on products; server-side evaluation at checkout |
 | 2026-06-26 | Feat: ABC Product Analysis in reports — A/B/C tier table with cumulative revenue percentile |
 | 2026-06-26 | Feat: Purchase Order Log — log stock-in from suppliers, auto-update product stock_quantity |
+| 2026-06-28 | Feat: Wastage/Spoilage Log — full admin page with AddWastageModal, reason chips, stock deduction, summary stats |
+| 2026-06-28 | Feat: Daily revenue gauge on dashboard — progress bar vs configurable daily target |
+| 2026-06-28 | Feat: Admin-pinned featured items — star button on products page; shows as ⭐ pills in POS Usuals shelf (max 2) |
+| 2026-06-28 | Feat: Low balance warning at POS — amber banner when bochur balance < configurable threshold |
+| 2026-06-28 | Feat: Reports enhancements — dead stock table, inventory burn rate, wastage analytics, per-cashier heatmap filter |
+| 2026-06-28 | Feat: 9 new settings — low_balance_threshold, daily_revenue_target, budget limits, budget PIN, purchase notifications |

@@ -6,7 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, Users, Package, Tag, Warehouse,
   Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift,
-  ClipboardList, Link, Truck
+  ClipboardList, Link, Truck, Trash2
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -23,6 +23,7 @@ const NAV = [
   { href: '/topups', icon: CreditCard, label: 'Top-ups' },
   { href: '/topup-requests', icon: Link, label: 'Topup Requests' },
   { href: '/purchase-orders', icon: Truck, label: 'Purchases' },
+  { href: '/wastage', icon: Trash2, label: 'Wastage Log' },
   { href: '/cashiers', icon: UserCog, label: 'Cashiers' },
   { href: '/settings', icon: Settings, label: 'Settings' },
 ]

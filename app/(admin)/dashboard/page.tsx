@@ -5,6 +5,11 @@ import { format } from 'date-fns'
 
 export const revalidate = 60
 
+async function getSetting(supabase: any, key: string): Promise<string | null> {
+  const { data } = await supabase.from('settings').select('value').eq('key', key).single()
+  return data?.value ?? null
+}
+
 async function getStats(supabase: any) {
   // Use UTC midnight so date boundaries are consistent with stored timestamps
   const now = new Date()
@@ -123,7 +128,11 @@ const METHOD_COLORS: Record<string, string> = {
 
 export default async function DashboardPage() {
   const supabase = createClient()
-  const stats = await getStats(supabase)
+  const [stats, dailyTargetRaw] = await Promise.all([
+    getStats(supabase),
+    getSetting(supabase, 'daily_revenue_target'),
+  ])
+  const dailyTarget = dailyTargetRaw ? Number(dailyTargetRaw) : 0
   const { data: lowStockProducts } = await supabase
     .from('products')
     .select('id,name,stock_quantity,low_stock_threshold,icon')
@@ -197,6 +206,37 @@ export default async function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* Daily revenue gauge */}
+      {dailyTarget > 0 && (
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+          <div className="flex items-center justify-between mb-3">
+            <div>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-wider">Today vs Target</p>
+              <p className="text-2xl font-bold text-slate-900 mt-0.5">{formatCurrency(stats.todayRevenue)}</p>
+            </div>
+            <div className="text-right">
+              <p className="text-xs text-slate-400">Target</p>
+              <p className="text-lg font-bold text-slate-400">{formatCurrency(dailyTarget)}</p>
+            </div>
+          </div>
+          <div className="w-full bg-slate-100 rounded-full h-4 overflow-hidden">
+            <div
+              className={`h-4 rounded-full transition-all ${stats.todayRevenue >= dailyTarget ? 'bg-emerald-500' : 'bg-amber-400'}`}
+              style={{ width: `${Math.min(100, dailyTarget > 0 ? (stats.todayRevenue / dailyTarget) * 100 : 0)}%` }}
+            />
+          </div>
+          <div className="flex justify-between mt-1.5">
+            <span className="text-xs text-slate-400">
+              {dailyTarget > 0 ? `${Math.min(100, Math.round((stats.todayRevenue / dailyTarget) * 100))}% of target` : ''}
+            </span>
+            {stats.todayRevenue >= dailyTarget
+              ? <span className="text-xs font-semibold text-emerald-600">🎯 Target reached!</span>
+              : <span className="text-xs text-slate-400">{formatCurrency(dailyTarget - stats.todayRevenue)} to go</span>
+            }
+          </div>
+        </div>
+      )}
 
       {/* Week comparison + Payment breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">

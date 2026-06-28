@@ -6,11 +6,20 @@ import { Search, X, User, AlertTriangle, Zap } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { BochurWithId } from '@/types/database'
 
+export interface FeaturedItem {
+  id: string
+  product_id: string
+  product_name: string
+  label: string
+}
+
 interface Props {
   loadedBochur: BochurWithId | null
   onBochurLoaded: (b: BochurWithId) => void
   onClear: () => void
   onUsualTap?: (productId: string) => void
+  lowBalanceThreshold?: number
+  featuredItems?: FeaturedItem[]
 }
 
 const ACCOUNT_TYPE_COLORS: Record<string, string> = {
@@ -27,7 +36,7 @@ interface Usual {
   count: number
 }
 
-export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear, onUsualTap }: Props) {
+export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear, onUsualTap, lowBalanceThreshold = 5, featuredItems = [] }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<BochurWithId[]>([])
   const [loading, setLoading] = useState(false)
@@ -123,13 +132,29 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear, on
             )}
           </div>
         )}
-        {onUsualTap && usuals.length > 0 && (
+        {!loadedBochur.is_frozen && loadedBochur.balance < lowBalanceThreshold && lowBalanceThreshold > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-700">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-semibold">Low Balance — only {loadedBochur.balance < 0 ? 'negative' : `$${loadedBochur.balance.toFixed(2)}`} left</span>
+          </div>
+        )}
+        {(onUsualTap && (usuals.length > 0 || featuredItems.length > 0)) && (
           <div className="flex items-center gap-1.5 flex-wrap">
             <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+            {featuredItems.filter(f => f.product_id).map(f => (
+              <button
+                key={`featured-${f.id}`}
+                onClick={() => onUsualTap!(f.product_id)}
+                className="px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full hover:bg-indigo-100 transition-colors"
+                title={f.label}
+              >
+                ⭐ {f.product_name}
+              </button>
+            ))}
             {usuals.map(u => (
               <button
                 key={u.product_id}
-                onClick={() => onUsualTap(u.product_id)}
+                onClick={() => onUsualTap!(u.product_id)}
                 className="px-2.5 py-1 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full hover:bg-amber-100 transition-colors"
               >
                 {u.product_name}
