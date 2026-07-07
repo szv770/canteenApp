@@ -103,6 +103,7 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
 
   // UI state
   const [showTopup, setShowTopup] = useState(false)
+  const [showRefund, setShowRefund] = useState(false)
   const [showEdit, setShowEdit] = useState(false)
   const [showFreezeConfirm, setShowFreezeConfirm] = useState(false)
   const [freezeReason, setFreezeReason] = useState(bochur.freeze_reason || '')
@@ -313,6 +314,12 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
                 className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-medium transition-colors"
               >
                 <DollarSign className="w-4 h-4" /> Add Funds
+              </button>
+              <button
+                onClick={() => setShowRefund(true)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-red-50 hover:bg-red-100 text-red-700 border border-red-200 text-sm font-medium transition-colors"
+              >
+                <DollarSign className="w-4 h-4" /> Refund Balance
               </button>
               <button
                 onClick={() => { setFreezeReason(bochur.freeze_reason || ''); setShowFreezeConfirm(true) }}
@@ -621,7 +628,22 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
           onClose={() => setShowTopup(false)}
           onSaved={() => {
             setShowTopup(false)
-            // Refresh balance
+            supabase.from('bochurim_with_id').select('*').eq('id', bochur.id).single().then(({ data }) => {
+              if (data) setBochur(prev => ({ ...prev, balance: data.balance }))
+            })
+            loadAnalytics()
+            onUpdated()
+          }}
+        />
+      )}
+
+      {/* ── Inline RefundModal ───────────────────────────────────────────────── */}
+      {showRefund && (
+        <InlineRefundModal
+          bochur={bochur}
+          onClose={() => setShowRefund(false)}
+          onSaved={() => {
+            setShowRefund(false)
             supabase.from('bochurim_with_id').select('*').eq('id', bochur.id).single().then(({ data }) => {
               if (data) setBochur(prev => ({ ...prev, balance: data.balance }))
             })
@@ -737,6 +759,156 @@ function InlineTopupModal({ bochur, onClose, onSaved }: {
             className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors disabled:opacity-50"
           >
             {saving ? 'Adding...' : 'Add Funds'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ─── Inline Refund ────────────────────────────────────────────────────────────
+
+function InlineRefundModal({ bochur, onClose, onSaved }: {
+  bochur: BochurWithId
+  onClose: () => void
+  onSaved: () => void
+}) {
+  const supabase = createClient()
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState('cash')
+  const [note, setNote] = useState('')
+  const [saving, setSaving] = useState(false)
+  const [zelleConfirmed, setZelleConfirmed] = useState(false)
+
+  const amt = parseFloat(amount) || 0
+  const newBalance = Math.round((bochur.balance - amt) * 100) / 100
+
+  async function save() {
+    if (!amt || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (amt > bochur.balance) {
+      if (!confirm(`This will bring ${bochur.name}'s balance negative. Continue?`)) return
+    }
+    if (method === 'zelle' && !zelleConfirmed) {
+      toast.error('Please confirm you have sent the Zelle payment first')
+      return
+    }
+    setSaving(true)
+    try {
+      // Deduct balance
+      const { error: balErr } = await supabase
+        .from('bochurim')
+        .update({ balance: newBalance })
+        .eq('id', bochur.id)
+      if (balErr) throw new Error(balErr.message)
+
+      // Get current user for cashier_id
+      const { data: { user } } = await supabase.auth.getUser()
+
+      // Ledger entry
+      const { error: ledgerErr } = await supabase.from('balance_ledger').insert({
+        bochur_id: bochur.id,
+        amount: -amt,
+        type: 'refund',
+        method,
+        cashier_id: user?.id,
+        note: note.trim() || `Balance refund via ${method}`,
+      })
+      if (ledgerErr) throw new Error(ledgerErr.message)
+
+      toast.success(`Refunded ${formatCurrency(amt)} — balance updated`)
+      onSaved()
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to process refund')
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[60] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-slate-900 text-lg">Refund Balance</h3>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="p-3 bg-slate-50 rounded-xl flex justify-between">
+          <span className="text-sm text-slate-600">Current balance</span>
+          <span className={`font-bold ${bochur.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+            {formatCurrency(bochur.balance)}
+          </span>
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Refund Amount</label>
+          <input
+            autoFocus
+            type="number"
+            className="input-admin text-lg"
+            value={amount}
+            onChange={e => setAmount(e.target.value)}
+            placeholder="0.00"
+            min={0}
+            step={0.5}
+          />
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Refund Method</label>
+          <select className="input-admin" value={method} onChange={e => { setMethod(e.target.value); setZelleConfirmed(false) }}>
+            <option value="cash">Cash — hand money to bochur</option>
+            <option value="zelle">Zelle — send to parent/bochur</option>
+            <option value="cc">Credit Card — refund to card</option>
+          </select>
+        </div>
+
+        {/* Method-specific guidance */}
+        {method === 'cash' && amt > 0 && (
+          <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-800 text-sm font-medium">
+            Have {formatCurrency(amt)} ready to hand back to {bochur.name}.
+          </div>
+        )}
+        {method === 'zelle' && amt > 0 && (
+          <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl space-y-2">
+            <p className="text-blue-800 text-sm font-medium">Send {formatCurrency(amt)} via Zelle, then confirm below.</p>
+            <label className="flex items-center gap-2 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={zelleConfirmed}
+                onChange={e => setZelleConfirmed(e.target.checked)}
+                className="rounded"
+              />
+              <span className="text-sm text-blue-700">I have sent the Zelle payment</span>
+            </label>
+          </div>
+        )}
+        {method === 'cc' && (
+          <div className="p-3 bg-slate-50 border border-slate-200 rounded-xl text-slate-600 text-sm">
+            CC refunds will be available once Stripe is connected. Use Cash or Zelle to refund now.
+          </div>
+        )}
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Note (optional)</label>
+          <input className="input-admin" value={note} onChange={e => setNote(e.target.value)} placeholder="e.g. Parent requested refund" />
+        </div>
+
+        {amt > 0 && (
+          <div className="p-3 bg-red-50 rounded-xl flex justify-between">
+            <span className="text-sm text-red-700">Balance after refund</span>
+            <span className={`font-bold ${newBalance >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(newBalance)}</span>
+          </div>
+        )}
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button
+            onClick={save}
+            disabled={saving || !amt || (method === 'cc')}
+            className="flex-1 px-4 py-2 rounded-xl bg-red-600 hover:bg-red-700 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Processing...' : 'Confirm Refund'}
           </button>
         </div>
       </div>

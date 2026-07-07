@@ -27,6 +27,10 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
   const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; amount: number; description: string } | null>(null)
   const [discountError, setDiscountError] = useState('')
   const [applyingDiscount, setApplyingDiscount] = useState(false)
+  const [tipAmount, setTipAmount] = useState(0)
+  const [customTip, setCustomTip] = useState('')
+
+  const QUICK_TIPS = [0.25, 0.5, 1, 2]
 
   const coinRounding = settings['coin_rounding'] === 'true'
   const ccFeePercent = parseFloat(settings['cc_fee_percent'] || '3')
@@ -37,13 +41,14 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
   const subtotal = coinRounding && method === 'cash' ? roundCash(subtotalAfterDiscount) : subtotalAfterDiscount
   const ccFee = method === 'credit_card' ? calcCCFee(subtotalAfterDiscount, ccFeePercent) : 0
   const total = subtotalAfterDiscount + ccFee
-  const displayTotal = coinRounding && method === 'cash' ? roundCash(subtotalAfterDiscount) : total
+  const grandTotal = Math.round((total + tipAmount) * 100) / 100
+  const displayTotal = coinRounding && method === 'cash' ? Math.round((roundCash(subtotalAfterDiscount) + tipAmount) * 100) / 100 : grandTotal
 
   const tendered = parseFloat(cashTendered) || 0
   const change = Math.max(0, Math.round((tendered - displayTotal) * 100) / 100)
 
-  const balanceAfter = loadedBochur ? loadedBochur.balance - subtotalAfterDiscount : 0
-  const insufficientBalance = loadedBochur && loadedBochur.balance < subtotalAfterDiscount
+  const balanceAfter = loadedBochur ? Math.round((loadedBochur.balance - subtotalAfterDiscount - tipAmount) * 100) / 100 : 0
+  const insufficientBalance = loadedBochur && loadedBochur.balance < (subtotalAfterDiscount + tipAmount)
   const allowNegative = loadedBochur?.allow_negative ?? false
   const maxNeg = loadedBochur?.max_negative_balance ?? 0
   const balanceBlocked = insufficientBalance && (!allowNegative || (allowNegative && -balanceAfter > maxNeg))
@@ -91,6 +96,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
           bochur_id: loadedBochur?.id ?? null,
           cash_tendered: method === 'cash' ? tendered : null,
           discount_code: appliedDiscount?.code ?? null,
+          tip_amount: tipAmount > 0 ? tipAmount : undefined,
           items: cart.map(item => ({
             product_id: item.product_id,
             variant_id: item.variant_id,
@@ -151,6 +157,38 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
             ))}
           </div>
 
+          {/* Tip section */}
+          <div className="px-4 sm:px-5 pt-4 pb-2 border-b border-pos-border">
+            <p className="text-xs font-semibold text-pos-subtext uppercase tracking-wide mb-2">Tip for cashier</p>
+            <div className="flex gap-1.5 flex-wrap">
+              <button
+                onClick={() => { setTipAmount(0); setCustomTip('') }}
+                className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${tipAmount === 0 && !customTip ? 'bg-slate-800 text-white border-slate-800' : 'border-slate-200 text-slate-600 hover:border-slate-400'}`}
+              >
+                No tip
+              </button>
+              {QUICK_TIPS.map(amt => (
+                <button
+                  key={amt}
+                  onClick={() => { setTipAmount(amt); setCustomTip('') }}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-colors ${tipAmount === amt && !customTip ? 'bg-amber-500 text-white border-amber-500' : 'border-slate-200 text-slate-600 hover:border-amber-300'}`}
+                >
+                  +{formatCurrency(amt)}
+                </button>
+              ))}
+              <input
+                type="number"
+                min={0}
+                step={0.25}
+                placeholder="Custom"
+                value={customTip}
+                onChange={e => { setCustomTip(e.target.value); setTipAmount(parseFloat(e.target.value) || 0) }}
+                onFocus={() => setTipAmount(parseFloat(customTip) || 0)}
+                className="w-20 px-2 py-1.5 rounded-lg text-sm border border-slate-200 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400/30"
+              />
+            </div>
+          </div>
+
           {/* Payment method tabs */}
           <div className="px-4 sm:px-5 pt-4">
             <div className="flex gap-1 bg-pos-bg rounded-xl p-1 mb-4">
@@ -179,8 +217,14 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-pos-subtext">This order</span>
-                    <span className="font-semibold text-red-500">-{formatCurrency(rawSubtotal)}</span>
+                    <span className="font-semibold text-red-500">-{formatCurrency(subtotalAfterDiscount)}</span>
                   </div>
+                  {tipAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-pos-subtext">Tip</span>
+                      <span className="font-semibold text-amber-600">-{formatCurrency(tipAmount)}</span>
+                    </div>
+                  )}
                   <div className="border-t border-pos-border pt-2 flex justify-between">
                     <span className="text-sm font-medium text-pos-text">Remaining</span>
                     <span className={`font-bold ${balanceAfter >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
@@ -200,7 +244,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
             {method === 'cash' && (
               <div className="space-y-3 mb-4">
                 <div className="flex justify-between text-sm mb-1">
-                  <span className="text-pos-subtext">Amount due</span>
+                  <span className="text-pos-subtext">Amount due{tipAmount > 0 ? ` (incl. ${formatCurrency(tipAmount)} tip)` : ''}</span>
                   <span className="font-bold text-pos-text text-lg">{formatCurrency(displayTotal)}</span>
                 </div>
                 <input
@@ -274,7 +318,8 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
             ) : (
               <span className="flex items-center justify-center gap-2">
                 <Check className="w-5 h-5" />
-                Complete Order · {formatCurrency(method === 'credit_card' ? total : displayTotal)}
+                Complete Order · {formatCurrency(method === 'credit_card' ? grandTotal : displayTotal)}
+                {tipAmount > 0 && <span className="text-white/70 text-xs">(incl. {formatCurrency(tipAmount)} tip)</span>}
               </span>
             )}
           </button>
