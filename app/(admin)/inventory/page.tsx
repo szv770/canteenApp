@@ -68,8 +68,8 @@ export default function InventoryPage() {
                   </div>
                 </td>
                 <td className="px-5 py-3 text-right">
-                  <span className={`badge font-semibold ${p.stock_quantity <= 0 ? 'bg-red-100 text-red-600' : p.stock_quantity <= p.low_stock_threshold ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
-                    {p.stock_quantity}
+                  <span className={`badge font-semibold ${p.stock_quantity == null ? 'bg-gray-100 text-gray-500' : p.stock_quantity <= 0 ? 'bg-red-100 text-red-600' : p.stock_quantity <= p.low_stock_threshold ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
+                    {p.stock_quantity ?? '∞'}
                   </span>
                 </td>
                 <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{p.low_stock_threshold}</td>
@@ -133,7 +133,7 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
       })
       if (entryErr) { toast.error(entryErr.message); return }
 
-      const newStock = product.stock_quantity + qty
+      const newStock = (product.stock_quantity ?? 0) + qty
       const updatePayload: any = { stock_quantity: newStock }
       if (updatePrice) updatePayload.cost_price = costPerUnit
 
@@ -193,7 +193,7 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
           {qty > 0 && (
             <div className="p-3 bg-emerald-50 rounded-xl flex justify-between">
               <span className="text-sm text-emerald-700">New stock level</span>
-              <span className="font-bold text-emerald-700">{product.stock_quantity + qty}</span>
+              <span className="font-bold text-emerald-700">{(product.stock_quantity ?? 0) + qty}</span>
             </div>
           )}
           <div className="flex gap-2 pt-2">

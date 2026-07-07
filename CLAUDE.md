@@ -145,6 +145,8 @@ lib/utils.ts         # formatCurrency, cn
 
 7. **TypeScript Set spread** — `[...new Set(...)]` fails without `downlevelIteration`. Use `Array.from(new Set(...))`.
 
+8. **inventory/page.tsx null stock** — `stock_quantity` is `number | null`; guard with `?? 0` before arithmetic and `?? '∞'` for display. Null = unlimited tracking.
+
 ---
 
 ## Deployment
@@ -191,4 +193,5 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: dashboard payments card no longer empty — removed invalid .eq('status','completed') on payments table |
 | 2026-07-07 | Fix: deleting product variants no longer throws FK error — order_items_variant_id_fkey changed to ON DELETE SET NULL |
 | 2026-07-07 | Fix: low stock dashboard widget ignores null-stock (unlimited) products |
+| 2026-07-07 | Fix: inventory page TS build error — null-guard stock_quantity for comparisons, arithmetic, and display (∞ for unlimited) |
 | 2026-07-07 | Feat: account type discount applied per-item at checkout — percentage/cost_price/fixed with category exclusion support |
