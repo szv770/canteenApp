@@ -167,3 +167,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Feat: bochurim page — multi-select checkboxes + bulk archive; bulk CSV import with template download, parse preview, and validation |
 | 2026-07-07 | Fix: block credit card checkout — button disabled + warning shown until CC processing is set up |
 | 2026-07-07 | Fix: product deletion FK constraint errors — stock_entries/bundle_items CASCADE, order_items SET NULL |
+| 2026-07-07 | Perf: preload all variants in POS loadData() — eliminates per-tap DB fetch |
+| 2026-07-07 | Feat: variants show as individual cards in POS grid — no modal needed, tap directly adds to cart |
+| 2026-07-07 | Feat: variant price defaults to product main price if left blank in admin editor |

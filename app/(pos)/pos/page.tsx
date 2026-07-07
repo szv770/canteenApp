@@ -10,7 +10,6 @@ import CategoryTabs from '@/components/pos/CategoryTabs'
 import ProductGrid from '@/components/pos/ProductGrid'
 import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
-import VariantModal from '@/components/pos/VariantModal'
 import AddonModal from '@/components/pos/AddonModal'
 import type { Category, Product, CartItem, BochurWithId, AppSettings, ProductVariant, ProductAddon } from '@/types/database'
 
@@ -30,7 +29,7 @@ export default function PosPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [loadedBochur, setLoadedBochur] = useState<BochurWithId | null>(null)
   const [showCheckout, setShowCheckout] = useState(false)
-  const [variantProduct, setVariantProduct] = useState<Product | null>(null)
+  const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({})
   const [addonProduct, setAddonProduct] = useState<Product | null>(null)
   const [addonVariant, setAddonVariant] = useState<ProductVariant | undefined>(undefined)
   const [loading, setLoading] = useState(true)
@@ -70,11 +69,12 @@ export default function PosPage() {
   }, [])
 
   async function loadData() {
-    const [cats, prods, setts, catLinks] = await Promise.all([
+    const [cats, prods, setts, catLinks, allVariants] = await Promise.all([
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('settings').select('*'),
       supabase.from('product_categories').select('product_id,category_id'),
+      supabase.from('product_variants').select('*').eq('is_active', true).order('sort_order'),
     ])
     if (cats.data) setCategories(cats.data)
     if (prods.data) setProducts(prods.data)
@@ -90,6 +90,14 @@ export default function PosPage() {
         pcMap[row.product_id].push(row.category_id)
       })
       setProductCategoryMap(pcMap)
+    }
+    if (allVariants.data) {
+      const vMap: Record<string, ProductVariant[]> = {}
+      allVariants.data.forEach((v: ProductVariant) => {
+        if (!vMap[v.product_id]) vMap[v.product_id] = []
+        vMap[v.product_id].push(v)
+      })
+      setProductVariantsMap(vMap)
     }
     setLoading(false)
   }
@@ -176,12 +184,8 @@ export default function PosPage() {
     }
   }
 
-  function handleProductTap(product: Product) {
-    if (product.has_variants) {
-      setVariantProduct(product)
-    } else {
-      checkAndShowAddonModal(product)
-    }
+  function handleProductTap(product: Product, variant?: ProductVariant) {
+    checkAndShowAddonModal(product, variant)
   }
 
   const filteredProducts = products.filter(p => {
@@ -291,6 +295,7 @@ export default function PosPage() {
             ) : (
               <ProductGrid
                 products={filteredProducts}
+                variantsMap={productVariantsMap}
                 outOfStockBehavior={outOfStockBehavior}
                 onProductTap={handleProductTap}
               />
@@ -311,18 +316,6 @@ export default function PosPage() {
       </div>
 
       {/* Modals */}
-      {variantProduct && (
-        <VariantModal
-          product={variantProduct}
-          onSelect={(variant) => {
-            const p = variantProduct
-            setVariantProduct(null)
-            checkAndShowAddonModal(p, variant)
-          }}
-          onClose={() => setVariantProduct(null)}
-        />
-      )}
-
       {addonProduct && (
         <AddonModal
           product={addonProduct}
