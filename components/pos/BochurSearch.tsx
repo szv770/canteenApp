@@ -1,15 +1,25 @@
 'use client'
 
-import { useState, useCallback, useRef } from 'react'
+import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, X, User, AlertTriangle } from 'lucide-react'
+import { Search, X, User, AlertTriangle, Zap } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { BochurWithId } from '@/types/database'
+
+export interface FeaturedItem {
+  id: string
+  product_id: string
+  product_name: string
+  label: string
+}
 
 interface Props {
   loadedBochur: BochurWithId | null
   onBochurLoaded: (b: BochurWithId) => void
   onClear: () => void
+  onUsualTap?: (productId: string) => void
+  lowBalanceThreshold?: number
+  featuredItems?: FeaturedItem[]
 }
 
 const ACCOUNT_TYPE_COLORS: Record<string, string> = {
@@ -20,13 +30,59 @@ const ACCOUNT_TYPE_COLORS: Record<string, string> = {
   'Canteen Worker': 'bg-amber-50 text-amber-700 border border-amber-100',
 }
 
-export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: Props) {
+interface Usual {
+  product_id: string
+  product_name: string
+  count: number
+}
+
+export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear, onUsualTap, lowBalanceThreshold = 5, featuredItems = [] }: Props) {
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<BochurWithId[]>([])
   const [loading, setLoading] = useState(false)
   const [open, setOpen] = useState(false)
+  const [usuals, setUsuals] = useState<Usual[]>([])
   const debounceRef = useRef<NodeJS.Timeout>()
   const supabase = createClient()
+
+  useEffect(() => {
+    if (!loadedBochur || !onUsualTap) { setUsuals([]); return }
+    fetchUsuals(loadedBochur.id)
+  }, [loadedBochur?.id])
+
+  async function fetchUsuals(bochurId: string) {
+    const { data: orders } = await supabase
+      .from('orders')
+      .select('id')
+      .eq('bochur_id', bochurId)
+      .eq('status', 'completed')
+      .order('created_at', { ascending: false })
+      .limit(40)
+
+    if (!orders || orders.length === 0) return
+    const orderIds = orders.map((o: any) => o.id)
+
+    const { data: items } = await supabase
+      .from('order_items')
+      .select('product_id, product_name, quantity')
+      .in('order_id', orderIds)
+
+    if (!items) return
+
+    const countMap: Record<string, { name: string; count: number }> = {}
+    for (const item of items as any[]) {
+      if (!item.product_id) continue
+      if (!countMap[item.product_id]) countMap[item.product_id] = { name: item.product_name, count: 0 }
+      countMap[item.product_id].count += item.quantity
+    }
+
+    const sorted = Object.entries(countMap)
+      .sort((a, b) => b[1].count - a[1].count)
+      .slice(0, 5)
+      .map(([product_id, v]) => ({ product_id, product_name: v.name, count: v.count }))
+
+    setUsuals(sorted)
+  }
 
   const search = useCallback((q: string) => {
     clearTimeout(debounceRef.current)
@@ -74,6 +130,36 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: 
             {loadedBochur.freeze_reason && (
               <span className="text-xs text-red-500 truncate">— {loadedBochur.freeze_reason}</span>
             )}
+          </div>
+        )}
+        {!loadedBochur.is_frozen && loadedBochur.balance < lowBalanceThreshold && lowBalanceThreshold > 0 && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-700">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-semibold">Low Balance — only {loadedBochur.balance < 0 ? 'negative' : `$${loadedBochur.balance.toFixed(2)}`} left</span>
+          </div>
+        )}
+        {(onUsualTap && (usuals.length > 0 || featuredItems.length > 0)) && (
+          <div className="flex items-center gap-1.5 flex-wrap">
+            <Zap className="w-3 h-3 text-amber-400 shrink-0" />
+            {featuredItems.filter(f => f.product_id).map(f => (
+              <button
+                key={`featured-${f.id}`}
+                onClick={() => onUsualTap!(f.product_id)}
+                className="px-2.5 py-1 text-xs font-medium bg-indigo-50 text-indigo-700 border border-indigo-200 rounded-full hover:bg-indigo-100 transition-colors"
+                title={f.label}
+              >
+                ⭐ {f.product_name}
+              </button>
+            ))}
+            {usuals.map(u => (
+              <button
+                key={u.product_id}
+                onClick={() => onUsualTap!(u.product_id)}
+                className="px-2.5 py-1 text-xs font-medium bg-amber-50 text-amber-700 border border-amber-200 rounded-full hover:bg-amber-100 transition-colors"
+              >
+                {u.product_name}
+              </button>
+            ))}
           </div>
         )}
       </div>

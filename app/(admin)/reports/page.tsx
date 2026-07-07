@@ -82,6 +82,15 @@ interface BochurCredit {
   seenRecently: boolean
 }
 
+interface ABCProduct {
+  name: string
+  revenue: number
+  units: number
+  share: number
+  cumulative: number
+  tier: 'A' | 'B' | 'C'
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
 function getDateRange(range: DateRange): { from: Date; to: Date } {
@@ -202,6 +211,13 @@ export default function ReportsPage() {
   const [bottomSellers, setBottomSellers] = useState<TopProduct[]>([])
   const [pairs, setPairs] = useState<ProductPair[]>([])
   const [credits, setCredits] = useState<BochurCredit[]>([])
+  const [abcProducts, setAbcProducts] = useState<ABCProduct[]>([])
+  const [deadStock, setDeadStock] = useState<{name: string; stock: number; stockValue: number; lastSaleDate: string | null}[]>([])
+  const [burnRates, setBurnRates] = useState<{name: string; stock: number; dailyVelocity: number; daysLeft: number | null}[]>([])
+  const [wastage, setWastage] = useState<{totalItems: number; totalCostLost: number; byProduct: {name: string; qty: number; costLost: number}[]; byCashier: {name: string; qty: number; costLost: number}[]} | undefined>()
+  const [selectedHeatmapCashier, setSelectedHeatmapCashier] = useState<string>('all')
+  const [cashierNames, setCashierNames] = useState<string[]>([])
+  const [rawOrders, setRawOrders] = useState<any[]>([])
 
   const fetchData = useCallback(async () => {
     setLoading(true)
@@ -215,11 +231,12 @@ export default function ReportsPage() {
       paymentsRes,
       productsRes,
       allOrdersForCustomers,
+      wastageRes,
     ] = await Promise.all([
       // All orders in range (any status) for void/refund stats
       supabase
         .from('orders')
-        .select('id, status, total, bochur_id, created_at, cashier_profiles(name)')
+        .select('id, status, total, bochur_id, created_at, cashier_profiles!cashier_id(name)')
         .gte('created_at', fromISO)
         .lt('created_at', toISO),
 
@@ -238,10 +255,10 @@ export default function ReportsPage() {
         .gte('created_at', fromISO)
         .lt('created_at', toISO),
 
-      // All active products for stock chart
+      // All active products for stock chart + dead stock + burn rate
       supabase
         .from('products')
-        .select('id, stock_quantity, low_stock_threshold')
+        .select('id, name, cost_price, stock_quantity, low_stock_threshold')
         .eq('is_active', true),
 
       // All historical orders for returning-customer logic
@@ -250,6 +267,13 @@ export default function ReportsPage() {
         .select('bochur_id, created_at')
         .eq('status', 'completed')
         .not('bochur_id', 'is', null),
+
+      // Wastage log for this period
+      supabase
+        .from('wastage_log')
+        .select('*, cashier_profiles!cashier_id(name)')
+        .gte('created_at', fromISO)
+        .lt('created_at', toISO),
     ])
 
     // ── 1 & 2: Hourly heatmap + line graph ──────────────────────────────────
@@ -407,7 +431,24 @@ export default function ReportsPage() {
       .slice(0, 10)
     setBottomSellers(bottom10)
 
-    // ── 12: Frequently bought together ────────────────────────────────────────
+    // ── 12: ABC product analysis ──────────────────────────────────────────────
+
+    const allProducts = Object.values(productMap).sort((a, b) => b.revenue - a.revenue)
+    const totalRevenue = allProducts.reduce((s, p) => s + p.revenue, 0)
+    let cumRev = 0
+    const abcList: ABCProduct[] = allProducts.map(p => {
+      cumRev += p.revenue
+      const cumPct = totalRevenue > 0 ? (cumRev / totalRevenue) * 100 : 100
+      const share = totalRevenue > 0 ? (p.revenue / totalRevenue) * 100 : 0
+      const tier: 'A' | 'B' | 'C' =
+        (cumRev - p.revenue) / (totalRevenue || 1) * 100 < 70 ? 'A'
+        : cumPct <= 90 ? 'B'
+        : 'C'
+      return { name: p.name, revenue: p.revenue, units: p.units, share, cumulative: cumPct, tier }
+    })
+    setAbcProducts(abcList)
+
+    // ── 13: Frequently bought together ────────────────────────────────────────
 
     // Build order -> [products] map from already-fetched order items
     const orderProducts: Record<string, { id: string; name: string }[]> = {}
@@ -476,6 +517,73 @@ export default function ReportsPage() {
       seenRecently: bochurimSeenInRange.has(b.id),
     }))
     setCredits(creditList)
+
+    // ── Store raw orders + cashier names for heatmap filter ───────────────────
+
+    setRawOrders(completedOrders)
+    const cNames = Array.from(new Set(
+      completedOrders
+        .map((o: any) => (o.cashier_profiles as any)?.name)
+        .filter((n: unknown): n is string => typeof n === 'string' && n.length > 0)
+    )) as string[]
+    setCashierNames(cNames)
+
+    // ── Dead stock ────────────────────────────────────────────────────────────
+
+    const deadStockList = (productsRes.data || [])
+      .filter((p: any) => !productMap[p.id] || productMap[p.id].units === 0)
+      .map((p: any) => ({
+        name: p.name,
+        stock: p.stock_quantity,
+        stockValue: (p.cost_price || 0) * p.stock_quantity,
+        lastSaleDate: null as string | null,
+      }))
+      .filter((p: {name: string; stock: number; stockValue: number; lastSaleDate: string | null}) => p.stock > 0)
+      .sort((a: {stockValue: number}, b: {stockValue: number}) => b.stockValue - a.stockValue)
+    setDeadStock(deadStockList.slice(0, 20))
+
+    // ── Burn rate ─────────────────────────────────────────────────────────────
+
+    const daysInRange = range === 'today' ? 1 : range === 'this_week' ? 7 : 30
+    const burnRateList = (productsRes.data || [])
+      .map((p: any) => {
+        const sold = productMap[p.id]?.units || 0
+        const dailyVelocity = sold / daysInRange
+        const daysLeft = dailyVelocity > 0 && p.stock_quantity > 0
+          ? Math.floor(p.stock_quantity / dailyVelocity)
+          : null
+        return { name: p.name as string, stock: p.stock_quantity as number, dailyVelocity, daysLeft }
+      })
+      .filter((p: {stock: number; dailyVelocity: number}) => p.stock > 0 && p.dailyVelocity > 0)
+      .sort((a: {daysLeft: number | null}, b: {daysLeft: number | null}) => (a.daysLeft ?? 999) - (b.daysLeft ?? 999))
+    setBurnRates(burnRateList.slice(0, 20))
+
+    // ── Wastage analytics ─────────────────────────────────────────────────────
+
+    const wastageEntries = wastageRes.data || []
+    const wastageByProd: Record<string, {qty: number; costLost: number}> = {}
+    const wastageByC: Record<string, {qty: number; costLost: number}> = {}
+    for (const w of wastageEntries as any[]) {
+      const pn = w.product_name
+      const cn = (w.cashier_profiles as any)?.name || 'Unknown'
+      if (!wastageByProd[pn]) wastageByProd[pn] = { qty: 0, costLost: 0 }
+      if (!wastageByC[cn]) wastageByC[cn] = { qty: 0, costLost: 0 }
+      wastageByProd[pn].qty += w.quantity
+      wastageByProd[pn].costLost += (w.unit_cost || 0) * w.quantity
+      wastageByC[cn].qty += w.quantity
+      wastageByC[cn].costLost += (w.unit_cost || 0) * w.quantity
+    }
+    setWastage({
+      totalItems: (wastageEntries as any[]).reduce((s: number, w: any) => s + w.quantity, 0),
+      totalCostLost: (wastageEntries as any[]).reduce((s: number, w: any) => s + (w.unit_cost || 0) * w.quantity, 0),
+      byProduct: Object.entries(wastageByProd)
+        .map(([n, v]) => ({name: n, ...v}))
+        .sort((a, b) => b.qty - a.qty)
+        .slice(0, 10),
+      byCashier: Object.entries(wastageByC)
+        .map(([n, v]) => ({name: n, ...v}))
+        .sort((a, b) => b.qty - a.qty),
+    })
 
     setLoading(false)
   }, [range])
@@ -560,11 +668,42 @@ export default function ReportsPage() {
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
         {/* 1: Hourly revenue heatmap */}
         <SectionCard title="Hourly Sales Heatmap" subtitle="Revenue by hour of day">
+          {cashierNames.length > 1 && (
+            <div className="mb-4 flex items-center gap-2">
+              <label className="text-xs text-slate-500 font-medium">Filter by cashier:</label>
+              <select
+                value={selectedHeatmapCashier}
+                onChange={e => setSelectedHeatmapCashier(e.target.value)}
+                className="text-sm py-1 px-2 border border-slate-200 rounded-lg bg-white text-slate-700 focus:outline-none focus:ring-1 focus:ring-indigo-400"
+              >
+                <option value="all">All Cashiers</option>
+                {cashierNames.map(n => <option key={n} value={n}>{n}</option>)}
+              </select>
+            </div>
+          )}
           {loading ? (
             <ChartSkeleton />
-          ) : (
+          ) : (() => {
+            const filteredHourly: HourlyData[] = (() => {
+              if (selectedHeatmapCashier === 'all') return hourly
+              const hMap: Record<number, { revenue: number; count: number }> = {}
+              for (let h = 0; h < 24; h++) hMap[h] = { revenue: 0, count: 0 }
+              for (const o of rawOrders) {
+                if ((o.cashier_profiles as any)?.name !== selectedHeatmapCashier) continue
+                const h = new Date(o.created_at).getUTCHours()
+                hMap[h].revenue += Number(o.total)
+                hMap[h].count += 1
+              }
+              return Array.from({ length: 24 }, (_, i) => ({
+                hour: i,
+                label: HOUR_LABELS[i],
+                revenue: hMap[i].revenue,
+                transactions: hMap[i].count,
+              }))
+            })()
+            return (
             <ResponsiveContainer width="100%" height={220}>
-              <BarChart data={hourly} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+              <BarChart data={filteredHourly} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
                 <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
                 <XAxis
                   dataKey="label"
@@ -583,7 +722,8 @@ export default function ReportsPage() {
                 <Bar dataKey="revenue" name="Revenue" fill="#6366f1" radius={[3, 3, 0, 0]} />
               </BarChart>
             </ResponsiveContainer>
-          )}
+            )
+          })()}
         </SectionCard>
 
         {/* 2: Transactions per hour */}
@@ -954,7 +1094,7 @@ export default function ReportsPage() {
         )}
       </SectionCard>
 
-      {/* ── Section 12: Frequently Bought Together ────────────────────────────── */}
+      {/* ── Section 14: Frequently Bought Together ───────────────────────────── */}
       <SectionCard title="Frequently Bought Together" subtitle="Top product pairs co-occurring in the same order">
         {loading ? (
           <ChartSkeleton height={200} />
@@ -986,7 +1126,185 @@ export default function ReportsPage() {
         )}
       </SectionCard>
 
-      {/* ── Section 13: Unspent Credit ────────────────────────────────────────── */}
+      {/* ── Section 13: ABC Product Analysis ─────────────────────────────────── */}
+      <SectionCard
+        title="ABC Product Analysis"
+        subtitle="A = top 70% revenue · B = next 20% · C = bottom 10%"
+      >
+        {loading ? (
+          <ChartSkeleton height={240} />
+        ) : abcProducts.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-10">No sales data in this period</p>
+        ) : (
+          <div>
+            <div className="flex gap-3 mb-4 flex-wrap">
+              {(['A', 'B', 'C'] as const).map(tier => {
+                const tierProducts = abcProducts.filter(p => p.tier === tier)
+                const tierRevenue = tierProducts.reduce((s, p) => s + p.revenue, 0)
+                const colors = { A: 'bg-emerald-50 text-emerald-700 border-emerald-200', B: 'bg-amber-50 text-amber-700 border-amber-200', C: 'bg-red-50 text-red-700 border-red-200' }
+                return (
+                  <div key={tier} className={`flex-1 min-w-[120px] border rounded-xl px-4 py-3 ${colors[tier]}`}>
+                    <div className="text-xs font-semibold uppercase tracking-wider mb-1">Tier {tier}</div>
+                    <div className="text-lg font-bold">{tierProducts.length} products</div>
+                    <div className="text-xs mt-0.5">{formatCurrency(tierRevenue)}</div>
+                  </div>
+                )
+              })}
+            </div>
+            <div className="overflow-x-auto">
+              <table className="w-full min-w-[500px]">
+                <thead>
+                  <tr className="border-b border-slate-100">
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Product</th>
+                    <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Revenue</th>
+                    <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Share</th>
+                    <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Cumulative</th>
+                    <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wide py-2">Tier</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {abcProducts.map((p, i) => {
+                    const tierColors = { A: 'bg-emerald-100 text-emerald-700', B: 'bg-amber-100 text-amber-700', C: 'bg-red-100 text-red-600' }
+                    return (
+                      <tr key={i} className="border-b border-slate-50 last:border-0">
+                        <td className="py-2.5 pr-4 text-sm font-medium text-slate-800">{p.name}</td>
+                        <td className="py-2.5 pr-4 text-sm text-slate-700 text-right">{formatCurrency(p.revenue)}</td>
+                        <td className="py-2.5 pr-4 text-sm text-slate-500 text-right">{p.share.toFixed(1)}%</td>
+                        <td className="py-2.5 pr-4 text-sm text-slate-400 text-right">{p.cumulative.toFixed(1)}%</td>
+                        <td className="py-2.5 text-center">
+                          <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-bold ${tierColors[p.tier]}`}>{p.tier}</span>
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── Section 16: Wastage Analytics ───────────────────────────────────── */}
+      <SectionCard title="Wastage Analytics" subtitle="Items wasted or spoiled in this period">
+        {loading ? <ChartSkeleton /> : !wastage || wastage.totalItems === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-8">No wastage logged in this period</p>
+        ) : (
+          <div className="space-y-4">
+            <div className="grid grid-cols-2 gap-3">
+              <div className="bg-red-50 rounded-xl p-3">
+                <p className="text-xs text-red-400 font-medium">Items Wasted</p>
+                <p className="text-xl font-bold text-red-600">{wastage.totalItems}</p>
+              </div>
+              <div className="bg-red-50 rounded-xl p-3">
+                <p className="text-xs text-red-400 font-medium">Cost Lost</p>
+                <p className="text-xl font-bold text-red-600">{formatCurrency(wastage.totalCostLost)}</p>
+              </div>
+            </div>
+            <div className="grid grid-cols-1 md:grid-cols-2 gap-4">
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">By Product</p>
+                <table className="w-full">
+                  <tbody>
+                    {wastage.byProduct.map(p => (
+                      <tr key={p.name} className="border-b border-slate-50 last:border-0">
+                        <td className="py-1.5 text-sm text-slate-700">{p.name}</td>
+                        <td className="py-1.5 text-sm font-semibold text-amber-600 text-right">{p.qty}</td>
+                        <td className="py-1.5 text-sm text-red-500 text-right pl-4">{formatCurrency(p.costLost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              <div>
+                <p className="text-xs font-semibold text-slate-500 uppercase tracking-wide mb-2">By Cashier</p>
+                <table className="w-full">
+                  <tbody>
+                    {wastage.byCashier.map(c => (
+                      <tr key={c.name} className="border-b border-slate-50 last:border-0">
+                        <td className="py-1.5 text-sm text-slate-700">{c.name}</td>
+                        <td className="py-1.5 text-sm font-semibold text-amber-600 text-right">{c.qty}</td>
+                        <td className="py-1.5 text-sm text-red-500 text-right pl-4">{formatCurrency(c.costLost)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── Section 17: Dead Stock ───────────────────────────────────────────── */}
+      <SectionCard title="Dead Stock" subtitle="Active products with no sales in this period">
+        {loading ? <ChartSkeleton /> : deadStock.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-8">All products sold at least once — great!</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left text-xs font-semibold text-slate-400 uppercase py-2 pr-4">Product</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase py-2 pr-4">In Stock</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase py-2">Stock Value</th>
+                </tr>
+              </thead>
+              <tbody>
+                {deadStock.map(p => (
+                  <tr key={p.name} className="border-b border-slate-50 last:border-0">
+                    <td className="py-2.5 pr-4 text-sm font-medium text-slate-800">{p.name}</td>
+                    <td className="py-2.5 pr-4 text-sm font-bold text-amber-600 text-right">{p.stock}</td>
+                    <td className="py-2.5 text-sm font-bold text-red-500 text-right">{formatCurrency(p.stockValue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── Section 18: Inventory Burn Rate ─────────────────────────────────── */}
+      <SectionCard title="Inventory Burn Rate" subtitle="Projected stock-out dates at current sales velocity">
+        {loading ? <ChartSkeleton /> : burnRates.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-8">Need more sales data to calculate burn rates</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left text-xs font-semibold text-slate-400 uppercase py-2 pr-4">Product</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase py-2 pr-4">In Stock</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase py-2 pr-4">Units/Day</th>
+                  <th className="text-left text-xs font-semibold text-slate-400 uppercase py-2">Estimated Stock-Out</th>
+                </tr>
+              </thead>
+              <tbody>
+                {burnRates.map(p => {
+                  const urgencyColor = p.daysLeft !== null && p.daysLeft <= 3
+                    ? 'text-red-600'
+                    : p.daysLeft !== null && p.daysLeft <= 7
+                    ? 'text-amber-600'
+                    : 'text-emerald-600'
+                  const stockOutLabel = p.daysLeft === null
+                    ? '—'
+                    : p.daysLeft <= 0
+                    ? 'Out now'
+                    : `~${p.daysLeft} days`
+                  return (
+                    <tr key={p.name} className="border-b border-slate-50 last:border-0">
+                      <td className="py-2.5 pr-4 text-sm font-medium text-slate-800">{p.name}</td>
+                      <td className="py-2.5 pr-4 text-sm font-bold text-slate-700 text-right">{p.stock}</td>
+                      <td className="py-2.5 pr-4 text-sm text-slate-500 text-right">{p.dailyVelocity.toFixed(1)}</td>
+                      <td className={`py-2.5 text-sm font-bold ${urgencyColor}`}>{stockOutLabel}</td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── Section 15: Unspent Credit ────────────────────────────────────────── */}
       <SectionCard title="Unspent Credit (Top Balances)" subtitle="Bochurim with credit who may need reminding">
         {loading ? (
           <ChartSkeleton height={240} />

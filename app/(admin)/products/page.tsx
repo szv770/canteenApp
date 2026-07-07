@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
+import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2, Star } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, Category, ProductVariant, ProductAddon } from '@/types/database'
@@ -20,18 +20,21 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [pinnedIds, setPinnedIds] = useState<Set<string>>(new Set())
 
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
     setLoading(true)
-    const [pRes, cRes, pcRes] = await Promise.all([
+    const [pRes, cRes, pcRes, featuredRes] = await Promise.all([
       supabase.from('products').select('*').order('name'),
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('product_categories').select('product_id,category_id'),
+      supabase.from('featured_items').select('product_id').eq('active', true),
     ])
     setProducts(pRes.data || [])
     setCategories(cRes.data || [])
+    setPinnedIds(new Set((featuredRes.data || []).map((f: any) => f.product_id)))
 
     // Build product -> category[] map
     const pcMap: Record<string, string[]> = {}
@@ -62,6 +65,21 @@ export default function ProductsPage() {
       delete next[product.id]
       return next
     })
+  }
+
+  async function togglePin(product: Product) {
+    const isPinned = pinnedIds.has(product.id)
+    if (isPinned) {
+      await supabase.from('featured_items').delete().eq('product_id', product.id)
+      setPinnedIds(prev => { const next = new Set(prev); next.delete(product.id); return next })
+      toast.success(`${product.name} removed from Usuals shelf`)
+    } else {
+      const count = pinnedIds.size
+      if (count >= 2) { toast.error('Max 2 items pinned to Usuals shelf — remove one first'); return }
+      await supabase.from('featured_items').insert({ product_id: product.id, product_name: product.name, label: 'Pinned', active: true, sort_order: count })
+      setPinnedIds(prev => new Set([...Array.from(prev), product.id]))
+      toast.success(`${product.name} pinned to Usuals shelf`)
+    }
   }
 
   // Helper: get category names for a product
@@ -157,6 +175,13 @@ export default function ProductsPage() {
                 </td>
                 <td className="px-5 py-3 text-right">
                   <div className="flex items-center justify-end gap-1">
+                    <button
+                      onClick={() => togglePin(p)}
+                      title={pinnedIds.has(p.id) ? 'Remove from Usuals shelf' : 'Pin to Usuals shelf (max 2)'}
+                      className={`p-1.5 rounded-lg transition-colors ${pinnedIds.has(p.id) ? 'text-amber-500 bg-amber-50 hover:bg-amber-100' : 'text-slate-300 hover:bg-amber-50 hover:text-amber-400'}`}
+                    >
+                      <Star className={`w-4 h-4 ${pinnedIds.has(p.id) ? 'fill-amber-400' : ''}`} />
+                    </button>
                     <button onClick={() => setEditProduct(p)} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-lg transition-colors">
                       <Edit2 className="w-4 h-4" />
                     </button>
@@ -231,7 +256,9 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     sale_active: product?.sale_active ?? false,
     sale_price: product?.sale_price != null ? String(product.sale_price) : '',
     sale_label: product?.sale_label || '',
+    sale_starts_at: product?.sale_starts_at ? product.sale_starts_at.slice(0, 16) : '',
     sale_ends_at: product?.sale_ends_at ? product.sale_ends_at.slice(0, 16) : '',
+    allow_preorder: product?.allow_preorder ?? false,
   })
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(initialCategoryIds)
   const [variants, setVariants] = useState<VariantDraft[]>([])
@@ -368,7 +395,9 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
       sale_active: form.sale_active,
       sale_price: salePrice,
       sale_label: form.sale_label.trim() || null,
+      sale_starts_at: form.sale_starts_at ? new Date(form.sale_starts_at).toISOString() : null,
       sale_ends_at: form.sale_ends_at ? new Date(form.sale_ends_at).toISOString() : null,
+      allow_preorder: form.allow_preorder,
     }
 
     let productId: string
@@ -540,14 +569,25 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
                     onChange={e => setForm(f => ({ ...f, sale_label: e.target.value }))}
                   />
                 </div>
-                <div>
-                  <label className="block text-sm font-medium text-slate-700 mb-1">Sale Ends <span className="text-slate-400 font-normal">(optional)</span></label>
-                  <input
-                    type="datetime-local"
-                    className="input-admin"
-                    value={form.sale_ends_at}
-                    onChange={e => setForm(f => ({ ...f, sale_ends_at: e.target.value }))}
-                  />
+                <div className="grid grid-cols-2 gap-3">
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Sale Starts <span className="text-slate-400 font-normal">(optional)</span></label>
+                    <input
+                      type="datetime-local"
+                      className="input-admin"
+                      value={form.sale_starts_at}
+                      onChange={e => setForm(f => ({ ...f, sale_starts_at: e.target.value }))}
+                    />
+                  </div>
+                  <div>
+                    <label className="block text-sm font-medium text-slate-700 mb-1">Sale Ends <span className="text-slate-400 font-normal">(optional)</span></label>
+                    <input
+                      type="datetime-local"
+                      className="input-admin"
+                      value={form.sale_ends_at}
+                      onChange={e => setForm(f => ({ ...f, sale_ends_at: e.target.value }))}
+                    />
+                  </div>
                 </div>
               </div>
             )}
@@ -612,6 +652,10 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
             <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
               <input type="checkbox" checked={form.show_when_out_of_stock} onChange={e => setForm(f => ({ ...f, show_when_out_of_stock: e.target.checked }))} className="rounded" />
               <span className="text-sm text-slate-700">Show when out of stock</span>
+            </label>
+            <label className="flex items-center gap-3 p-3 bg-slate-50 rounded-xl cursor-pointer">
+              <input type="checkbox" checked={form.allow_preorder} onChange={e => setForm(f => ({ ...f, allow_preorder: e.target.checked }))} className="rounded" />
+              <span className="text-sm text-slate-700">Allow pre-ordering</span>
             </label>
           </div>
 

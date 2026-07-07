@@ -27,6 +27,17 @@ const SETTINGS_CONFIG: SettingRow[] = [
   { key: 'stripe_enabled', label: 'Stripe Payments', description: 'Enable Stripe Terminal card reader', type: 'toggle' },
   { key: 'offline_mode_enabled', label: 'Offline Mode', description: 'Allow POS to work without internet', type: 'toggle' },
   { key: 'offline_freeze_hours', label: 'Offline Freeze (hours)', description: 'Auto-freeze POS after X hours offline', type: 'number' },
+  { key: 'purchase_notification_enabled', label: 'Purchase Confirmation Toast', description: 'Show a toast notification after each confirmed order', type: 'toggle' },
+  { key: 'low_balance_threshold', label: 'Low Balance Warning ($)', description: 'Show a warning at POS when a bochur\'s balance is below this amount', type: 'number' },
+  { key: 'daily_revenue_target', label: 'Daily Revenue Target ($)', description: 'Goal for today\'s revenue — shown as a progress gauge on the dashboard', type: 'number' },
+  { key: 'budget_limit_bochurim', label: 'Bochur Spending Budget ($)', description: 'Max cumulative spend per bochur — requires admin PIN to override (0 = disabled)', type: 'number' },
+  { key: 'budget_limit_staff', label: 'Staff Spending Budget ($)', description: 'Max cumulative spend per staff account — 0 = disabled', type: 'number' },
+  { key: 'budget_limit_type', label: 'Budget Limit Type', description: 'Whether the budget resets daily, weekly, or is per-session total', type: 'select', options: [
+    { value: 'daily', label: 'Daily' },
+    { value: 'weekly', label: 'Weekly' },
+    { value: 'session', label: 'Full Session' },
+  ]},
+  { key: 'budget_override_requires_pin', label: 'Budget Override Requires Admin PIN', description: 'If on, cashier must enter admin PIN to override a budget-blocked order', type: 'toggle' },
 ]
 
 const PAYMENT_SETTINGS: SettingRow[] = [

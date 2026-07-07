@@ -96,7 +96,7 @@ export async function POST(req: NextRequest) {
   const productIds = Array.from(new Set(items.map(i => i.product_id)))
   const { data: products, error: prodErr } = await admin
     .from('products')
-    .select('id, name, price, sale_price, sale_active, stock_quantity, is_active')
+    .select('id, name, price, sale_price, sale_active, sale_starts_at, sale_ends_at, stock_quantity, is_active')
     .in('id', productIds)
 
   if (prodErr || !products) {
@@ -167,9 +167,13 @@ export async function POST(req: NextRequest) {
       unitPrice = variant.price
       variantLabel = variant.label
     } else {
-      // Apply sale price if active
-      const p = product as typeof product & { sale_price?: number | null; sale_active?: boolean }
-      unitPrice = (p.sale_active && p.sale_price != null) ? p.sale_price : product.price
+      // Apply sale price if active and within scheduled window
+      const p = product as typeof product & { sale_price?: number | null; sale_active?: boolean; sale_starts_at?: string | null; sale_ends_at?: string | null }
+      const now = new Date()
+      const saleStarted = !p.sale_starts_at || new Date(p.sale_starts_at) <= now
+      const saleNotEnded = !p.sale_ends_at || new Date(p.sale_ends_at) >= now
+      const saleOn = p.sale_active && saleStarted && saleNotEnded
+      unitPrice = (saleOn && p.sale_price != null) ? p.sale_price : product.price
     }
 
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {

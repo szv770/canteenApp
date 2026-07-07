@@ -5,7 +5,7 @@ import { createClient } from '@/lib/supabase/client'
 import { LogOut, Settings, ShoppingCart } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
-import BochurSearch from '@/components/pos/BochurSearch'
+import BochurSearch, { type FeaturedItem } from '@/components/pos/BochurSearch'
 import CategoryTabs from '@/components/pos/CategoryTabs'
 import ProductGrid from '@/components/pos/ProductGrid'
 import CartPanel from '@/components/pos/Cart'
@@ -35,6 +35,7 @@ export default function PosPage() {
   const [addonVariant, setAddonVariant] = useState<ProductVariant | undefined>(undefined)
   const [loading, setLoading] = useState(true)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
+  const [featuredItems, setFeaturedItems] = useState<FeaturedItem[]>([])
 
   useEffect(() => {
     loadData()
@@ -70,11 +71,12 @@ export default function PosPage() {
   }, [])
 
   async function loadData() {
-    const [cats, prods, setts, catLinks] = await Promise.all([
+    const [cats, prods, setts, catLinks, featuredRes] = await Promise.all([
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('settings').select('*'),
       supabase.from('product_categories').select('product_id,category_id'),
+      supabase.from('featured_items').select('id, product_id, product_name, label').eq('active', true).order('sort_order'),
     ])
     if (cats.data) setCategories(cats.data)
     if (prods.data) setProducts(prods.data)
@@ -83,6 +85,7 @@ export default function PosPage() {
       setts.data.forEach((s: any) => { map[s.key] = String(s.value) })
       setSettings(map)
     }
+    if (featuredRes.data) setFeaturedItems(featuredRes.data)
     if (catLinks.data) {
       const pcMap: Record<string, string[]> = {}
       catLinks.data.forEach((row: any) => {
@@ -213,6 +216,12 @@ export default function PosPage() {
             loadedBochur={loadedBochur}
             onBochurLoaded={setLoadedBochur}
             onClear={() => setLoadedBochur(null)}
+            onUsualTap={(productId) => {
+              const product = products.find(p => p.id === productId)
+              if (product) handleProductTap(product)
+            }}
+            lowBalanceThreshold={Number(settings['low_balance_threshold'] || 5)}
+            featuredItems={featuredItems}
           />
         </div>
 

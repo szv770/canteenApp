@@ -51,7 +51,10 @@ function ProductCard({ product, outOfStockBehavior, onTap }: {
   const isBlocked = outOfStock && outOfStockBehavior === 'block'
   const isHidden = outOfStock && (outOfStockBehavior === 'hide' || !product.show_when_out_of_stock)
 
-  const onSale = product.sale_active && product.sale_price != null
+  const now = new Date()
+  const saleStarted = !product.sale_starts_at || new Date(product.sale_starts_at) <= now
+  const saleNotEnded = !product.sale_ends_at || new Date(product.sale_ends_at) >= now
+  const onSale = product.sale_active && product.sale_price != null && saleStarted && saleNotEnded
   const effectivePrice = onSale ? product.sale_price! : product.price
 
   if (isHidden) return null

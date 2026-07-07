@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Archive, DollarSign, X, Pencil, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Plus, Search, Archive, DollarSign, X, Pencil, ChevronLeft, ChevronRight, Download, Upload, ArrowUpDown } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { BochurWithId, AccountType } from '@/types/database'
@@ -21,6 +21,9 @@ export default function BochurimPage() {
   const [topupBochur, setTopupBochur] = useState<BochurWithId | null>(null)
   const [profileBochur, setProfileBochur] = useState<BochurWithId | null>(null)
   const [page, setPage] = useState(0)
+  const [sortField, setSortField] = useState<'name' | 'balance' | 'grade'>('name')
+  const [sortAsc, setSortAsc] = useState(true)
+  const [showImport, setShowImport] = useState(false)
   const PAGE_SIZE = 50
 
   useEffect(() => { setPage(0); loadData() }, [showArchived])
@@ -36,13 +39,49 @@ export default function BochurimPage() {
     setLoading(false)
   }
 
-  const filtered = bochurim.filter(b =>
-    b.name.toLowerCase().includes(search.toLowerCase()) ||
-    (b.bochur_id || '').toLowerCase().includes(search.toLowerCase()) ||
-    (b.grade || '').toLowerCase().includes(search.toLowerCase())
-  )
+  const filtered = bochurim
+    .filter(b =>
+      b.name.toLowerCase().includes(search.toLowerCase()) ||
+      (b.bochur_id || '').toLowerCase().includes(search.toLowerCase()) ||
+      (b.grade || '').toLowerCase().includes(search.toLowerCase())
+    )
+    .sort((a, b) => {
+      let av: string | number = sortField === 'balance' ? a.balance : sortField === 'grade' ? (a.grade || '') : a.name
+      let bv: string | number = sortField === 'balance' ? b.balance : sortField === 'grade' ? (b.grade || '') : b.name
+      if (typeof av === 'string') av = av.toLowerCase()
+      if (typeof bv === 'string') bv = bv.toLowerCase()
+      return sortAsc ? (av < bv ? -1 : av > bv ? 1 : 0) : (av > bv ? -1 : av < bv ? 1 : 0)
+    })
   const totalPages = Math.ceil(filtered.length / PAGE_SIZE)
   const paginated = filtered.slice(page * PAGE_SIZE, (page + 1) * PAGE_SIZE)
+
+  function toggleSort(field: typeof sortField) {
+    if (sortField === field) setSortAsc(a => !a)
+    else { setSortField(field); setSortAsc(true) }
+    setPage(0)
+  }
+
+  function exportCSV() {
+    const rows = [
+      ['ID', 'Name', 'Grade', 'Phone', 'Balance', 'Account Type', 'Frozen', 'Notes'],
+      ...filtered.map(b => [
+        b.bochur_id || '',
+        b.name,
+        b.grade || '',
+        b.phone || '',
+        b.balance,
+        (b as any).account_type?.name || '',
+        b.is_frozen ? 'Yes' : 'No',
+        b.notes || '',
+      ])
+    ]
+    const csv = rows.map(r => r.map(v => `"${String(v).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url; a.download = `bochurim-${new Date().toISOString().slice(0, 10)}.csv`
+    a.click(); URL.revokeObjectURL(url)
+  }
 
   async function archiveBochur(id: string) {
     if (!confirm('Archive this bochur? They will no longer appear in POS searches.')) return
@@ -67,6 +106,8 @@ export default function BochurimPage() {
             <Archive className="w-4 h-4" />
             {showArchived ? 'Show Active' : 'Archived'}
           </button>
+          <button onClick={exportCSV} className="btn-secondary text-sm"><Download className="w-4 h-4" /><span className="hidden sm:inline"> Export</span></button>
+          <button onClick={() => setShowImport(true)} className="btn-secondary text-sm"><Upload className="w-4 h-4" /><span className="hidden sm:inline"> Import</span></button>
           <button onClick={() => setShowAdd(true)} className="btn-primary text-sm">
             <Plus className="w-4 h-4" /> Add Bochur
           </button>
@@ -91,10 +132,16 @@ export default function BochurimPage() {
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">ID</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Name</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Grade</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3 cursor-pointer hover:text-slate-600 select-none" onClick={() => toggleSort('name')}>
+                  <span className="flex items-center gap-1">Name <ArrowUpDown className="w-3 h-3" /></span>
+                </th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3 cursor-pointer hover:text-slate-600 select-none" onClick={() => toggleSort('grade')}>
+                  <span className="flex items-center gap-1">Grade <ArrowUpDown className="w-3 h-3" /></span>
+                </th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Account Type</th>
-                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Balance</th>
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3 cursor-pointer hover:text-slate-600 select-none" onClick={() => toggleSort('balance')}>
+                  <span className="flex items-center justify-end gap-1">Balance <ArrowUpDown className="w-3 h-3" /></span>
+                </th>
                 <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Actions</th>
               </tr>
             </thead>
@@ -243,6 +290,14 @@ export default function BochurimPage() {
           accountTypes={accountTypes}
           onClose={() => setProfileBochur(null)}
           onUpdated={() => { setProfileBochur(null); loadData() }}
+        />
+      )}
+
+      {showImport && (
+        <ImportModal
+          accountTypes={accountTypes}
+          onClose={() => setShowImport(false)}
+          onImported={() => { setShowImport(false); loadData() }}
         />
       )}
     </div>
@@ -460,6 +515,122 @@ function TopupModal({ bochur, onClose, onSaved }: {
           <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
           <button onClick={save} disabled={saving} className="btn-success flex-1">{saving ? 'Adding...' : 'Add Funds'}</button>
         </div>
+      </div>
+    </Modal>
+  )
+}
+
+function ImportModal({ accountTypes, onClose, onImported }: { accountTypes: AccountType[]; onClose: () => void; onImported: () => void }) {
+  const supabase = createClient()
+  const [preview, setPreview] = useState<any[]>([])
+  const [error, setError] = useState('')
+  const [importing, setImporting] = useState(false)
+  const [done, setDone] = useState(false)
+  const defaultTypeId = accountTypes[0]?.id || ''
+
+  function handleFile(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = (ev) => {
+      const text = ev.target?.result as string
+      const lines = text.split('\n').map(l => l.trim()).filter(Boolean)
+      if (lines.length < 2) { setError('CSV must have a header row and at least one data row'); return }
+      const headers = lines[0].split(',').map(h => h.replace(/"/g, '').trim().toLowerCase())
+      const nameIdx = headers.findIndex(h => h === 'name' || h === 'full name')
+      const gradeIdx = headers.findIndex(h => h === 'grade' || h === 'class')
+      const phoneIdx = headers.findIndex(h => h === 'phone')
+      const balanceIdx = headers.findIndex(h => h === 'balance' || h === 'starting balance')
+      const notesIdx = headers.findIndex(h => h === 'notes')
+      if (nameIdx === -1) { setError('CSV must have a "name" column'); return }
+      const rows = lines.slice(1).map(line => {
+        const cols = line.split(',').map(c => c.replace(/^"|"$/g, '').trim())
+        return {
+          name: cols[nameIdx] || '',
+          grade: gradeIdx >= 0 ? cols[gradeIdx] || '' : '',
+          phone: phoneIdx >= 0 ? cols[phoneIdx] || '' : '',
+          balance: balanceIdx >= 0 ? parseFloat(cols[balanceIdx]) || 0 : 0,
+          notes: notesIdx >= 0 ? cols[notesIdx] || '' : '',
+          account_type_id: defaultTypeId,
+        }
+      }).filter(r => r.name)
+      if (rows.length === 0) { setError('No valid rows found'); return }
+      setError('')
+      setPreview(rows)
+    }
+    reader.readAsText(file)
+  }
+
+  async function doImport() {
+    if (preview.length === 0) return
+    setImporting(true)
+    const CHUNK = 50
+    let failed = 0
+    for (let i = 0; i < preview.length; i += CHUNK) {
+      const chunk = preview.slice(i, i + CHUNK)
+      const { error } = await supabase.from('bochurim').insert(chunk)
+      if (error) failed += chunk.length
+    }
+    setImporting(false)
+    setDone(true)
+    if (failed > 0) toast.error(`${failed} rows failed to import`)
+    else toast.success(`${preview.length} students imported!`)
+    onImported()
+  }
+
+  return (
+    <Modal title="Import Bochurim from CSV" onClose={onClose}>
+      <div className="space-y-4">
+        {!done && (
+          <>
+            <div className="p-3 bg-slate-50 rounded-xl text-xs text-slate-600 space-y-1">
+              <p className="font-semibold">CSV Format (columns, case-insensitive):</p>
+              <p><code className="bg-white px-1 rounded border border-slate-200">name</code> (required), <code className="bg-white px-1 rounded border border-slate-200">grade</code>, <code className="bg-white px-1 rounded border border-slate-200">phone</code>, <code className="bg-white px-1 rounded border border-slate-200">balance</code>, <code className="bg-white px-1 rounded border border-slate-200">notes</code></p>
+              <p className="text-slate-400">First row must be headers. All accounts default to account type: <strong>{accountTypes[0]?.name || '—'}</strong></p>
+            </div>
+            <div>
+              <label className="block text-sm font-medium text-slate-700 mb-1">Upload CSV file</label>
+              <input type="file" accept=".csv,text/csv" onChange={handleFile} className="block w-full text-sm text-slate-500 file:mr-3 file:py-1.5 file:px-3 file:rounded-lg file:border-0 file:text-sm file:font-medium file:bg-amber-50 file:text-amber-700 hover:file:bg-amber-100 cursor-pointer" />
+            </div>
+            {error && <p className="text-sm text-red-600 bg-red-50 border border-red-200 rounded-xl px-3 py-2">{error}</p>}
+            {preview.length > 0 && (
+              <div>
+                <p className="text-sm font-medium text-slate-700 mb-2">{preview.length} students found — preview:</p>
+                <div className="border border-slate-200 rounded-xl overflow-hidden max-h-48 overflow-y-auto">
+                  <table className="w-full text-xs">
+                    <thead className="bg-slate-50 sticky top-0">
+                      <tr>
+                        {['Name','Grade','Phone','Balance','Notes'].map(h => (
+                          <th key={h} className="text-left px-3 py-2 text-slate-400 font-semibold">{h}</th>
+                        ))}
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {preview.slice(0, 20).map((row, i) => (
+                        <tr key={i} className="border-t border-slate-100">
+                          <td className="px-3 py-1.5 text-slate-800 font-medium">{row.name}</td>
+                          <td className="px-3 py-1.5 text-slate-500">{row.grade || '—'}</td>
+                          <td className="px-3 py-1.5 text-slate-500">{row.phone || '—'}</td>
+                          <td className="px-3 py-1.5 text-slate-500">${row.balance.toFixed(2)}</td>
+                          <td className="px-3 py-1.5 text-slate-400 truncate max-w-[100px]">{row.notes || '—'}</td>
+                        </tr>
+                      ))}
+                      {preview.length > 20 && (
+                        <tr><td colSpan={5} className="px-3 py-2 text-slate-400 text-center">…and {preview.length - 20} more</td></tr>
+                      )}
+                    </tbody>
+                  </table>
+                </div>
+              </div>
+            )}
+            <div className="flex gap-2 pt-1">
+              <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={doImport} disabled={preview.length === 0 || importing} className="btn-primary flex-1">
+                {importing ? `Importing ${preview.length}...` : `Import ${preview.length || ''} Students`}
+              </button>
+            </div>
+          </>
+        )}
       </div>
     </Modal>
   )
