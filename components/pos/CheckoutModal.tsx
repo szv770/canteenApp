@@ -35,7 +35,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
   const coinRounding = settings['coin_rounding'] === 'true'
   const ccFeePercent = parseFloat(settings['cc_fee_percent'] || '3')
 
-  const rawSubtotal = cart.reduce((sum, i) => sum + i.price * i.quantity, 0)
+  const rawSubtotal = cart.reduce((sum, i) => sum + (i.price + (i.addon_total || 0)) * i.quantity, 0)
   const discountAmount = appliedDiscount?.amount ?? 0
   const subtotalAfterDiscount = Math.max(0, Math.round((rawSubtotal - discountAmount) * 100) / 100)
   const subtotal = coinRounding && method === 'cash' ? roundCash(subtotalAfterDiscount) : subtotalAfterDiscount
@@ -101,6 +101,8 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
             product_id: item.product_id,
             variant_id: item.variant_id,
             quantity: item.quantity,
+            addon_ids: item.addon_ids ?? [],
+            bundle_id: item.bundle_id ?? null,
             // Note: unit prices are NOT sent — the server re-fetches them from DB
           })),
         }),
@@ -210,6 +212,14 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
             {/* Balance tab */}
             {method === 'balance' && loadedBochur && (
               <div className="space-y-3 mb-4">
+                {loadedBochur.account_type && loadedBochur.account_type.discount_type !== 'none' && (
+                  <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
+                    <span className="text-blue-600 text-xs">🏷️</span>
+                    <span className="text-blue-700 text-xs font-medium">
+                      {loadedBochur.account_type.name} discount applied automatically at checkout
+                    </span>
+                  </div>
+                )}
                 <div className="bg-pos-bg rounded-xl p-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-pos-subtext">Current balance</span>

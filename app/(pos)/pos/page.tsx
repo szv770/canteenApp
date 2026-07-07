@@ -6,13 +6,14 @@ import { LogOut, Settings, ShoppingCart } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import BochurSearch from '@/components/pos/BochurSearch'
-import CategoryTabs from '@/components/pos/CategoryTabs'
+import CategoryTabs, { DEALS_TAB } from '@/components/pos/CategoryTabs'
 import ProductGrid from '@/components/pos/ProductGrid'
+import BundleGrid from '@/components/pos/BundleGrid'
 import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
 import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
-import type { Category, Product, CartItem, BochurWithId, AppSettings, ProductVariant, ProductAddon } from '@/types/database'
+import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
 
 export default function PosPage() {
   const supabaseRef = useRef(createClient())
@@ -34,6 +35,7 @@ export default function PosPage() {
   const [variantProduct, setVariantProduct] = useState<Product | null>(null)
   const [addonProduct, setAddonProduct] = useState<Product | null>(null)
   const [addonVariant, setAddonVariant] = useState<ProductVariant | undefined>(undefined)
+  const [bundles, setBundles] = useState<ProductBundleWithItems[]>([])
   const [loading, setLoading] = useState(true)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
 
@@ -71,12 +73,13 @@ export default function PosPage() {
   }, [])
 
   async function loadData() {
-    const [cats, prods, setts, catLinks, allVariants] = await Promise.all([
+    const [cats, prods, setts, catLinks, allVariants, allBundles] = await Promise.all([
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('settings').select('*'),
       supabase.from('product_categories').select('product_id,category_id'),
       supabase.from('product_variants').select('*').eq('is_active', true).order('sort_order'),
+      supabase.from('product_bundles').select('*, bundle_items(id, product_id, quantity, products(name, icon))').eq('is_active', true).order('sort_order'),
     ])
     if (cats.data) setCategories(cats.data)
     if (prods.data) setProducts(prods.data)
@@ -101,6 +104,7 @@ export default function PosPage() {
       })
       setProductVariantsMap(vMap)
     }
+    if (allBundles.data) setBundles(allBundles.data as ProductBundleWithItems[])
     setLoading(false)
   }
 
@@ -186,6 +190,34 @@ export default function PosPage() {
     }
   }
 
+  function addBundleToCart(bundle: ProductBundleWithItems) {
+    const includedNames = bundle.bundle_items
+      .map(bi => `${bi.quantity > 1 ? `${bi.quantity}x ` : ''}${(bi as any).products?.name || ''}`)
+      .filter(Boolean)
+    setCart(prev => {
+      const existing = prev.find(i => i.bundle_id === bundle.id)
+      if (existing) {
+        return prev.map(i => i.bundle_id === bundle.id ? { ...i, quantity: i.quantity + 1 } : i)
+      }
+      return [...prev, {
+        product_id: bundle.id,
+        variant_id: null,
+        name: bundle.name,
+        variant_label: null,
+        icon: bundle.icon,
+        price: bundle.price,
+        quantity: 1,
+        is_bundle: true,
+        bundle_id: bundle.id,
+        bundle_included_names: includedNames,
+      }]
+    })
+    toast.success(`Added ${bundle.name}`, {
+      duration: 1200,
+      style: { background: '#1E293B', color: '#F8FAFC' }
+    })
+  }
+
   function handleProductTap(product: Product) {
     if (product.has_variants) {
       setVariantProduct(product)
@@ -269,6 +301,7 @@ export default function PosPage() {
         categories={categories}
         selected={selectedCategory}
         onSelect={setSelectedCategory}
+        hasDeals={bundles.length > 0}
       />
 
       {/* Main body */}
@@ -298,6 +331,8 @@ export default function PosPage() {
                   </div>
                 ))}
               </div>
+            ) : selectedCategory === DEALS_TAB ? (
+              <BundleGrid bundles={bundles} onBundleTap={addBundleToCart} />
             ) : (
               <ProductGrid
                 products={filteredProducts}
