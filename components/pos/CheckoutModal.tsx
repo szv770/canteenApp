@@ -149,12 +149,15 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
         <div className="flex-1 overflow-y-auto">
           {/* Order summary */}
           <div className="px-4 sm:px-5 py-3 border-b border-pos-border max-h-36 overflow-y-auto">
-            {cart.map(item => (
-              <div key={`${item.product_id}-${item.variant_id}`} className="flex justify-between text-sm py-0.5">
+            {cart.map((item, idx) => (
+              <div key={idx} className="flex justify-between text-sm py-0.5">
                 <span className="text-pos-text">
                   {item.quantity}× {item.name}{item.variant_label ? ` (${item.variant_label})` : ''}
+                  {item.addon_names && item.addon_names.length > 0 && (
+                    <span className="text-pos-muted text-xs ml-1">+{item.addon_names.join(', ')}</span>
+                  )}
                 </span>
-                <span className="text-pos-subtext font-medium ml-2 shrink-0">{formatCurrency(item.price * item.quantity)}</span>
+                <span className="text-pos-subtext font-medium ml-2 shrink-0">{formatCurrency((item.price + (item.addon_total || 0)) * item.quantity)}</span>
               </div>
             ))}
           </div>
