@@ -40,10 +40,15 @@ export default function TransactionsPage() {
   )
 
   async function voidOrder(order: any) {
-    if (!confirm(`Void order #${order.order_number}?`)) return
-    const { error } = await supabase.from('orders').update({ status: 'voided' }).eq('id', order.id)
-    if (error) { toast.error(error.message); return }
-    toast.success('Order voided')
+    if (!confirm(`Void order #${order.order_number}? Any balance payment will be refunded.`)) return
+    const res = await fetch('/api/pos/void-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ order_id: order.id }),
+    })
+    const json = await res.json()
+    if (!res.ok) { toast.error(json.error || 'Failed to void order'); return }
+    toast.success('Order voided' + (json.refunded ? ` — $${json.refunded} refunded to balance` : ''))
     loadOrders()
   }
 
