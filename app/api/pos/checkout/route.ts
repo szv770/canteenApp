@@ -109,7 +109,7 @@ export async function POST(req: NextRequest) {
 
   // Fetch variants if needed
   const variantIds = items.map(i => i.variant_id).filter(Boolean) as string[]
-  const variantMap = new Map<string, { id: string; label: string; price: number; stock_quantity: number; is_active: boolean; product_id: string }>()
+  const variantMap = new Map<string, { id: string; label: string; price: number; stock_quantity: number | null; is_active: boolean; product_id: string }>()
   if (variantIds.length > 0) {
     const { data: variants, error: varErr } = await admin
       .from('product_variants')
@@ -354,17 +354,22 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Stock updates
+  // Stock updates (skip if stock_quantity is null = untracked)
   for (const item of items) {
     if (item.variant_id) {
-      await admin.rpc('decrement_variant_stock', {
-        v_id: item.variant_id,
-        qty: item.quantity,
-      })
+      const variant = variantMap.get(item.variant_id)!
+      if (variant.stock_quantity !== null) {
+        await admin.rpc('decrement_variant_stock', {
+          v_id: item.variant_id,
+          qty: item.quantity,
+        })
+      }
     } else {
       const product = productMap.get(item.product_id)!
-      const newStock = Math.max(0, product.stock_quantity - item.quantity)
-      await admin.from('products').update({ stock_quantity: newStock }).eq('id', item.product_id)
+      if (product.stock_quantity !== null) {
+        const newStock = Math.max(0, product.stock_quantity - item.quantity)
+        await admin.from('products').update({ stock_quantity: newStock }).eq('id', item.product_id)
+      }
     }
   }
 

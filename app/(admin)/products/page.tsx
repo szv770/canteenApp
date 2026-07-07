@@ -2,13 +2,14 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2 } from 'lucide-react'
+import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2, ChevronDown, ChevronUp, Check } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, Category, ProductVariant, ProductAddon } from '@/types/database'
 import TableSkeleton from '@/components/admin/TableSkeleton'
 
 const EMOJIS = ['🍕','🌮','🌯','🥗','🍔','🍟','🍦','🧁','🍰','🍩','🍪','🥤','☕','🧃','🍫','🍬','🍭','🧇','🥞','🌽','🍿','🧀','🥨','🫐','🍓','🍎','🍌','🍉','🍑','🍒']
+const CAT_COLORS = ['#EF4444','#F97316','#F59E0B','#10B981','#06B6D4','#3B82F6','#8B5CF6','#EC4899','#6B7280','#1E293B']
 
 export default function ProductsPage() {
   const supabase = createClient()
@@ -20,6 +21,10 @@ export default function ProductsPage() {
   const [loading, setLoading] = useState(true)
   const [editProduct, setEditProduct] = useState<Product | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [showCats, setShowCats] = useState(false)
+  const [editCat, setEditCat] = useState<Category | null>(null)
+  const [catForm, setCatForm] = useState({ name: '', color: CAT_COLORS[0] })
+  const [savingCat, setSavingCat] = useState(false)
 
   useEffect(() => { loadData() }, [])
 
@@ -72,6 +77,32 @@ export default function ProductsPage() {
       .filter((n): n is string => Boolean(n))
   }
 
+  async function saveCategory() {
+    if (!catForm.name.trim()) return
+    setSavingCat(true)
+    if (editCat) {
+      await supabase.from('categories').update({ name: catForm.name.trim(), color: catForm.color }).eq('id', editCat.id)
+    } else {
+      await supabase.from('categories').insert({ name: catForm.name.trim(), color: catForm.color, sort_order: categories.length, is_active: true })
+    }
+    setSavingCat(false)
+    setEditCat(null)
+    setCatForm({ name: '', color: CAT_COLORS[0] })
+    loadData()
+  }
+
+  async function deleteCategory(cat: Category) {
+    if (!confirm(`Delete "${cat.name}"? Products in this category will be uncategorized.`)) return
+    await supabase.from('categories').delete().eq('id', cat.id)
+    toast.success('Category deleted')
+    loadData()
+  }
+
+  function startEditCat(cat: Category) {
+    setEditCat(cat)
+    setCatForm({ name: cat.name, color: cat.color || CAT_COLORS[0] })
+  }
+
   const filtered = products.filter(p =>
     p.name.toLowerCase().includes(search.toLowerCase())
   )
@@ -86,6 +117,84 @@ export default function ProductsPage() {
         <button onClick={() => setShowAdd(true)} className="btn-primary text-sm">
           <Plus className="w-4 h-4" /> Add Product
         </button>
+      </div>
+
+      {/* Categories inline panel */}
+      <div className="admin-card mb-4 overflow-hidden">
+        <button
+          onClick={() => setShowCats(v => !v)}
+          className="w-full flex items-center justify-between px-4 py-3 text-sm font-semibold text-slate-700 hover:bg-slate-50 transition-colors"
+        >
+          <span>Categories <span className="text-slate-400 font-normal ml-1">({categories.length})</span></span>
+          {showCats ? <ChevronUp className="w-4 h-4 text-slate-400" /> : <ChevronDown className="w-4 h-4 text-slate-400" />}
+        </button>
+        {showCats && (
+          <div className="border-t border-slate-100 px-4 py-3 space-y-2">
+            {categories.map(cat => (
+              editCat?.id === cat.id ? (
+                <div key={cat.id} className="flex items-center gap-2">
+                  <input
+                    className="input-admin text-sm flex-1"
+                    value={catForm.name}
+                    onChange={e => setCatForm(f => ({ ...f, name: e.target.value }))}
+                    onKeyDown={e => e.key === 'Enter' && saveCategory()}
+                    autoFocus
+                  />
+                  <div className="flex gap-1">
+                    {CAT_COLORS.map(c => (
+                      <button key={c} onClick={() => setCatForm(f => ({ ...f, color: c }))}
+                        className={`w-5 h-5 rounded-full border-2 transition-all ${catForm.color === c ? 'border-slate-700 scale-110' : 'border-transparent'}`}
+                        style={{ background: c }}
+                      />
+                    ))}
+                  </div>
+                  <button onClick={saveCategory} disabled={savingCat} className="p-1.5 bg-emerald-500 text-white rounded-lg hover:bg-emerald-600">
+                    <Check className="w-3.5 h-3.5" />
+                  </button>
+                  <button onClick={() => { setEditCat(null); setCatForm({ name: '', color: CAT_COLORS[0] }) }} className="p-1.5 text-slate-400 hover:bg-slate-100 rounded-lg">
+                    <X className="w-3.5 h-3.5" />
+                  </button>
+                </div>
+              ) : (
+                <div key={cat.id} className="flex items-center gap-2 group">
+                  <span className="w-3 h-3 rounded-full shrink-0" style={{ background: cat.color || '#6B7280' }} />
+                  <span className="text-sm text-slate-700 flex-1">{cat.name}</span>
+                  <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
+                    <button onClick={() => startEditCat(cat)} className="p-1 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded">
+                      <Edit2 className="w-3.5 h-3.5" />
+                    </button>
+                    <button onClick={() => deleteCategory(cat)} className="p-1 text-slate-400 hover:text-red-500 hover:bg-red-50 rounded">
+                      <Trash2 className="w-3.5 h-3.5" />
+                    </button>
+                  </div>
+                </div>
+              )
+            ))}
+            {/* Add new */}
+            {!editCat && (
+              <div className="flex items-center gap-2 pt-1 border-t border-slate-100">
+                <input
+                  className="input-admin text-sm flex-1"
+                  placeholder="New category name..."
+                  value={catForm.name}
+                  onChange={e => setCatForm(f => ({ ...f, name: e.target.value }))}
+                  onKeyDown={e => e.key === 'Enter' && saveCategory()}
+                />
+                <div className="flex gap-1">
+                  {CAT_COLORS.map(c => (
+                    <button key={c} onClick={() => setCatForm(f => ({ ...f, color: c }))}
+                      className={`w-5 h-5 rounded-full border-2 transition-all ${catForm.color === c ? 'border-slate-700 scale-110' : 'border-transparent'}`}
+                      style={{ background: c }}
+                    />
+                  ))}
+                </div>
+                <button onClick={saveCategory} disabled={savingCat || !catForm.name.trim()} className="px-3 py-1.5 bg-amber-500 text-white text-sm font-medium rounded-lg hover:bg-amber-600 disabled:opacity-40 transition-colors">
+                  Add
+                </button>
+              </div>
+            )}
+          </div>
+        )}
       </div>
 
       <div className="relative mb-4">
@@ -143,9 +252,13 @@ export default function ProductsPage() {
                 <td className="px-5 py-3 text-sm font-semibold text-slate-900 text-right">{formatCurrency(p.price)}</td>
                 <td className="px-3 sm:px-5 py-3 text-sm text-slate-500 text-right hidden sm:table-cell">{formatCurrency(p.cost_price)}</td>
                 <td className="px-5 py-3 text-right">
-                  <span className={`badge ${p.stock_quantity <= 0 ? 'bg-red-50 text-red-600 border border-red-100' : p.stock_quantity <= p.low_stock_threshold ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
-                    {p.stock_quantity}
-                  </span>
+                  {p.stock_quantity === null ? (
+                    <span className="badge bg-slate-50 text-slate-400 border border-slate-100">∞</span>
+                  ) : (
+                    <span className={`badge ${p.stock_quantity <= 0 ? 'bg-red-50 text-red-600 border border-red-100' : p.stock_quantity <= p.low_stock_threshold ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
+                      {p.stock_quantity}
+                    </span>
+                  )}
                 </td>
                 <td className="px-5 py-3 text-center">
                   <button onClick={() => toggleActive(p)}>
@@ -357,7 +470,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
       name: form.name,
       price,
       cost_price: form.cost_price !== '' ? parseFloat(form.cost_price) || 0 : 0,
-      stock_quantity: form.stock_quantity !== '' ? parseInt(form.stock_quantity) || 0 : 0,
+      stock_quantity: form.stock_quantity !== '' ? parseInt(form.stock_quantity) || 0 : null,
       low_stock_threshold: form.low_stock_threshold,
       icon: form.icon,
       has_variants: form.has_variants,
@@ -406,7 +519,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
           product_id: productId,
           label: v.label.trim(),
           price: parseFloat(v.price) || price,
-          stock_quantity: parseInt(v.stock_quantity) || 0,
+          stock_quantity: v.stock_quantity !== '' ? parseInt(v.stock_quantity) || 0 : null,
           is_active: v.is_active,
           sort_order: i,
         }))
@@ -553,8 +666,8 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
 
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-slate-700 mb-1">Stock Qty</label>
-              <input type="number" className="input-admin" placeholder="0" value={form.stock_quantity} onChange={e => setForm(f => ({ ...f, stock_quantity: e.target.value }))} min={0} />
+              <label className="block text-sm font-medium text-slate-700 mb-1">Stock Qty <span className="text-slate-400 font-normal">(blank = unlimited)</span></label>
+              <input type="number" className="input-admin" placeholder="∞ unlimited" value={form.stock_quantity} onChange={e => setForm(f => ({ ...f, stock_quantity: e.target.value }))} min={0} />
             </div>
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Low Stock Alert</label>

@@ -23,7 +23,7 @@ export interface Product {
   name: string
   price: number
   cost_price: number
-  stock_quantity: number
+  stock_quantity: number | null
   low_stock_threshold: number
   icon: string | null
   has_variants: boolean
@@ -56,7 +56,7 @@ export interface ProductVariant {
   product_id: string
   label: string
   price: number
-  stock_quantity: number
+  stock_quantity: number | null
   sort_order: number
   is_active: boolean
 }

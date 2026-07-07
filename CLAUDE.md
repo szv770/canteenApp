@@ -103,6 +103,12 @@ lib/utils.ts         # formatCurrency, cn
 | Settings input focus fix | `app/(admin)/settings/page.tsx` | SettingControl at top-level (not inside page fn) |
 | Bulk CSV import (bochurim) | `app/(admin)/bochurim/page.tsx` (BulkImportModal) | Download template → upload → preview/validate → confirm import |
 | Multi-select + bulk archive (bochurim) | `app/(admin)/bochurim/page.tsx` | Checkboxes, select-all per page, bulk archive with confirm |
+| Variant analytics in reports | `app/(admin)/reports/page.tsx` | Top sellers, bottom sellers, FBT grouped by product+variant; shows "Soda (Coke)" etc. |
+| Null stock = unlimited | `types/database.ts`, `ProductGrid`, `checkout/route.ts`, `products/page.tsx` | Leave stock blank in admin = no tracking, ∞ badge, never blocked |
+| Categories inline in products page | `app/(admin)/products/page.tsx` | Collapsible category manager at top; no separate nav needed |
+| Payment link copy + deep links | `app/LandingClient.tsx` | Copy button for all methods; "Open" deep link for Venmo/PayPal |
+| Tips at checkout | `components/pos/CheckoutModal.tsx`, `app/api/pos/checkout/route.ts` | Quick-select + custom tip; routing to cashier balance via settings |
+| Bochur profile refund | `app/(admin)/bochurim/BochurProfileModal.tsx` | Cash/Zelle/CC refund flow with confirmation |
 
 ### ❌ Not Yet Built
 
@@ -126,7 +132,7 @@ lib/utils.ts         # formatCurrency, cn
    .select('*, cashier_profiles!cashier_id(name), bochurim!bochur_id(name)')
    ```
 
-2. **Variant products + stock** — `stock_quantity` is 0 at the product level when variants exist (real stock is per-variant). `ProductGrid` guards with `!product.has_variants`. Never add stock check for has_variants products.
+2. **Variant products + stock** — `stock_quantity` is NULL at the product level when variants exist (real stock is per-variant). `ProductGrid` guards with `tracked = !has_variants && stock_quantity !== null`. Never add stock check for has_variants products. NULL also means "unlimited" for non-variant products.
 
 3. **SettingControl must be top-level** — defining it inside `SettingsPage` causes inputs to lose focus on every keystroke because React remounts the DOM node.
 
@@ -167,6 +173,11 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Feat: bochurim page — multi-select checkboxes + bulk archive; bulk CSV import with template download, parse preview, and validation |
 | 2026-07-07 | Fix: block credit card checkout — button disabled + warning shown until CC processing is set up |
 | 2026-07-07 | Fix: product deletion FK constraint errors — stock_entries/bundle_items CASCADE, order_items SET NULL |
+| 2026-07-07 | Fix: POS grid — revert variant expansion; restore VariantModal with preloaded variants (no per-tap DB fetch) |
+| 2026-07-07 | Feat: variant-level analytics — reports group top sellers / bottom sellers / FBT by product+variant label |
+| 2026-07-07 | Feat: null stock = unlimited — blank stock qty means no tracking; ∞ badge in admin, no block at checkout |
+| 2026-07-07 | Feat: categories inline in products admin — collapsible panel, no separate nav needed |
+| 2026-07-07 | Feat: landing page payment deep links + copy-to-clipboard for Zelle/Venmo/PayPal handles |
 | 2026-07-07 | Perf: preload all variants in POS loadData() — eliminates per-tap DB fetch |
 | 2026-07-07 | Feat: variants show as individual cards in POS grid — no modal needed, tap directly adds to cart |
 | 2026-07-07 | Feat: variant price defaults to product main price if left blank in admin editor |
