@@ -47,7 +47,6 @@ async function getStats(supabase: any) {
     supabase
       .from('payments')
       .select('method, amount')
-      .eq('status', 'completed')
       .gte('created_at', thirtyDaysAgo.toISOString()),
   ])
 
@@ -132,7 +131,7 @@ export default async function DashboardPage() {
     .limit(20)
 
   const actualLowStock = (lowStockProducts || []).filter(
-    (p: any) => p.stock_quantity <= p.low_stock_threshold
+    (p: any) => p.stock_quantity !== null && p.stock_quantity <= p.low_stock_threshold
   )
 
   const avgOrderValue = stats.todayCount > 0 ? stats.todayRevenue / stats.todayCount : 0

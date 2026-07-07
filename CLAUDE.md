@@ -118,7 +118,8 @@ lib/utils.ts         # formatCurrency, cn
 | Daily revenue vs target gauge | Need target_revenue in app_settings |
 | Wastage/spoilage tracking | No DB table yet |
 | Declined/low-balance alert log | Would need a new `failed_transactions` table or column |
-| Bochur-level spending limits / discounts | Per-account rules, not yet designed |
+| Checkout discount display on client | Server applies account type discount correctly; client-side preview not yet computed (shows raw prices until server confirms) |
+| Inventory burn-rate trendline | Projects stock-out date from sales velocity — no DB support yet |
 
 ---
 
@@ -183,3 +184,11 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Feat: variant price defaults to product main price if left blank in admin editor |
 | 2026-07-07 | Feat: cashier tip at checkout — quick amounts ($0.25/$0.50/$1/$2) + custom, configurable routing (Settings → tip_routing) |
 | 2026-07-07 | Feat: refund balance from bochur profile — cash/zelle/cc with method-specific guidance; Zelle requires checkbox confirm |
+| 2026-07-07 | Feat: Account Types admin CRUD page (/account-types) — discount rules (%, cost price, fixed), category exclusions, color tags, sidebar link |
+| 2026-07-07 | Fix: add-ons now charged at checkout — server validates addon_ids against DB, adds price_addition to unit_price |
+| 2026-07-07 | Fix: Bundles/Deals tab now wired into POS — BundleGrid shown when Deals selected, bundles fetch on load, addBundleToCart handler |
+| 2026-07-07 | Fix: sale_ends_at now enforced in checkout API — expired sales revert to regular price |
+| 2026-07-07 | Fix: dashboard payments card no longer empty — removed invalid .eq('status','completed') on payments table |
+| 2026-07-07 | Fix: deleting product variants no longer throws FK error — order_items_variant_id_fkey changed to ON DELETE SET NULL |
+| 2026-07-07 | Fix: low stock dashboard widget ignores null-stock (unlimited) products |
+| 2026-07-07 | Feat: account type discount applied per-item at checkout — percentage/cost_price/fixed with category exclusion support |

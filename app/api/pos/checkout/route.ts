@@ -14,6 +14,8 @@ interface CartItem {
   product_id: string
   variant_id: string | null
   quantity: number
+  addon_ids: string[]
+  bundle_id: string | null
 }
 
 export async function POST(req: NextRequest) {
@@ -72,19 +74,23 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid cart item' }, { status: 400 })
     }
     const item = raw as Record<string, unknown>
+    const bundle_id = typeof item.bundle_id === 'string' ? item.bundle_id : null
     const product_id = typeof item.product_id === 'string' ? item.product_id : ''
     const variant_id = typeof item.variant_id === 'string' ? item.variant_id : null
     const quantity = Number(item.quantity)
-    if (!product_id) {
+    const addon_ids = Array.isArray(item.addon_ids)
+      ? (item.addon_ids as unknown[]).filter((a): a is string => typeof a === 'string')
+      : []
+    if (!bundle_id && !product_id) {
       return NextResponse.json({ error: 'Invalid cart item: missing product_id' }, { status: 400 })
     }
     if (!Number.isInteger(quantity) || quantity < 1 || quantity > MAX_QUANTITY_PER_ITEM) {
       return NextResponse.json(
-        { error: `Invalid quantity for product ${product_id}` },
+        { error: `Invalid quantity for product ${bundle_id ?? product_id}` },
         { status: 400 }
       )
     }
-    items.push({ product_id, variant_id, quantity })
+    items.push({ product_id: bundle_id ?? product_id, variant_id, quantity, addon_ids, bundle_id })
   }
 
   const discountCodeRaw = typeof body.discount_code === 'string' ? body.discount_code.trim() : null
@@ -94,21 +100,40 @@ export async function POST(req: NextRequest) {
   // --- Re-fetch prices from DB (never trust client-supplied prices) ---
   const admin = createAdminClient()
 
-  // Fetch all referenced products in one query
-  const productIds = Array.from(new Set(items.map(i => i.product_id)))
-  const { data: products, error: prodErr } = await admin
-    .from('products')
-    .select('id, name, price, sale_price, sale_active, stock_quantity, is_active')
-    .in('id', productIds)
+  // Separate bundle items from regular product items
+  const regularItems = items.filter(i => !i.bundle_id)
+  const bundleItems = items.filter(i => i.bundle_id)
 
-  if (prodErr || !products) {
-    return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 })
+  // Fetch all referenced products in one query (regular items only)
+  const productIds = Array.from(new Set(regularItems.map(i => i.product_id)))
+  const productMap = new Map<string, { id: string; name: string; price: number; cost_price: number | null; sale_price: number | null; sale_active: boolean; sale_ends_at: string | null; stock_quantity: number | null; is_active: boolean }>()
+  if (productIds.length > 0) {
+    const { data: products, error: prodErr } = await admin
+      .from('products')
+      .select('id, name, price, cost_price, sale_price, sale_active, sale_ends_at, stock_quantity, is_active')
+      .in('id', productIds)
+    if (prodErr || !products) {
+      return NextResponse.json({ error: 'Failed to fetch products' }, { status: 500 })
+    }
+    products.forEach(p => productMap.set(p.id, p))
   }
 
-  const productMap = new Map(products.map(p => [p.id, p]))
+  // Fetch bundles if needed
+  const bundleMap = new Map<string, { id: string; name: string; price: number; is_active: boolean; bundle_items: Array<{ product_id: string; quantity: number }> }>()
+  if (bundleItems.length > 0) {
+    const bundleIds = Array.from(new Set(bundleItems.map(i => i.bundle_id!)))
+    const { data: bundles, error: bundleErr } = await admin
+      .from('product_bundles')
+      .select('id, name, price, is_active, bundle_items(product_id, quantity)')
+      .in('id', bundleIds)
+    if (bundleErr || !bundles) {
+      return NextResponse.json({ error: 'Failed to fetch bundles' }, { status: 500 })
+    }
+    bundles.forEach((b: any) => bundleMap.set(b.id, b))
+  }
 
   // Fetch variants if needed
-  const variantIds = items.map(i => i.variant_id).filter(Boolean) as string[]
+  const variantIds = regularItems.map(i => i.variant_id).filter(Boolean) as string[]
   const variantMap = new Map<string, { id: string; label: string; price: number; stock_quantity: number | null; is_active: boolean; product_id: string }>()
   if (variantIds.length > 0) {
     const { data: variants, error: varErr } = await admin
@@ -121,10 +146,60 @@ export async function POST(req: NextRequest) {
     variants.forEach(v => variantMap.set(v.id, v))
   }
 
+  // Fetch bochur's account type for per-account discounts (applies regardless of payment method)
+  type AccountTypeDiscount = {
+    discount_type: string
+    discount_value: number
+    exclusion_category_ids: string[]
+    exclusion_discount_type: string | null
+    exclusion_discount_value: number | null
+  }
+  let accountTypeDiscount: AccountTypeDiscount | null = null
+  if (bochurId) {
+    const { data: bochurRow } = await admin
+      .from('bochurim')
+      .select('account_type_id, account_types(discount_type, discount_value, exclusion_category_ids, exclusion_discount_type, exclusion_discount_value, is_active)')
+      .eq('id', bochurId)
+      .single()
+    if (bochurRow) {
+      const at = (bochurRow as any).account_types as any
+      if (at && at.is_active && at.discount_type !== 'none') {
+        accountTypeDiscount = at as AccountTypeDiscount
+      }
+    }
+  }
+
+  // Fetch product-category links for exclusion checks (only if account type has exclusions)
+  const productCategoryMap = new Map<string, string[]>()
+  if (accountTypeDiscount && productIds.length > 0 &&
+    (accountTypeDiscount.exclusion_category_ids?.length ?? 0) > 0) {
+    const { data: catLinks } = await admin
+      .from('product_categories')
+      .select('product_id, category_id')
+      .in('product_id', productIds)
+    if (catLinks) {
+      catLinks.forEach((row: any) => {
+        if (!productCategoryMap.has(row.product_id)) productCategoryMap.set(row.product_id, [])
+        productCategoryMap.get(row.product_id)!.push(row.category_id)
+      })
+    }
+  }
+
+  // Fetch add-ons if any items have addon_ids
+  const allAddonIds = Array.from(new Set(items.flatMap(i => i.addon_ids)))
+  const addonMap = new Map<string, { id: string; product_id: string; name: string; price_addition: number; is_active: boolean }>()
+  if (allAddonIds.length > 0) {
+    const { data: addons } = await admin
+      .from('product_addons')
+      .select('id, product_id, name, price_addition, is_active')
+      .in('id', allAddonIds)
+    if (addons) addons.forEach(a => addonMap.set(a.id, a))
+  }
+
   // Build verified order items with server-side prices
   let subtotal = 0
   const orderItems: Array<{
-    product_id: string
+    product_id: string | null
     variant_id: string | null
     product_name: string
     variant_label: string | null
@@ -135,6 +210,31 @@ export async function POST(req: NextRequest) {
   }> = []
 
   for (const item of items) {
+    // ---- Bundle items ----
+    if (item.bundle_id) {
+      const bundle = bundleMap.get(item.bundle_id)
+      if (!bundle) {
+        return NextResponse.json({ error: `Bundle not found: ${item.bundle_id}` }, { status: 400 })
+      }
+      if (!bundle.is_active) {
+        return NextResponse.json({ error: `Bundle is no longer available: ${bundle.name}` }, { status: 400 })
+      }
+      const itemTotal = Math.round(bundle.price * item.quantity * 100) / 100
+      subtotal += itemTotal
+      orderItems.push({
+        product_id: null,
+        variant_id: null,
+        product_name: bundle.name,
+        variant_label: null,
+        quantity: item.quantity,
+        unit_price: bundle.price,
+        discount_amount: 0,
+        total: itemTotal,
+      })
+      continue
+    }
+
+    // ---- Regular product items ----
     const product = productMap.get(item.product_id)
     if (!product) {
       return NextResponse.json(
@@ -169,9 +269,46 @@ export async function POST(req: NextRequest) {
       unitPrice = variant.price
       variantLabel = variant.label
     } else {
-      // Apply sale price if active
-      const p = product as typeof product & { sale_price?: number | null; sale_active?: boolean }
-      unitPrice = (p.sale_active && p.sale_price != null) ? p.sale_price : product.price
+      // Apply sale price only if active and not expired
+      const saleActive = product.sale_active && product.sale_price != null &&
+        (!product.sale_ends_at || new Date(product.sale_ends_at) > new Date())
+      unitPrice = saleActive ? product.sale_price! : product.price
+    }
+
+    // Add validated add-on prices server-side
+    let addonTotal = 0
+    for (const addonId of item.addon_ids) {
+      const addon = addonMap.get(addonId)
+      if (!addon || addon.product_id !== item.product_id || !addon.is_active) continue
+      addonTotal = Math.round((addonTotal + addon.price_addition) * 100) / 100
+    }
+    unitPrice = Math.round((unitPrice + addonTotal) * 100) / 100
+
+    // Apply account type discount per item
+    let itemDiscountAmount = 0
+    if (accountTypeDiscount) {
+      const productCats = productCategoryMap.get(item.product_id) || []
+      const exclusionIds: string[] = accountTypeDiscount.exclusion_category_ids ?? []
+      const isExcluded = exclusionIds.length > 0 && exclusionIds.some(id => productCats.includes(id))
+      const dtype = isExcluded ? (accountTypeDiscount.exclusion_discount_type ?? 'none') : accountTypeDiscount.discount_type
+      const dval = isExcluded ? (accountTypeDiscount.exclusion_discount_value ?? 0) : accountTypeDiscount.discount_value
+      if (dtype === 'percentage' && dval > 0) {
+        const discounted = Math.round(unitPrice * (1 - dval / 100) * 100) / 100
+        itemDiscountAmount = Math.round((unitPrice - discounted) * 100) / 100
+        unitPrice = discounted
+      } else if (dtype === 'cost_price') {
+        // Use product cost_price if available; else fall back to percentage
+        const cp = item.variant_id ? null : product.cost_price
+        if (cp != null && cp > 0) {
+          itemDiscountAmount = Math.round((unitPrice - cp) * 100) / 100
+          unitPrice = cp
+        } else if (dval > 0) {
+          const discounted = Math.round(unitPrice * (1 - dval / 100) * 100) / 100
+          itemDiscountAmount = Math.round((unitPrice - discounted) * 100) / 100
+          unitPrice = discounted
+        }
+      }
+      // 'fixed' type is applied at order level below, not per item
     }
 
     if (!Number.isFinite(unitPrice) || unitPrice < 0) {
@@ -187,12 +324,18 @@ export async function POST(req: NextRequest) {
       variant_label: variantLabel,
       quantity: item.quantity,
       unit_price: unitPrice,
-      discount_amount: 0,
+      discount_amount: itemDiscountAmount,
       total: itemTotal,
     })
   }
 
   subtotal = Math.round(subtotal * 100) / 100
+
+  // Apply 'fixed' account type discount at order level
+  if (accountTypeDiscount?.discount_type === 'fixed' && accountTypeDiscount.discount_value > 0) {
+    const fixedDiscount = Math.min(accountTypeDiscount.discount_value, subtotal)
+    subtotal = Math.round((subtotal - fixedDiscount) * 100) / 100
+  }
 
   // --- Validate and apply discount code ---
   let discountAmount = 0
@@ -356,7 +499,19 @@ export async function POST(req: NextRequest) {
 
   // Stock updates (skip if stock_quantity is null = untracked)
   for (const item of items) {
-    if (item.variant_id) {
+    if (item.bundle_id) {
+      // Deduct stock for each bundle component product
+      const bundle = bundleMap.get(item.bundle_id)
+      if (bundle) {
+        for (const bi of bundle.bundle_items) {
+          const prod = productMap.get(bi.product_id)
+          if (prod && prod.stock_quantity !== null) {
+            const newStock = Math.max(0, prod.stock_quantity - bi.quantity * item.quantity)
+            await admin.from('products').update({ stock_quantity: newStock }).eq('id', bi.product_id)
+          }
+        }
+      }
+    } else if (item.variant_id) {
       const variant = variantMap.get(item.variant_id)!
       if (variant.stock_quantity !== null) {
         await admin.rpc('decrement_variant_stock', {
@@ -365,8 +520,8 @@ export async function POST(req: NextRequest) {
         })
       }
     } else {
-      const product = productMap.get(item.product_id)!
-      if (product.stock_quantity !== null) {
+      const product = productMap.get(item.product_id)
+      if (product && product.stock_quantity !== null) {
         const newStock = Math.max(0, product.stock_quantity - item.quantity)
         await admin.from('products').update({ stock_quantity: newStock }).eq('id', item.product_id)
       }

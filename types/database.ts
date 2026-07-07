@@ -1,9 +1,15 @@
 export interface AccountType {
   id: string
   name: string
+  slug: string | null
+  type: string | null
   discount_type: 'none' | 'percentage' | 'cost_price' | 'fixed'
   discount_value: number
-  excluded_categories: string[]
+  exclusion_category_ids: string[]
+  exclusion_discount_type: 'none' | 'percentage' | 'cost_price' | 'fixed' | null
+  exclusion_discount_value: number | null
+  color: string | null
+  is_system: boolean
   is_active: boolean
   created_at: string
 }
@@ -175,6 +181,7 @@ export interface CartItem {
   addon_names?: string[]
   addon_total?: number
   is_bundle?: boolean
+  bundle_id?: string
   bundle_item_ids?: string[]
   bundle_included_names?: string[]
 }
