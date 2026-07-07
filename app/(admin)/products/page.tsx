@@ -194,8 +194,8 @@ type VariantDraft = {
   is_active: boolean
 }
 
-function emptyVariant(): VariantDraft {
-  return { label: '', price: '', stock_quantity: '', is_active: true }
+function emptyVariant(defaultPrice = ''): VariantDraft {
+  return { label: '', price: defaultPrice, stock_quantity: '', is_active: true }
 }
 
 // A local type for addon rows being edited in the modal
@@ -320,7 +320,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
   function handleHasVariantsChange(checked: boolean) {
     setForm(f => ({ ...f, has_variants: checked }))
     if (checked && variants.length === 0) {
-      setVariants([emptyVariant()])
+      setVariants([emptyVariant(form.price)])
     }
   }
 
@@ -329,7 +329,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
   }
 
   function addVariant() {
-    setVariants(prev => [...prev, emptyVariant()])
+    setVariants(prev => [...prev, emptyVariant(form.price)])
   }
 
   function removeVariant(index: number) {
@@ -346,8 +346,6 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
       for (let i = 0; i < variants.length; i++) {
         const v = variants[i]
         if (!v.label.trim()) { toast.error(`Variant ${i + 1}: label is required`); return }
-        const vp = parseFloat(v.price)
-        if (!v.price || isNaN(vp) || vp <= 0) { toast.error(`Variant ${i + 1}: valid price is required`); return }
       }
     }
 
@@ -407,7 +405,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
         const varRows = variants.map((v, i) => ({
           product_id: productId,
           label: v.label.trim(),
-          price: parseFloat(v.price) || 0,
+          price: parseFloat(v.price) || price,
           stock_quantity: parseInt(v.stock_quantity) || 0,
           is_active: v.is_active,
           sort_order: i,
@@ -646,7 +644,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
                           <input
                             type="number"
                             className="input-admin text-sm"
-                            placeholder="0.00"
+                            placeholder={form.price || '0.00'}
                             step={0.25}
                             min={0}
                             value={v.price}
