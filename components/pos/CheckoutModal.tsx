@@ -251,8 +251,8 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
                     <span className="font-bold text-pos-text">{formatCurrency(total)}</span>
                   </div>
                 </div>
-                <div className="p-3 bg-blue-50 border border-blue-200 rounded-xl text-blue-600 text-sm text-center">
-                  Stripe Terminal coming soon
+                <div className="p-3 bg-amber-50 border border-amber-200 rounded-xl text-amber-700 text-sm text-center font-medium">
+                  Card payments are not yet available. Please use cash or balance.
                 </div>
               </div>
             )}
@@ -263,7 +263,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
         <div className="px-4 sm:px-5 pb-5 pt-3 border-t border-pos-border shrink-0">
           <button
             onClick={processOrder}
-            disabled={processing || (method === 'balance' && !!balanceBlocked) || (method === 'cash' && tendered < displayTotal)}
+            disabled={processing || method === 'credit_card' || (method === 'balance' && !!balanceBlocked) || (method === 'cash' && tendered < displayTotal)}
             className="btn-brand-lg min-h-[56px]"
           >
             {processing ? (

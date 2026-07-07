@@ -165,3 +165,4 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-06-26 | Fix: build TS errors — bundles page Product type mismatch, reports Set iteration, recharts Tooltip formatter |
 | 2026-07-07 | Fix: voiding an order now refunds balance — new /api/pos/void-order route handles refund + ledger entry |
 | 2026-07-07 | Feat: bochurim page — multi-select checkboxes + bulk archive; bulk CSV import with template download, parse preview, and validation |
+| 2026-07-07 | Fix: block credit card checkout — button disabled + warning shown until CC processing is set up |
