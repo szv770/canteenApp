@@ -226,7 +226,7 @@ export default function ReportsPage() {
       // Order items for completed orders in range — join through orders
       supabase
         .from('order_items')
-        .select('order_id, product_id, product_name, quantity, unit_price, total, orders!inner(id, created_at, status), products(cost_price, product_categories(categories(name)))')
+        .select('order_id, product_id, product_name, variant_label, quantity, unit_price, total, orders!inner(id, created_at, status), products(cost_price, product_categories(categories(name)))')
         .eq('orders.status', 'completed')
         .gte('orders.created_at', fromISO)
         .lt('orders.created_at', toISO),
@@ -276,9 +276,12 @@ export default function ReportsPage() {
 
     const productMap: Record<string, { name: string; units: number; revenue: number }> = {}
     for (const item of (orderItemsRes.data || []) as any[]) {
-      const key = item.product_id || item.product_name
+      const key = `${item.product_id || item.product_name}|${item.variant_label || ''}`
       if (!productMap[key]) {
-        productMap[key] = { name: item.product_name, units: 0, revenue: 0 }
+        const displayName = item.variant_label
+          ? `${item.product_name} (${item.variant_label})`
+          : item.product_name
+        productMap[key] = { name: displayName, units: 0, revenue: 0 }
       }
       productMap[key].units += item.quantity
       productMap[key].revenue += Number(item.total)
@@ -415,7 +418,11 @@ export default function ReportsPage() {
       const orderId = (item.orders as any)?.id || item.order_id
       if (!orderId) continue
       if (!orderProducts[orderId]) orderProducts[orderId] = []
-      orderProducts[orderId].push({ id: item.product_id || item.product_name, name: item.product_name })
+      const variantKey = `${item.product_id || item.product_name}|${item.variant_label || ''}`
+      const displayName = item.variant_label
+        ? `${item.product_name} (${item.variant_label})`
+        : item.product_name
+      orderProducts[orderId].push({ id: variantKey, name: displayName })
     }
     const pairCount: Record<string, { a: string; b: string; count: number }> = {}
     for (const prods of Object.values(orderProducts)) {

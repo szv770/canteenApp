@@ -11,6 +11,7 @@ import ProductGrid from '@/components/pos/ProductGrid'
 import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
 import AddonModal from '@/components/pos/AddonModal'
+import VariantModal from '@/components/pos/VariantModal'
 import type { Category, Product, CartItem, BochurWithId, AppSettings, ProductVariant, ProductAddon } from '@/types/database'
 
 export default function PosPage() {
@@ -30,6 +31,7 @@ export default function PosPage() {
   const [loadedBochur, setLoadedBochur] = useState<BochurWithId | null>(null)
   const [showCheckout, setShowCheckout] = useState(false)
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({})
+  const [variantProduct, setVariantProduct] = useState<Product | null>(null)
   const [addonProduct, setAddonProduct] = useState<Product | null>(null)
   const [addonVariant, setAddonVariant] = useState<ProductVariant | undefined>(undefined)
   const [loading, setLoading] = useState(true)
@@ -184,8 +186,12 @@ export default function PosPage() {
     }
   }
 
-  function handleProductTap(product: Product, variant?: ProductVariant) {
-    checkAndShowAddonModal(product, variant)
+  function handleProductTap(product: Product) {
+    if (product.has_variants) {
+      setVariantProduct(product)
+    } else {
+      checkAndShowAddonModal(product)
+    }
   }
 
   const filteredProducts = products.filter(p => {
@@ -316,6 +322,18 @@ export default function PosPage() {
       </div>
 
       {/* Modals */}
+      {variantProduct && (
+        <VariantModal
+          product={variantProduct}
+          preloadedVariants={productVariantsMap[variantProduct.id]}
+          onSelect={(variant) => {
+            setVariantProduct(null)
+            checkAndShowAddonModal(variantProduct, variant)
+          }}
+          onClose={() => setVariantProduct(null)}
+        />
+      )}
+
       {addonProduct && (
         <AddonModal
           product={addonProduct}

@@ -2,7 +2,7 @@
 
 import { useState } from 'react'
 import Link from 'next/link'
-import { ShoppingBag, DollarSign, Send, Check, ChevronRight, Smartphone } from 'lucide-react'
+import { ShoppingBag, Send, Check, ChevronRight, Smartphone, Copy, ExternalLink } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 const METHOD_LABELS: Record<string, string> = {
@@ -10,6 +10,57 @@ const METHOD_LABELS: Record<string, string> = {
   venmo: 'Venmo',
   paypal: 'PayPal',
   cash: 'Cash / Check',
+}
+
+const METHOD_COLORS: Record<string, string> = {
+  zelle: '#6D1ED4',
+  venmo: '#008CFF',
+  paypal: '#003087',
+  cash: '#6B7280',
+}
+
+const METHOD_LOGOS: Record<string, string> = {
+  zelle: 'Z',
+  venmo: 'V',
+  paypal: 'P',
+}
+
+function getPaymentDeepLink(method: string, info: string): string | null {
+  const clean = info.trim()
+  if (method === 'venmo') {
+    const handle = clean.startsWith('@') ? clean.slice(1) : clean
+    return `https://venmo.com/${handle}`
+  }
+  if (method === 'paypal') {
+    if (clean.startsWith('http')) return clean
+    const handle = clean.startsWith('@') ? clean.slice(1) : clean
+    if (handle.includes('@')) return null // email - no link
+    return `https://paypal.me/${handle}`
+  }
+  // Zelle has no universal deep link
+  return null
+}
+
+async function copyToClipboard(text: string) {
+  try {
+    if (navigator.clipboard && navigator.clipboard.writeText) {
+      await navigator.clipboard.writeText(text)
+    } else {
+      // Fallback for older mobile browsers
+      const el = document.createElement('textarea')
+      el.value = text
+      el.style.position = 'fixed'
+      el.style.opacity = '0'
+      document.body.appendChild(el)
+      el.focus()
+      el.select()
+      document.execCommand('copy')
+      document.body.removeChild(el)
+    }
+    return true
+  } catch {
+    return false
+  }
 }
 
 interface Props {
@@ -171,14 +222,41 @@ export default function LandingClient({ loggedIn, settings }: Props) {
                   {enabledMethods.filter(m => m !== 'cash').map(method => {
                     const info = settings[`payment_${method}_info`]
                     if (!info) return null
+                    const deepLink = getPaymentDeepLink(method, info)
+                    const color = METHOD_COLORS[method] || '#F59E0B'
+                    const logo = METHOD_LOGOS[method]
                     return (
-                      <div key={method} className="flex items-center justify-between p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
-                        <div>
-                          <p className="font-semibold text-gray-900">{METHOD_LABELS[method]}</p>
-                          <p className="text-amber-600 font-mono text-sm mt-0.5">{info}</p>
+                      <div key={method} className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0" style={{ background: color }}>
+                          {logo}
                         </div>
-                        <div className="w-10 h-10 bg-amber-50 rounded-xl flex items-center justify-center">
-                          <DollarSign className="w-5 h-5 text-amber-500" />
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-900 text-sm">{METHOD_LABELS[method]}</p>
+                          <p className="text-sm font-mono truncate" style={{ color }}>{info}</p>
+                        </div>
+                        <div className="flex items-center gap-1.5 shrink-0">
+                          <button
+                            onClick={async () => {
+                              const ok = await copyToClipboard(info)
+                              if (ok) toast.success(`${METHOD_LABELS[method]} handle copied!`, { duration: 2000 })
+                              else toast.error('Could not copy — please copy manually')
+                            }}
+                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 rounded-lg transition-colors"
+                            title="Copy to clipboard"
+                          >
+                            <Copy className="w-3.5 h-3.5" /> Copy
+                          </button>
+                          {deepLink && (
+                            <a
+                              href={deepLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white rounded-lg transition-opacity hover:opacity-90"
+                              style={{ background: color }}
+                            >
+                              <ExternalLink className="w-3.5 h-3.5" /> Open
+                            </a>
+                          )}
                         </div>
                       </div>
                     )

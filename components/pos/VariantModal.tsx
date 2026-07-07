@@ -8,17 +8,19 @@ import type { Product, ProductVariant } from '@/types/database'
 
 interface Props {
   product: Product
+  preloadedVariants?: ProductVariant[]
   onSelect: (variant: ProductVariant) => void
   onClose: () => void
 }
 
-export default function VariantModal({ product, onSelect, onClose }: Props) {
-  const [variants, setVariants] = useState<ProductVariant[]>([])
-  const [loading, setLoading] = useState(true)
+export default function VariantModal({ product, preloadedVariants, onSelect, onClose }: Props) {
+  const [variants, setVariants] = useState<ProductVariant[]>(preloadedVariants ?? [])
+  const [loading, setLoading] = useState(!preloadedVariants)
   const supabase = createClient()
   const firstBtnRef = useRef<HTMLButtonElement>(null)
 
   useEffect(() => {
+    if (preloadedVariants) return
     setLoading(true)
     supabase
       .from('product_variants')
