@@ -27,6 +27,10 @@ const SETTINGS_CONFIG: SettingRow[] = [
   { key: 'stripe_enabled', label: 'Stripe Payments', description: 'Enable Stripe Terminal card reader', type: 'toggle' },
   { key: 'offline_mode_enabled', label: 'Offline Mode', description: 'Allow POS to work without internet', type: 'toggle' },
   { key: 'offline_freeze_hours', label: 'Offline Freeze (hours)', description: 'Auto-freeze POS after X hours offline', type: 'number' },
+  { key: 'tip_routing', label: 'Tip Routing', description: 'Where cashier tips go after checkout', type: 'select', options: [
+    { value: 'cashier_balance', label: "Add to cashier's canteen balance" },
+    { value: 'revenue', label: 'Track as revenue only' },
+  ]},
 ]
 
 const PAYMENT_SETTINGS: SettingRow[] = [

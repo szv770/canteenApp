@@ -170,3 +170,5 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Perf: preload all variants in POS loadData() — eliminates per-tap DB fetch |
 | 2026-07-07 | Feat: variants show as individual cards in POS grid — no modal needed, tap directly adds to cart |
 | 2026-07-07 | Feat: variant price defaults to product main price if left blank in admin editor |
+| 2026-07-07 | Feat: cashier tip at checkout — quick amounts ($0.25/$0.50/$1/$2) + custom, configurable routing (Settings → tip_routing) |
+| 2026-07-07 | Feat: refund balance from bochur profile — cash/zelle/cc with method-specific guidance; Zelle requires checkbox confirm |

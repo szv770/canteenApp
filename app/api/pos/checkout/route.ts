@@ -88,6 +88,8 @@ export async function POST(req: NextRequest) {
   }
 
   const discountCodeRaw = typeof body.discount_code === 'string' ? body.discount_code.trim() : null
+  const tipRaw = typeof body.tip_amount === 'number' ? body.tip_amount : 0
+  const tipAmount = Math.round(Math.min(Math.max(0, tipRaw), 100) * 100) / 100
 
   // --- Re-fetch prices from DB (never trust client-supplied prices) ---
   const admin = createAdminClient()
@@ -231,6 +233,7 @@ export async function POST(req: NextRequest) {
   const ccFeePercent = Math.max(0, Math.min(50, parseFloat(String(ccFeeSetting?.value ?? '3'))))
   const ccFee = method === 'credit_card' ? Math.round(subtotalAfterDiscount * (ccFeePercent / 100) * 100) / 100 : 0
   const total = Math.round((subtotalAfterDiscount + ccFee) * 100) / 100
+  const grandTotal = Math.round((total + tipAmount) * 100) / 100
 
   // --- Balance check for bochur payments ---
   let bochurData: { balance: number; allow_negative: boolean; max_negative_balance: number; is_frozen: boolean } | null = null
@@ -255,7 +258,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'This account is frozen. Please contact an admin.' }, { status: 403 })
     }
     bochurData = bochur
-    const balanceAfter = bochur.balance - subtotalAfterDiscount
+    const balanceAfter = Math.round((bochur.balance - subtotalAfterDiscount - tipAmount) * 100) / 100
     const blocked =
       balanceAfter < 0 &&
       (!bochur.allow_negative || -balanceAfter > bochur.max_negative_balance)
@@ -266,7 +269,7 @@ export async function POST(req: NextRequest) {
 
   // Cash tendered validation
   if (method === 'cash') {
-    if (cashTendered === null || !Number.isFinite(cashTendered) || cashTendered < total) {
+    if (cashTendered === null || !Number.isFinite(cashTendered) || cashTendered < grandTotal) {
       return NextResponse.json(
         { error: 'Insufficient cash tendered' },
         { status: 400 }
@@ -283,6 +286,7 @@ export async function POST(req: NextRequest) {
       subtotal,
       discount_amount: discountAmount,
       total,
+      tip_amount: tipAmount || null,
       status: 'completed',
     })
     .select()
@@ -302,28 +306,44 @@ export async function POST(req: NextRequest) {
   }
 
   // Payment record
-  const change = method === 'cash' ? Math.max(0, Math.round(((cashTendered ?? 0) - total) * 100) / 100) : null
+  const change = method === 'cash' ? Math.max(0, Math.round(((cashTendered ?? 0) - grandTotal) * 100) / 100) : null
   await admin.from('payments').insert({
     order_id: order.id,
     method,
-    amount: total,
+    amount: grandTotal,
     cash_tendered: cashTendered,
     change_given: change,
     cc_fee: ccFee || null,
   })
 
-  // Balance deduction
+  // Balance deduction (includes tip if method=balance)
   if (method === 'balance' && bochurId && bochurData) {
-    const balanceAfter = Math.round((bochurData.balance - subtotalAfterDiscount) * 100) / 100
+    const totalDeducted = Math.round((subtotalAfterDiscount + tipAmount) * 100) / 100
+    const balanceAfter = Math.round((bochurData.balance - totalDeducted) * 100) / 100
     await admin.from('bochurim').update({ balance: balanceAfter }).eq('id', bochurId)
     await admin.from('balance_ledger').insert({
       bochur_id: bochurId,
-      amount: -subtotalAfterDiscount,
+      amount: -totalDeducted,
       type: 'purchase',
       method: 'balance',
       order_id: order.id,
       cashier_id: user.id,
+      note: tipAmount > 0 ? `Includes ${tipAmount} tip` : null,
     })
+  }
+
+  // Credit tip to cashier's balance if routing = cashier_balance
+  if (tipAmount > 0) {
+    const { data: tipRoutingSetting } = await admin.from('settings').select('value').eq('key', 'tip_routing').single()
+    const tipRouting = String(tipRoutingSetting?.value ?? 'cashier_balance').replace(/"/g, '')
+    if (tipRouting === 'cashier_balance') {
+      const { data: cashierRow } = await admin.from('cashier_profiles').select('tip_balance').eq('id', user.id).single()
+      if (cashierRow) {
+        await admin.from('cashier_profiles')
+          .update({ tip_balance: Math.round(((cashierRow.tip_balance || 0) + tipAmount) * 100) / 100 })
+          .eq('id', user.id)
+      }
+    }
   }
 
   // Increment discount code uses_count
