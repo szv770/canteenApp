@@ -47,7 +47,7 @@ components/
     Cart.tsx         # Clear button, type-in qty, addon subtotals
     BochurSearch.tsx # Student lookup — red frozen warning banner when is_frozen=true
     CategoryTabs.tsx # Category filter + "Deals" tab
-    CheckoutModal.tsx# Payment flow (balance/cash/card/mixed) + coupon field
+    CheckoutModal.tsx# Payment flow (balance/cash/card) + tip section
     VariantModal.tsx # Size/option picker
     AddonModal.tsx   # Extras/toppings picker (toggle chips, running total)
     BundleGrid.tsx   # Combo deal cards on "Deals" tab
@@ -75,6 +75,7 @@ lib/utils.ts         # formatCurrency, cn
 | `product_bundles` | `price`, `original_price` |
 | `bundle_items` | `bundle_id`, `product_id`, `quantity` |
 | `app_settings` | Key/value: tax_rate, cc_fee_percent, out_of_stock_behavior, etc. |
+| `account_types` | `is_active bool DEFAULT true` — added 2026-07-07 (was missing from schema) |
 
 ---
 
@@ -109,6 +110,11 @@ lib/utils.ts         # formatCurrency, cn
 | Payment link copy + deep links | `app/LandingClient.tsx` | Copy button for all methods; "Open" deep link for Venmo/PayPal |
 | Tips at checkout | `components/pos/CheckoutModal.tsx`, `app/api/pos/checkout/route.ts` | Quick-select + custom tip; routing to cashier balance via settings |
 | Bochur profile refund | `app/(admin)/bochurim/BochurProfileModal.tsx` | Cash/Zelle/CC refund flow with confirmation |
+| Account Types admin | `app/(admin)/account-types/page.tsx` | CRUD with discount rules, category exclusions, color tags |
+| Add-ons charged at checkout | `app/api/pos/checkout/route.ts` | Server validates addon_ids, adds price_addition to unit_price |
+| Bundles in POS | `app/(pos)/pos/page.tsx`, `components/pos/BundleGrid.tsx` | Deals tab wired, addBundleToCart handler |
+| Account type discounts | `app/api/pos/checkout/route.ts` | Per-item: %, cost price, fixed; category exclusions |
+| Checkout mobile layout | `components/pos/CheckoutModal.tsx` | Tip row wraps, cash 3-col, addon sub-line, button cleaner |
 
 ### ❌ Not Yet Built
 
@@ -118,8 +124,7 @@ lib/utils.ts         # formatCurrency, cn
 | Daily revenue vs target gauge | Need target_revenue in app_settings |
 | Wastage/spoilage tracking | No DB table yet |
 | Declined/low-balance alert log | Would need a new `failed_transactions` table or column |
-| Checkout discount display on client | Server applies account type discount correctly; client-side preview not yet computed (shows raw prices until server confirms) |
-| Inventory burn-rate trendline | Projects stock-out date from sales velocity — no DB support yet |
+| Checkout discount display on client | Server applies account type discount correctly; client-side preview not yet computed |
 
 ---
 
@@ -143,9 +148,11 @@ lib/utils.ts         # formatCurrency, cn
 
 6. **RLS** — all admin tables require `auth.role() = 'authenticated'` for all operations. No public reads.
 
-7. **TypeScript Set spread** — `[...new Set(...)]` fails without `downlevelIteration`. Use `Array.from(new Set(...))`.
+7. **TypeScript Set spread** — `[...new Set(...)]` fails without `downlevelIteration`. Use `Array.from(new Set(...))`.  
 
 8. **inventory/page.tsx null stock** — `stock_quantity` is `number | null`; guard with `?? 0` before arithmetic and `?? '∞'` for display. Null = unlimited tracking.
+
+9. **account_types.is_active** — column was missing from initial schema; added via migration 2026-07-07. If getting "column not found in schema cache" errors on account_types, check this column exists.
 
 ---
 
@@ -182,8 +189,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Feat: categories inline in products admin — collapsible panel, no separate nav needed |
 | 2026-07-07 | Feat: landing page payment deep links + copy-to-clipboard for Zelle/Venmo/PayPal handles |
 | 2026-07-07 | Perf: preload all variants in POS loadData() — eliminates per-tap DB fetch |
-| 2026-07-07 | Feat: variants show as individual cards in POS grid — no modal needed, tap directly adds to cart |
-| 2026-07-07 | Feat: variant price defaults to product main price if left blank in admin editor |
 | 2026-07-07 | Feat: cashier tip at checkout — quick amounts ($0.25/$0.50/$1/$2) + custom, configurable routing (Settings → tip_routing) |
 | 2026-07-07 | Feat: refund balance from bochur profile — cash/zelle/cc with method-specific guidance; Zelle requires checkbox confirm |
 | 2026-07-07 | Feat: Account Types admin CRUD page (/account-types) — discount rules (%, cost price, fixed), category exclusions, color tags, sidebar link |
@@ -195,3 +200,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: low stock dashboard widget ignores null-stock (unlimited) products |
 | 2026-07-07 | Fix: inventory page TS build error — null-guard stock_quantity for comparisons, arithmetic, and display (∞ for unlimited) |
 | 2026-07-07 | Feat: account type discount applied per-item at checkout — percentage/cost_price/fixed with category exclusion support |
+| 2026-07-07 | Fix: checkout order summary shows addon price in line item total (price + addon_total) |
+| 2026-07-07 | Fix: account_types missing is_active column — added via Supabase migration |
+| 2026-07-07 | Fix: checkout modal mobile layout — tip row wraps on small screens, cash buttons 3-col on mobile, addon names on own line, Complete Order button cleaner |

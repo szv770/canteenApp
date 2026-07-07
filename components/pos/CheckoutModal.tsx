@@ -86,8 +86,6 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
 
     setProcessing(true)
     try {
-      // Send to server-side route which re-fetches prices and validates everything.
-      // Never trust client-side price calculations for the actual transaction.
       const res = await fetch('/api/pos/checkout', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -103,7 +101,6 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
             quantity: item.quantity,
             addon_ids: item.addon_ids ?? [],
             bundle_id: item.bundle_id ?? null,
-            // Note: unit prices are NOT sent — the server re-fetches them from DB
           })),
         }),
       })
@@ -148,27 +145,32 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
           {/* Order summary */}
-          <div className="px-4 sm:px-5 py-3 border-b border-pos-border max-h-36 overflow-y-auto">
+          <div className="px-4 sm:px-5 py-3 border-b border-pos-border max-h-32 overflow-y-auto">
             {cart.map((item, idx) => (
-              <div key={idx} className="flex justify-between text-sm py-0.5">
-                <span className="text-pos-text">
-                  {item.quantity}× {item.name}{item.variant_label ? ` (${item.variant_label})` : ''}
+              <div key={idx} className="flex justify-between text-sm py-0.5 gap-2">
+                <div className="min-w-0">
+                  <span className="text-pos-text">
+                    {item.quantity}× {item.name}{item.variant_label ? ` (${item.variant_label})` : ''}
+                  </span>
                   {item.addon_names && item.addon_names.length > 0 && (
-                    <span className="text-pos-muted text-xs ml-1">+{item.addon_names.join(', ')}</span>
+                    <p className="text-pos-muted text-xs leading-tight">+ {item.addon_names.join(', ')}</p>
                   )}
-                </span>
-                <span className="text-pos-subtext font-medium ml-2 shrink-0">{formatCurrency((item.price + (item.addon_total || 0)) * item.quantity)}</span>
+                </div>
+                <span className="text-pos-subtext font-medium shrink-0">{formatCurrency((item.price + (item.addon_total || 0)) * item.quantity)}</span>
               </div>
             ))}
           </div>
 
           {/* Tip section */}
-          <div className="px-4 sm:px-5 py-2.5 border-b border-pos-border flex items-center gap-2">
-            <span className="text-xs text-pos-subtext shrink-0">Tip</span>
-            <div className="flex gap-1 flex-1">
+          <div className="px-4 sm:px-5 py-2.5 border-b border-pos-border">
+            <div className="flex items-center justify-between mb-1.5">
+              <span className="text-xs font-medium text-pos-subtext">Tip</span>
+              {tipAmount > 0 && <span className="text-xs text-amber-600 font-medium">{formatCurrency(tipAmount)} added</span>}
+            </div>
+            <div className="flex gap-1.5 flex-wrap">
               <button
                 onClick={() => { setTipAmount(0); setCustomTip('') }}
-                className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${tipAmount === 0 && !customTip ? 'bg-slate-700 text-white border-slate-700' : 'border-slate-200 text-slate-500 hover:border-slate-400'}`}
+                className={`flex-1 min-w-[48px] py-2 rounded-lg text-xs font-medium border transition-colors ${tipAmount === 0 && !customTip ? 'bg-slate-700 text-white border-slate-700' : 'border-slate-200 text-slate-500 hover:border-slate-400'}`}
               >
                 None
               </button>
@@ -176,20 +178,20 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
                 <button
                   key={amt}
                   onClick={() => { setTipAmount(amt); setCustomTip('') }}
-                  className={`px-2.5 py-1 rounded-md text-xs font-medium border transition-colors ${tipAmount === amt && !customTip ? 'bg-amber-500 text-white border-amber-500' : 'border-slate-200 text-slate-500 hover:border-amber-300'}`}
+                  className={`flex-1 min-w-[48px] py-2 rounded-lg text-xs font-medium border transition-colors ${tipAmount === amt && !customTip ? 'bg-amber-500 text-white border-amber-500' : 'border-slate-200 text-slate-500 hover:border-amber-300'}`}
                 >
                   +{formatCurrency(amt)}
                 </button>
               ))}
               <input
                 type="number"
+                inputMode="decimal"
                 min={0}
                 step={0.25}
-                placeholder="Other"
+                placeholder="Custom"
                 value={customTip}
                 onChange={e => { setCustomTip(e.target.value); setTipAmount(parseFloat(e.target.value) || 0) }}
-                onFocus={() => setTipAmount(parseFloat(customTip) || 0)}
-                className="w-16 px-2 py-1 rounded-md text-xs border border-slate-200 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400/30 min-w-0"
+                className="flex-1 min-w-[64px] px-2 py-2 rounded-lg text-xs border border-slate-200 focus:border-amber-400 focus:outline-none focus:ring-1 focus:ring-amber-400/30"
               />
             </div>
           </div>
@@ -271,12 +273,12 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
                   step={0.01}
                   autoFocus
                 />
-                <div className="grid grid-cols-6 gap-1">
+                <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
                   {QUICK_CASH.map(amt => (
                     <button
                       key={amt}
                       onClick={() => setCashTendered(String(amt))}
-                      className="py-2 min-h-[44px] bg-pos-bg hover:bg-pos-hover border border-pos-border rounded-lg text-xs font-medium text-pos-text transition-colors"
+                      className="py-2.5 min-h-[44px] bg-pos-bg hover:bg-pos-hover border border-pos-border rounded-xl text-sm font-medium text-pos-text transition-colors"
                     >
                       ${amt}
                     </button>
@@ -329,10 +331,12 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
                 Processing...
               </span>
             ) : (
-              <span className="flex items-center justify-center gap-2">
-                <Check className="w-5 h-5" />
-                Complete Order · {formatCurrency(method === 'credit_card' ? grandTotal : displayTotal)}
-                {tipAmount > 0 && <span className="text-white/70 text-xs">(incl. {formatCurrency(tipAmount)} tip)</span>}
+              <span className="flex flex-col items-center justify-center leading-tight">
+                <span className="flex items-center gap-2 font-semibold">
+                  <Check className="w-5 h-5" />
+                  Complete Order · {formatCurrency(method === 'credit_card' ? grandTotal : displayTotal)}
+                </span>
+                {tipAmount > 0 && <span className="text-white/70 text-xs mt-0.5">includes {formatCurrency(tipAmount)} tip</span>}
               </span>
             )}
           </button>
