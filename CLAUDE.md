@@ -101,6 +101,8 @@ lib/utils.ts         # formatCurrency, cn
 | Better icon picker | `app/(admin)/products/page.tsx` | Any emoji input, Clear button, collapsible quick grid |
 | Name-first POS cards | `components/pos/ProductGrid.tsx` | Icon is compact/optional |
 | Settings input focus fix | `app/(admin)/settings/page.tsx` | SettingControl at top-level (not inside page fn) |
+| Bulk CSV import (bochurim) | `app/(admin)/bochurim/page.tsx` (BulkImportModal) | Download template → upload → preview/validate → confirm import |
+| Multi-select + bulk archive (bochurim) | `app/(admin)/bochurim/page.tsx` | Checkboxes, select-all per page, bulk archive with confirm |
 
 ### ❌ Not Yet Built
 
@@ -162,3 +164,4 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-06-26 | Docs: CLAUDE.md created for auto-load context at session start |
 | 2026-06-26 | Fix: build TS errors — bundles page Product type mismatch, reports Set iteration, recharts Tooltip formatter |
 | 2026-07-07 | Fix: voiding an order now refunds balance — new /api/pos/void-order route handles refund + ledger entry |
+| 2026-07-07 | Feat: bochurim page — multi-select checkboxes + bulk archive; bulk CSV import with template download, parse preview, and validation |
