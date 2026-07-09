@@ -5,14 +5,14 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, Users, Package, Tag, Warehouse,
-  Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift, Percent, RotateCcw, BookOpen
+  Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift,
+  RotateCcw, BookOpen, TrendingDown, Bell
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/bochurim', icon: Users, label: 'Bochurim' },
-  { href: '/account-types', icon: Percent, label: 'Account Types' },
   { href: '/products', icon: Package, label: 'Products' },
   { href: '/bundles', icon: Gift, label: 'Bundles' },
   { href: '/categories', icon: Tag, label: 'Categories' },
@@ -21,6 +21,8 @@ const NAV = [
   { href: '/refund-requests', icon: RotateCcw, label: 'Refund Requests' },
   { href: '/reports', icon: BarChart2, label: 'Reports' },
   { href: '/menu', icon: BookOpen, label: 'Menu' },
+  { href: '/cogs', icon: TrendingDown, label: 'COGS' },
+  { href: '/notifications', icon: Bell, label: 'Notifications' },
   { href: '/topups', icon: CreditCard, label: 'Top-ups' },
   { href: '/cashiers', icon: UserCog, label: 'Cashiers' },
   { href: '/settings', icon: Settings, label: 'Settings' },
