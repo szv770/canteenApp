@@ -6,12 +6,13 @@ import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, Users, Package, Warehouse,
   Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift,
-  RotateCcw, BookOpen, TrendingDown, Bell
+  RotateCcw, BookOpen, TrendingDown, Bell, Wallet
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
+  { href: '/accounts', icon: Wallet, label: 'Accounts' },
   { href: '/bochurim', icon: Users, label: 'Bochurim' },
   { href: '/products', icon: Package, label: 'Products' },
   { href: '/bundles', icon: Gift, label: 'Bundles' },

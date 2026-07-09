@@ -32,6 +32,7 @@ app/
     settings/        # App-wide settings (tax, cc fee, out-of-stock behavior)
     inventory/       # Stock management
     topups/          # Balance top-up log
+    accounts/        # Financial reconciliation — payment balances by method + withdrawal log
   (pos)/
     page.tsx         # Main POS terminal
   api/pos/
@@ -82,6 +83,9 @@ lib/utils.ts         # formatCurrency, cn
 | `refund_requests` | `order_id`, `requested_by`, `reason`, `amount`, `status` (pending/approved/rejected), `resolved_by`, `resolution_note` |
 | `bochurim` | Also has `banned_until timestamptz`, `ban_reason text`, `allow_negative bool`, `max_negative_balance numeric` |
 | `products` | Also has `image_url text` for Supabase Storage (bucket: `product-images`) |
+| `cashier_notifications` | Also has `show_on_home_page bool DEFAULT false` — added 2026-07-09; same composer posts to cashier POS toast and/or parent home page banner |
+| `balance_topups` | `method` check constraint extended to include `cashapp`, `credit_card` (was cash/zelle/venmo/paypal/stripe/manual) — added 2026-07-09 |
+| `withdrawal_log` | `account` (zelle/stripe/cash), `amount`, `date`, `note`, `recorded_by` — added 2026-07-09 |
 
 ---
 
@@ -128,7 +132,7 @@ lib/utils.ts         # formatCurrency, cn
 | Quick charge | `components/pos/QuickChargeModal.tsx` | Fast balance charge without full checkout |
 | Admin notifications → cashiers | `app/(admin)/notifications/page.tsx`, POS realtime | Admin composes; POS receives as styled toasts via Supabase Realtime |
 | Refund requests | `app/(admin)/refund-requests/page.tsx`, transactions page | Cashier files from transactions; admin approves/rejects + triggers refund |
-| Cashier dashboard | `app/cashier-dashboard/page.tsx` | Orders/students/top item today + recent orders; no revenue shown |
+| Cashier dashboard | `app/cashier-dashboard/page.tsx` | Orders/students/top item today + recent orders (all cashiers, shared view); tap a row to expand item names; shows "rung by [cashier]"; no revenue/$ shown |
 | Category hierarchy (POS) | `components/pos/CategoryTabs.tsx` | Top-level tabs + subcategory pills; filter cascades |
 | Product image upload | `app/(admin)/products/page.tsx` | Upload to `product-images` Storage bucket; shown in POS grid |
 | Printable menu | `app/(admin)/menu/page.tsx` | Grouped by category; CSV export; cashier-accessible |
@@ -137,6 +141,12 @@ lib/utils.ts         # formatCurrency, cn
 | Manual CC checkout | `components/pos/CheckoutModal.tsx` | Shows "Charge $X on your reader" + enables Complete Order |
 | COGS in reports | `app/(admin)/reports/page.tsx` | 5-card strip: Gross / Product COGS / Expenses / Wastage / Net Profit |
 | Supabase Storage bucket | Migration | `product-images` bucket (public, 5MB, image/* types) with RLS |
+| Home page redesign | `app/LandingClient.tsx`, `app/page.tsx` | Reordered sections, balanced hero text wrap, Cash App added, general "include CANTEEN - camper name in notes" banner |
+| Online credit card top-up | `app/LandingClient.tsx`, `app/(admin)/settings/page.tsx` | Admin toggle + link (optional amount/name query-param prefill for Stripe); parent sees no-refund warning modal before opening link; still submits a normal pending top-up request |
+| Home page announcements | `app/(admin)/notifications/page.tsx`, `app/LandingClient.tsx`, `lib/home.ts` | Same composer as cashier notifications, `show_on_home_page` checkbox; renders as dismissible (localStorage) banner on home page vs. popup toast for cashiers |
+| Popular items section | `app/(admin)/settings/page.tsx`, `app/api/home/top-sellers/route.ts`, `lib/home.ts` | Manual (admin-typed, default) or Auto mode; Auto safely aggregates last-30-day completed order_items server-side and only ever returns product name + icon — no prices/costs/customer data |
+| Nine Days menu section | `app/(admin)/settings/page.tsx`, `app/LandingClient.tsx` | Admin blurb + optional flyer (image/PDF) upload to new `site-assets` bucket; section hidden unless filled in |
+| Supabase Storage bucket | Migration | `site-assets` bucket (public, 10MB, image/*+PDF) with RLS — home page assets like the Nine Days flyer |
 
 ### ✅ Also Working
 
@@ -146,6 +156,7 @@ lib/utils.ts         # formatCurrency, cn
 | Daily revenue target gauge | `app/(admin)/dashboard/page.tsx`, `settings/page.tsx` | Progress bar on dashboard; set target in Settings → Daily Revenue Target |
 | Low balance alert log | `app/(admin)/dashboard/page.tsx`, `app/api/pos/checkout/route.ts` | Failed balance checkouts logged to `failed_checkout_log` table; shown as today's table on dashboard |
 | Checkout discount preview | `components/pos/CheckoutModal.tsx` | Account type discount shown as line item with estimated $ amount; coupon shown separately |
+| Accounts page (financial reconciliation) | `app/(admin)/accounts/page.tsx` | Date-range payment balances by method (Cash/Zelle/CC/Balance/Total) + outstanding student balance liability card + withdrawal log with add/delete |
 
 ### ❌ Not Yet Built
 
@@ -180,6 +191,12 @@ lib/utils.ts         # formatCurrency, cn
 8. **inventory/page.tsx null stock** — `stock_quantity` is `number | null`; guard with `?? 0` before arithmetic and `?? '∞'` for display. Null = unlimited tracking.
 
 9. **account_types.is_active** — column was missing from initial schema; added via Supabase migration 2026-07-07. If getting "column not found in schema cache" errors on account_types, check this column exists.
+
+10. **Public home page data must go through `lib/home.ts` (service-role, tightly-scoped selects)** — `cashier_notifications` and `order_items`/`orders` have no anon RLS SELECT policy on purpose (they contain internal/customer data). The home page and `/api/home/top-sellers` never query them with the anon client; they use `createAdminClient()` in `lib/home.ts` and select only the specific columns needed (e.g. `id, message, type` for announcements; product `name, icon` only for top sellers — never prices, costs, quantities, or order/customer fields). Do not widen these selects without re-checking what becomes publicly visible.
+
+11. **`supabase/rls-policies.sql` is stale — don't trust it for the actual deployed policy.** Live policies (checked via Supabase MCP `execute_sql` against `pg_policies`) are simpler than the file: `orders`, `order_items`, and `cashier_profiles` all use a single permissive `auth_all` policy (`auth.role() = 'authenticated'`) — any authenticated cashier can read/write all rows, not just their own. This is why cross-cashier joins (e.g. cashier-dashboard showing "rung by [other cashier]") work without extra policy changes. When in doubt about what's really enforced, query `pg_policies` directly instead of reading the checked-in file.
+
+12. **Admin-entered URLs (e.g. `payment_cc_link`) need a protocol before `window.open`/`<a href>`** — if the admin types `example.com/x` without `http(s)://`, the browser treats it as a relative path off the current origin (`canteen.szvtech.org/example.com/x`) instead of opening the external site. Always normalize with something like `/^https?:\/\//i.test(v) ? v : \`https://${v}\`` before using an admin-entered link as a navigation target.
 
 ---
 
@@ -257,6 +274,12 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Feat: daily revenue target gauge on dashboard — progress bar toward target set in settings |
 | 2026-07-09 | Feat: low balance alert log — failed balance checkouts logged to failed_checkout_log; shown on dashboard |
 | 2026-07-09 | Feat: checkout discount preview — account type discount shown as line item with estimated amount |
+| 2026-07-09 | Feat: home page redesign — Cash App payment method, online credit card top-up with no-refund warning modal, general payment-notes reminder banner ("CANTEEN - camper name"), Popular Items section (manual or safe DB-aggregated), Nine Days blurb + flyer upload, dismissible admin-posted home page announcement banner, hero text-wrap/spacing cleanup |
+| 2026-07-09 | Infra: added `cashier_notifications.show_on_home_page` column; extended `balance_topups.method` check constraint with `cashapp`/`credit_card`; created `site-assets` Storage bucket (public, 10MB, image/PDF) with RLS |
+| 2026-07-09 | Feat: cashier dashboard "Recent Orders" — tap to expand and see actual item names bought (not just a count); now shows which cashier rang up each order since all cashiers share this view; still no prices/$ shown |
+| 2026-07-09 | Fix: CC top-up warning modal now explicitly tells parents the payment link opens in a new tab and to come back to submit the request — the app already opens Stripe/CC links via `window.open(..., '_blank')` rather than a same-tab redirect, so no dependency on Stripe redirecting back into the site |
+| 2026-07-09 | Fix: `payment_cc_link` opened as a relative path (e.g. `canteen.szvtech.org/randomlink.com/...`) when the admin typed a link without `http(s)://` — now auto-prefixed with `https://` if missing |
+| 2026-07-09 | Feat: Accounts admin page (/accounts) — date-range payment balance cards (Cash/Zelle/CC/Balance/Total), outstanding student balance liability, withdrawal log with form + delete; new `withdrawal_log` table with RLS |
 | 2026-07-09 | Feat: category filter pills on products admin page — All + one pill per category for client-side filtering; active pill highlighted with category color |
 | 2026-07-09 | Feat: category delete warning now shows product count affected; product count shown on hover in category panel |
 | 2026-07-09 | Chore: removed "Categories" from sidebar nav — categories are managed inline on the Products page |
