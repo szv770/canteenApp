@@ -379,7 +379,7 @@ export async function POST(req: NextRequest) {
   const grandTotal = Math.round((total + tipAmount) * 100) / 100
 
   // --- Balance check for bochur payments ---
-  let bochurData: { balance: number; allow_negative: boolean; max_negative_balance: number; is_frozen: boolean; banned_until: string | null; ban_reason: string | null } | null = null
+  let bochurData: { name: string; balance: number; allow_negative: boolean; max_negative_balance: number; is_frozen: boolean; banned_until: string | null; ban_reason: string | null } | null = null
   if (method === 'balance') {
     if (!bochurId) {
       return NextResponse.json(
@@ -389,7 +389,7 @@ export async function POST(req: NextRequest) {
     }
     const { data: bochur } = await admin
       .from('bochurim')
-      .select('balance, allow_negative, max_negative_balance, is_frozen, banned_until, ban_reason')
+      .select('name, balance, allow_negative, max_negative_balance, is_frozen, banned_until, ban_reason')
       .eq('id', bochurId)
       .eq('archived', false)
       .single()
@@ -412,6 +412,15 @@ export async function POST(req: NextRequest) {
       balanceAfter < 0 &&
       (!bochur.allow_negative || -balanceAfter > bochur.max_negative_balance)
     if (blocked) {
+      const shortfall = Math.round((-balanceAfter) * 100) / 100
+      await admin.from('failed_checkout_log').insert({
+        bochur_id: bochurId,
+        bochur_name: bochur.name,
+        attempted_amount: subtotalAfterDiscount + tipAmount,
+        balance_at_time: bochur.balance,
+        shortfall,
+        cashier_id: user.id,
+      }).then(() => {}) // fire-and-forget, don't block response
       return NextResponse.json({ error: 'Insufficient balance' }, { status: 400 })
     }
   }

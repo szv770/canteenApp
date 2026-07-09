@@ -15,6 +15,13 @@ function daysSince(dateStr: string | null): string {
   return `${days}d ago`
 }
 
+function daysToStockout(product: Product, burnRateMap: Record<string, number>): number | null {
+  if (product.stock_quantity === null || product.has_variants) return null // unlimited or variant
+  const rate = burnRateMap[product.id] || 0
+  if (rate === 0) return null // not selling
+  return Math.round(product.stock_quantity / rate)
+}
+
 export default function InventoryPage() {
   const supabase = createClient()
   const [products, setProducts] = useState<Product[]>([])
@@ -26,17 +33,38 @@ export default function InventoryPage() {
   const [slowMovers, setSlowMovers] = useState<SlowMover[]>([])
   const [slowLoading, setSlowLoading] = useState(false)
   const [slowLoaded, setSlowLoaded] = useState(false)
+  const [burnRateMap, setBurnRateMap] = useState<Record<string, number>>({})
 
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
     setLoading(true)
-    const [pRes, sRes] = await Promise.all([
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const [pRes, sRes, salesRes] = await Promise.all([
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('suppliers').select('*').order('name'),
+      supabase
+        .from('order_items')
+        .select('product_id, quantity, orders!inner(created_at, status)')
+        .eq('orders.status', 'completed')
+        .gte('orders.created_at', thirtyDaysAgo),
     ])
     setProducts(pRes.data || [])
     setSuppliers(sRes.data || [])
+
+    // Build burn rate map: product_id → units sold per day over last 30 days
+    const rateMap: Record<string, number> = {}
+    if (salesRes.data) {
+      for (const item of salesRes.data as any[]) {
+        const pid = item.product_id
+        rateMap[pid] = (rateMap[pid] || 0) + item.quantity
+      }
+      for (const pid in rateMap) {
+        rateMap[pid] = rateMap[pid] / 30
+      }
+    }
+    setBurnRateMap(rateMap)
+
     setLoading(false)
     setSlowLoaded(false) // reset slow cache when products reload
   }
@@ -193,6 +221,7 @@ export default function InventoryPage() {
               <tr className="border-b border-gray-100 bg-gray-50/50">
                 <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Product</th>
                 <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Stock</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Burn Rate</th>
                 <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Alert At</th>
                 <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Cost</th>
                 <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
@@ -200,10 +229,14 @@ export default function InventoryPage() {
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={5} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
+                <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
               ) : filtered.length === 0 ? (
-                <tr><td colSpan={5} className="px-5 py-12 text-center text-gray-400">No products found</td></tr>
-              ) : filtered.map(p => (
+                <tr><td colSpan={6} className="px-5 py-12 text-center text-gray-400">No products found</td></tr>
+              ) : filtered.map(p => {
+                const days = daysToStockout(p, burnRateMap)
+                const rate = burnRateMap[p.id] || 0
+                const daysColor = days === null ? '' : days <= 7 ? 'text-red-600' : days <= 14 ? 'text-amber-600' : 'text-slate-500'
+                return (
                 <tr key={p.id} className="table-row">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-2">
@@ -220,6 +253,18 @@ export default function InventoryPage() {
                       {p.stock_quantity ?? '∞'}
                     </span>
                   </td>
+                  <td className="px-5 py-3 text-right hidden sm:table-cell">
+                    {days === null ? (
+                      <span className="text-sm text-gray-300">—</span>
+                    ) : (
+                      <div>
+                        <span className={`text-sm font-medium ${daysColor}`}>~{days} days</span>
+                        {rate > 0 && (
+                          <div className="text-xs text-gray-400 mt-0.5">~{rate.toFixed(1)} sold/day</div>
+                        )}
+                      </div>
+                    )}
+                  </td>
                   <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{p.low_stock_threshold}</td>
                   <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{formatCurrency(p.cost_price)}</td>
                   <td className="px-5 py-3 text-right">
@@ -228,7 +273,8 @@ export default function InventoryPage() {
                     </button>
                   </td>
                 </tr>
-              ))}
+                )
+              })}
             </tbody>
           </table>
         )}
