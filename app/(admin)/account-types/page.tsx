@@ -263,8 +263,10 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
     }
 
     setSaving(true)
+    const trimmedName = name.trim()
+    const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now()
     const payload = {
-      name: name.trim(),
+      name: trimmedName,
       color,
       discount_type: discountType,
       discount_value: discountType === 'none' ? 0 : (isNaN(parsedValue) ? 0 : parsedValue),
@@ -277,7 +279,7 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
 
     const { error } = isEdit
       ? await supabase.from('account_types').update(payload).eq('id', accountType!.id)
-      : await supabase.from('account_types').insert(payload)
+      : await supabase.from('account_types').insert({ ...payload, slug })
 
     if (error) { toast.error(error.message); setSaving(false); return }
     toast.success(isEdit ? 'Account type updated' : 'Account type created')

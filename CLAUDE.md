@@ -205,3 +205,7 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: checkout order summary shows addon price in line item total (price + addon_total) |
 | 2026-07-07 | Fix: account_types missing is_active column — added via Supabase migration |
 | 2026-07-07 | Fix: checkout modal mobile layout — tip row wraps on small screens, cash buttons 3-col on mobile, addon names on own line, Complete Order button cleaner |
+| 2026-07-09 | Fix: BochurSearch now trims whitespace before query so "Moshe " finds "Moshe Cohen" correctly |
+| 2026-07-09 | Fix: transactions page uses LEFT JOIN for bochurim so anonymous (walk-in) orders appear; default filter changed to "all"; label updated to "Walk-in / No account" |
+| 2026-07-09 | Fix: transactions page default status filter is now "all" so voided orders are visible by default and show the "Voided" badge |
+| 2026-07-09 | Fix: account type creation no longer fails — slug auto-generated from name + timestamp before insert |
