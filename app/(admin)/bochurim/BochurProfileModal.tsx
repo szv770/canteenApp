@@ -4,7 +4,7 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   X, DollarSign, Pencil, Archive, Snowflake, ChevronDown, ChevronUp,
-  TrendingUp, ShoppingCart, BarChart2, Star, AlertTriangle
+  TrendingUp, ShoppingCart, BarChart2, Star, AlertTriangle, Clock
 } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
@@ -66,6 +66,15 @@ const STATUS_COLORS: Record<string, string> = {
   refunded: 'bg-amber-50 text-amber-700 border border-amber-100',
 }
 
+type BanDuration = '1d' | '3d' | '7d' | 'custom'
+
+function formatBanDate(dt: string) {
+  return new Date(dt).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
+}
+
 // ─── Sub-components ───────────────────────────────────────────────────────────
 
 function StatCard({ icon: Icon, label, value, sub }: {
@@ -91,7 +100,7 @@ function StatCard({ icon: Icon, label, value, sub }: {
 export default function BochurProfileModal({ bochur: initialBochur, accountTypes, onClose, onUpdated }: Props) {
   const supabase = createClient()
 
-  // local bochur state so freeze/unfreeze updates reflect immediately
+  // local bochur state so freeze/unfreeze/ban updates reflect immediately
   const [bochur, setBochur] = useState<BochurWithId>(initialBochur)
 
   // data
@@ -111,6 +120,12 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
   const [freezing, setFreezing] = useState(false)
   const [archiving, setArchiving] = useState(false)
 
+  // timed ban state
+  const [banDuration, setBanDuration] = useState<BanDuration>('1d')
+  const [banCustomDate, setBanCustomDate] = useState('')
+  const [banReason, setBanReason] = useState('')
+  const [banning, setBanning] = useState(false)
+
   // account settings
   const [settingsForm, setSettingsForm] = useState({
     allow_negative: bochur.allow_negative,
@@ -118,6 +133,9 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
     notes: bochur.notes || '',
   })
   const [savingSettings, setSavingSettings] = useState(false)
+
+  // ── Derived ────────────────────────────────────────────────────────────────
+  const isBanned = !!bochur.banned_until && new Date(bochur.banned_until) > new Date()
 
   // ── Load analytics ─────────────────────────────────────────────────────────
   const loadAnalytics = useCallback(async () => {
@@ -225,6 +243,43 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
     onUpdated()
   }
 
+  async function applyBan() {
+    if (!banReason.trim()) { toast.error('Ban reason is required'); return }
+    let until: Date
+    if (banDuration === 'custom') {
+      if (!banCustomDate) { toast.error('Please select an end date'); return }
+      until = new Date(banCustomDate)
+    } else {
+      const days = banDuration === '1d' ? 1 : banDuration === '3d' ? 3 : 7
+      until = new Date(Date.now() + days * 24 * 60 * 60 * 1000)
+    }
+    if (until <= new Date()) { toast.error('Ban end date must be in the future'); return }
+    setBanning(true)
+    const { error } = await supabase
+      .from('bochurim')
+      .update({ banned_until: until.toISOString(), ban_reason: banReason.trim() })
+      .eq('id', bochur.id)
+    if (error) { toast.error(error.message); setBanning(false); return }
+    toast.success('Timed ban applied')
+    setBochur(b => ({ ...b, banned_until: until.toISOString(), ban_reason: banReason.trim() }))
+    setBanReason('')
+    setBanning(false)
+    onUpdated()
+  }
+
+  async function liftBan() {
+    setBanning(true)
+    const { error } = await supabase
+      .from('bochurim')
+      .update({ banned_until: null, ban_reason: null })
+      .eq('id', bochur.id)
+    if (error) { toast.error(error.message); setBanning(false); return }
+    toast.success('Ban lifted')
+    setBochur(b => ({ ...b, banned_until: null, ban_reason: null }))
+    setBanning(false)
+    onUpdated()
+  }
+
   async function archiveBochur() {
     if (!confirm(`Archive ${bochur.name}? They will no longer appear in POS searches.`)) return
     setArchiving(true)
@@ -248,7 +303,7 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
     onUpdated()
   }
 
-  // ── Derived ────────────────────────────────────────────────────────────────
+  // ── Derived display ────────────────────────────────────────────────────────
 
   const atColor = ACCOUNT_TYPE_COLORS[bochur.account_type?.name] || 'bg-slate-100 text-slate-600 border border-slate-200'
   const balanceColor = bochur.balance >= 0 ? 'text-emerald-600' : 'text-red-500'
@@ -282,6 +337,11 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
                 {bochur.is_frozen && (
                   <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-red-100 text-red-700 text-xs font-bold border border-red-200">
                     <Snowflake className="w-3 h-3" /> Frozen
+                  </span>
+                )}
+                {isBanned && (
+                  <span className="inline-flex items-center gap-1 px-2 py-0.5 rounded-full bg-orange-100 text-orange-700 text-xs font-bold border border-orange-200">
+                    <Clock className="w-3 h-3" /> Banned
                   </span>
                 )}
               </div>
@@ -359,6 +419,80 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
                 </div>
               </div>
             )}
+
+            {/* ── Timed Ban section ────────────────────────────────────────── */}
+            <div className="admin-card overflow-hidden">
+              {isBanned ? (
+                <div className="p-4 space-y-3">
+                  <div className="flex items-start justify-between gap-3">
+                    <div className="flex items-start gap-2 min-w-0">
+                      <Clock className="w-4 h-4 text-orange-500 mt-0.5 shrink-0" />
+                      <div className="min-w-0">
+                        <p className="text-sm font-semibold text-orange-700">Timed Ban Active</p>
+                        <p className="text-xs text-orange-600">
+                          Banned until {formatBanDate(bochur.banned_until!)}
+                        </p>
+                        {bochur.ban_reason && (
+                          <p className="text-xs text-orange-500 mt-0.5 break-words">{bochur.ban_reason}</p>
+                        )}
+                      </div>
+                    </div>
+                    <button
+                      onClick={liftBan}
+                      disabled={banning}
+                      className="shrink-0 px-3 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 text-xs font-semibold transition-colors disabled:opacity-50"
+                    >
+                      {banning ? 'Lifting...' : 'Lift Ban'}
+                    </button>
+                  </div>
+                </div>
+              ) : (
+                <div className="p-4 space-y-3">
+                  <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+                    <Clock className="w-4 h-4 text-slate-400" /> Timed Ban
+                  </h3>
+                  <div className="flex gap-2 flex-wrap">
+                    {(['1d', '3d', '7d', 'custom'] as BanDuration[]).map(d => (
+                      <button
+                        key={d}
+                        type="button"
+                        onClick={() => setBanDuration(d)}
+                        className={`px-3 py-1.5 rounded-lg text-xs font-semibold border transition-colors ${
+                          banDuration === d
+                            ? 'bg-orange-500 text-white border-orange-500'
+                            : 'bg-white text-slate-600 border-slate-200 hover:border-orange-300 hover:text-orange-600'
+                        }`}
+                      >
+                        {d === '1d' ? '1 Day' : d === '3d' ? '3 Days' : d === '7d' ? '1 Week' : 'Custom'}
+                      </button>
+                    ))}
+                  </div>
+                  {banDuration === 'custom' && (
+                    <input
+                      type="datetime-local"
+                      className="input-admin"
+                      value={banCustomDate}
+                      onChange={e => setBanCustomDate(e.target.value)}
+                      min={new Date(Date.now() + 60000).toISOString().slice(0, 16)}
+                    />
+                  )}
+                  <input
+                    type="text"
+                    className="input-admin"
+                    placeholder="Ban reason (required)"
+                    value={banReason}
+                    onChange={e => setBanReason(e.target.value)}
+                  />
+                  <button
+                    onClick={applyBan}
+                    disabled={banning || !banReason.trim()}
+                    className="w-full px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+                  >
+                    {banning ? 'Applying...' : 'Apply Timed Ban'}
+                  </button>
+                </div>
+              )}
+            </div>
 
             {loading ? (
               <div className="space-y-4">

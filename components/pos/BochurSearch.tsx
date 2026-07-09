@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, X, User, AlertTriangle } from 'lucide-react'
+import { Search, X, User, AlertTriangle, Clock } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { BochurWithId } from '@/types/database'
 
@@ -18,6 +18,13 @@ const ACCOUNT_TYPE_COLORS: Record<string, string> = {
   'Cost Price': 'bg-orange-50 text-orange-700 border border-orange-100',
   Moised: 'bg-emerald-50 text-emerald-700 border border-emerald-100',
   'Canteen Worker': 'bg-amber-50 text-amber-700 border border-amber-100',
+}
+
+function formatBanDate(dt: string) {
+  return new Date(dt).toLocaleString(undefined, {
+    month: 'short', day: 'numeric', year: 'numeric',
+    hour: '2-digit', minute: '2-digit',
+  })
 }
 
 export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: Props) {
@@ -47,12 +54,15 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: 
 
   if (loadedBochur) {
     const colorClass = ACCOUNT_TYPE_COLORS[loadedBochur.account_type?.name] || 'bg-slate-100 text-slate-600 border border-slate-200'
-    const balanceColor = loadedBochur.balance >= 0 ? 'text-emerald-600' : 'text-red-500'
+    const balanceNegative = loadedBochur.balance < 0
+    const balanceColor = balanceNegative ? 'text-red-500' : 'text-emerald-600'
+    const isBanned = !!loadedBochur.banned_until && new Date(loadedBochur.banned_until) > new Date()
+
     return (
       <div className="space-y-1.5">
-        <div className={`flex items-center gap-2.5 bg-white border rounded-xl px-3 py-2 min-w-0 focus-within:ring-2 focus-within:ring-amber-400/40 transition-all ${loadedBochur.is_frozen ? 'border-red-300 bg-red-50/30' : 'border-slate-200 focus-within:border-amber-400'}`}>
-          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${loadedBochur.is_frozen ? 'bg-red-100' : 'bg-amber-100'}`}>
-            <User className={`w-4 h-4 ${loadedBochur.is_frozen ? 'text-red-600' : 'text-amber-600'}`} />
+        <div className={`flex items-center gap-2.5 bg-white border rounded-xl px-3 py-2 min-w-0 focus-within:ring-2 focus-within:ring-amber-400/40 transition-all ${loadedBochur.is_frozen ? 'border-red-300 bg-red-50/30' : isBanned ? 'border-orange-300 bg-orange-50/20' : 'border-slate-200 focus-within:border-amber-400'}`}>
+          <div className={`w-7 h-7 rounded-lg flex items-center justify-center shrink-0 ${loadedBochur.is_frozen ? 'bg-red-100' : isBanned ? 'bg-orange-100' : 'bg-amber-100'}`}>
+            <User className={`w-4 h-4 ${loadedBochur.is_frozen ? 'text-red-600' : isBanned ? 'text-orange-600' : 'text-amber-600'}`} />
           </div>
           <div className="min-w-0 flex-1">
             <div className="flex items-center gap-1.5 flex-wrap">
@@ -61,12 +71,16 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: 
                 <span className={`badge ${colorClass} text-xs`}>{loadedBochur.account_type.name}</span>
               )}
             </div>
-            <span className={`text-xs font-bold ${balanceColor}`}>{formatCurrency(loadedBochur.balance)}</span>
+            <span className={`text-xs font-bold ${balanceColor}`}>
+              {formatCurrency(loadedBochur.balance)}
+              {balanceNegative && <span className="font-normal text-red-400 ml-1">(negative)</span>}
+            </span>
           </div>
           <button onClick={onClear} className="shrink-0 p-1 hover:bg-slate-100 rounded-lg transition-colors">
             <X className="w-4 h-4 text-slate-400" />
           </button>
         </div>
+
         {loadedBochur.is_frozen && (
           <div className="flex items-center gap-2 px-3 py-2 bg-red-50 border border-red-200 rounded-xl text-red-700">
             <AlertTriangle className="w-4 h-4 shrink-0" />
@@ -74,6 +88,27 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: 
             {loadedBochur.freeze_reason && (
               <span className="text-xs text-red-500 truncate">— {loadedBochur.freeze_reason}</span>
             )}
+          </div>
+        )}
+
+        {isBanned && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-orange-50 border border-orange-200 rounded-xl text-orange-700">
+            <Clock className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-semibold">
+              Account banned until {formatBanDate(loadedBochur.banned_until!)}
+            </span>
+            {loadedBochur.ban_reason && (
+              <span className="text-xs text-orange-500 truncate">— {loadedBochur.ban_reason}</span>
+            )}
+          </div>
+        )}
+
+        {balanceNegative && (
+          <div className="flex items-center gap-2 px-3 py-2 bg-amber-50 border border-amber-200 rounded-xl text-amber-700">
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span className="text-xs font-semibold">
+              Balance: {formatCurrency(loadedBochur.balance)} (negative)
+            </span>
           </div>
         )}
       </div>

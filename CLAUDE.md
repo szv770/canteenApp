@@ -62,7 +62,7 @@ lib/utils.ts         # formatCurrency, cn
 
 | Table | Key columns / notes |
 |---|---|
-| `bochurim` | `is_frozen bool DEFAULT false`, `freeze_reason text` — added 2026-06-26 |
+| `bochurim` | `is_frozen bool DEFAULT false`, `freeze_reason text`, `banned_until timestamptz`, `ban_reason text`, `allow_negative bool`, `max_negative_balance numeric` |
 | `cashier_profiles` | FK: `orders.cashier_id → cashier_profiles.id` |
 | `products` | `sale_price`, `sale_active`, `sale_label`, `sale_ends_at`, `has_variants`, `icon` |
 | `product_variants` | `label`, `price`, `stock_quantity`, `sort_order`, `is_active` |
@@ -205,3 +205,5 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: checkout order summary shows addon price in line item total (price + addon_total) |
 | 2026-07-07 | Fix: account_types missing is_active column — added via Supabase migration |
 | 2026-07-07 | Fix: checkout modal mobile layout — tip row wraps on small screens, cash buttons 3-col on mobile, addon names on own line, Complete Order button cleaner |
+| 2026-07-09 | Feat: timed ban system — BochurProfileModal has Timed Ban panel (1d/3d/7d/custom + reason + Lift Ban); BochurSearch shows orange banned-until banner and yellow negative-balance warning; checkout API blocks banned accounts with 403 |
+| 2026-07-09 | Types: Bochur interface gains banned_until: string\|null and ban_reason: string\|null |
