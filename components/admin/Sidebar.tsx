@@ -5,7 +5,7 @@ import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, Users, Package, Tag, Warehouse,
-  Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift, Percent, RotateCcw
+  Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift, Percent, RotateCcw, BookOpen
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -20,6 +20,7 @@ const NAV = [
   { href: '/transactions', icon: Receipt, label: 'Transactions' },
   { href: '/refund-requests', icon: RotateCcw, label: 'Refund Requests' },
   { href: '/reports', icon: BarChart2, label: 'Reports' },
+  { href: '/menu', icon: BookOpen, label: 'Menu' },
   { href: '/topups', icon: CreditCard, label: 'Top-ups' },
   { href: '/cashiers', icon: UserCog, label: 'Cashiers' },
   { href: '/settings', icon: Settings, label: 'Settings' },
