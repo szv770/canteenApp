@@ -11,6 +11,7 @@ import ProductGrid from '@/components/pos/ProductGrid'
 import BundleGrid from '@/components/pos/BundleGrid'
 import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
+import QuickChargeModal from '@/components/pos/QuickChargeModal'
 import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
@@ -31,6 +32,7 @@ export default function PosPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [loadedBochur, setLoadedBochur] = useState<BochurWithId | null>(null)
   const [showCheckout, setShowCheckout] = useState(false)
+  const [showQuickCharge, setShowQuickCharge] = useState(false)
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({})
   const [variantProduct, setVariantProduct] = useState<Product | null>(null)
   const [addonProduct, setAddonProduct] = useState<Product | null>(null)
@@ -351,6 +353,7 @@ export default function PosPage() {
           loadedBochur={loadedBochur}
           settings={settings}
           onCheckout={() => setShowCheckout(true)}
+          onQuickCharge={() => setShowQuickCharge(true)}
           mobileOpen={mobileCartOpen}
           onMobileClose={() => setMobileCartOpen(false)}
         />
@@ -385,6 +388,21 @@ export default function PosPage() {
           onClose={() => {
             setAddonProduct(null)
             setAddonVariant(undefined)
+          }}
+        />
+      )}
+
+      {showQuickCharge && loadedBochur && (
+        <QuickChargeModal
+          cart={cart}
+          loadedBochur={loadedBochur}
+          onClose={() => setShowQuickCharge(false)}
+          onSuccess={() => {
+            setCart([])
+            setShowQuickCharge(false)
+            setLoadedBochur(null)
+            setMobileCartOpen(false)
+            loadData()
           }}
         />
       )}

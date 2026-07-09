@@ -1,8 +1,9 @@
 'use client'
 
-import { useState } from 'react'
-import { X, DollarSign, CreditCard, Wallet, Check } from 'lucide-react'
+import { useState, useCallback, useRef } from 'react'
+import { X, DollarSign, CreditCard, Wallet, Check, Search, User, UserPlus } from 'lucide-react'
 import { formatCurrency, roundCash, calcCCFee, applyDiscount } from '@/lib/utils'
+import { createClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 import type { CartItem, BochurWithId } from '@/types/database'
 
@@ -19,8 +20,43 @@ type PayMethod = 'balance' | 'cash' | 'credit_card'
 
 const QUICK_CASH = [1, 5, 10, 20, 50, 100]
 
-export default function CheckoutModal({ cart, loadedBochur, settings, cashierName, onClose, onSuccess }: Props) {
-  const [method, setMethod] = useState<PayMethod>(loadedBochur ? 'balance' : 'cash')
+export default function CheckoutModal({ cart, loadedBochur: initialBochur, settings, cashierName, onClose, onSuccess }: Props) {
+  const [selectedBochur, setSelectedBochur] = useState<BochurWithId | null>(initialBochur)
+  const [method, setMethod] = useState<PayMethod>(initialBochur ? 'balance' : 'cash')
+  const [linkDismissed, setLinkDismissed] = useState(false)
+
+  // Inline camper linking (only when checkout opened without a loaded bochur)
+  const supabaseRef = useRef(createClient())
+  const [linkQuery, setLinkQuery] = useState('')
+  const [linkResults, setLinkResults] = useState<BochurWithId[]>([])
+  const [linkLoading, setLinkLoading] = useState(false)
+  const [linkOpen, setLinkOpen] = useState(false)
+  const linkDebounce = useRef<NodeJS.Timeout>()
+
+  const searchBochurim = useCallback((q: string) => {
+    clearTimeout(linkDebounce.current)
+    if (!q.trim()) { setLinkResults([]); setLinkOpen(false); return }
+    linkDebounce.current = setTimeout(async () => {
+      setLinkLoading(true)
+      const { data } = await supabaseRef.current
+        .from('bochurim_with_id')
+        .select('*, account_type:account_types(*)')
+        .or(`name.ilike.%${q}%,bochur_id.ilike.%${q}%`)
+        .eq('archived', false)
+        .limit(6)
+      setLinkResults(data || [])
+      setLinkOpen(true)
+      setLinkLoading(false)
+    }, 220)
+  }, [])
+
+  function selectBochur(b: BochurWithId) {
+    setSelectedBochur(b)
+    setMethod('balance')
+    setLinkQuery('')
+    setLinkResults([])
+    setLinkOpen(false)
+  }
   const [cashTendered, setCashTendered] = useState('')
   const [processing, setProcessing] = useState(false)
   const [discountCodeInput, setDiscountCodeInput] = useState('')
@@ -47,10 +83,10 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
   const tendered = parseFloat(cashTendered) || 0
   const change = Math.max(0, Math.round((tendered - displayTotal) * 100) / 100)
 
-  const balanceAfter = loadedBochur ? Math.round((loadedBochur.balance - subtotalAfterDiscount - tipAmount) * 100) / 100 : 0
-  const insufficientBalance = loadedBochur && loadedBochur.balance < (subtotalAfterDiscount + tipAmount)
-  const allowNegative = loadedBochur?.allow_negative ?? false
-  const maxNeg = loadedBochur?.max_negative_balance ?? 0
+  const balanceAfter = selectedBochur ? Math.round((selectedBochur.balance - subtotalAfterDiscount - tipAmount) * 100) / 100 : 0
+  const insufficientBalance = selectedBochur && selectedBochur.balance < (subtotalAfterDiscount + tipAmount)
+  const allowNegative = selectedBochur?.allow_negative ?? false
+  const maxNeg = selectedBochur?.max_negative_balance ?? 0
   const balanceBlocked = insufficientBalance && (!allowNegative || (allowNegative && -balanceAfter > maxNeg))
 
   async function applyDiscountCode() {
@@ -91,7 +127,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           method,
-          bochur_id: loadedBochur?.id ?? null,
+          bochur_id: selectedBochur?.id ?? null,
           cash_tendered: method === 'cash' ? tendered : null,
           discount_code: appliedDiscount?.code ?? null,
           tip_amount: tipAmount > 0 ? tipAmount : undefined,
@@ -123,7 +159,7 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
   }
 
   const tabs: { id: PayMethod; label: string; icon: React.ReactNode }[] = [
-    ...(loadedBochur ? [{ id: 'balance' as PayMethod, label: 'Balance', icon: <Wallet className="w-4 h-4" /> }] : []),
+    ...(selectedBochur ? [{ id: 'balance' as PayMethod, label: 'Balance', icon: <Wallet className="w-4 h-4" /> }] : []),
     { id: 'cash', label: 'Cash', icon: <DollarSign className="w-4 h-4" /> },
     { id: 'credit_card', label: 'Card', icon: <CreditCard className="w-4 h-4" /> },
   ]
@@ -144,6 +180,83 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
 
         {/* Scrollable body */}
         <div className="flex-1 overflow-y-auto">
+          {/* Link camper prompt — only when opened without a loaded bochur */}
+          {!initialBochur && (
+            selectedBochur ? (
+              <div className="px-4 sm:px-5 py-3 border-b border-pos-border">
+                <div className="flex items-center gap-2.5 bg-emerald-50 border border-emerald-200 rounded-xl px-3 py-2">
+                  <div className="w-8 h-8 rounded-lg bg-emerald-100 flex items-center justify-center shrink-0">
+                    <User className="w-4 h-4 text-emerald-600" />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <p className="font-semibold text-slate-900 text-sm truncate">{selectedBochur.name}</p>
+                    <p className={`text-xs font-bold ${selectedBochur.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
+                      {formatCurrency(selectedBochur.balance)}
+                    </p>
+                  </div>
+                  <button
+                    onClick={() => { setSelectedBochur(null); setMethod('cash') }}
+                    className="shrink-0 p-1 hover:bg-white rounded-lg transition-colors"
+                  >
+                    <X className="w-4 h-4 text-slate-400" />
+                  </button>
+                </div>
+              </div>
+            ) : !linkDismissed ? (
+              <div className="px-4 sm:px-5 py-3 border-b border-pos-border">
+                <div className="flex items-center justify-between mb-2">
+                  <span className="text-sm font-medium text-slate-700 flex items-center gap-1.5">
+                    <UserPlus className="w-4 h-4 text-slate-400" />
+                    Link to a camper?
+                  </span>
+                  <button
+                    onClick={() => setLinkDismissed(true)}
+                    className="text-xs font-medium text-slate-400 hover:text-slate-600 transition-colors"
+                  >
+                    Skip — No Account
+                  </button>
+                </div>
+                <div className="relative">
+                  <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-amber-400/40 focus-within:border-amber-400 transition-all">
+                    <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                    <input
+                      type="text"
+                      placeholder="Search by name or ID..."
+                      value={linkQuery}
+                      onChange={e => { setLinkQuery(e.target.value); searchBochurim(e.target.value) }}
+                      onFocus={() => linkResults.length > 0 && setLinkOpen(true)}
+                      onBlur={() => setTimeout(() => setLinkOpen(false), 150)}
+                      className="flex-1 text-base text-slate-900 placeholder-slate-400 bg-transparent outline-none"
+                    />
+                    {linkLoading && <div className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin shrink-0" />}
+                  </div>
+                  {linkOpen && linkResults.length > 0 && (
+                    <div className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                      {linkResults.map(b => (
+                        <button
+                          key={b.id}
+                          onMouseDown={() => selectBochur(b)}
+                          className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 transition-colors text-left border-b border-slate-50 last:border-0"
+                        >
+                          <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                            <User className="w-4 h-4 text-amber-600" />
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-1.5">
+                              <span className="font-semibold text-slate-900 text-sm">{b.name}</span>
+                              <span className="text-slate-400 text-xs">{b.bochur_id}</span>
+                            </div>
+                          </div>
+                          <span className={`text-sm font-bold shrink-0 ${b.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>{formatCurrency(b.balance)}</span>
+                        </button>
+                      ))}
+                    </div>
+                  )}
+                </div>
+              </div>
+            ) : null
+          )}
+
           {/* Order summary */}
           <div className="px-4 sm:px-5 py-3 border-b border-pos-border max-h-32 overflow-y-auto">
             {cart.map((item, idx) => (
@@ -215,20 +328,20 @@ export default function CheckoutModal({ cart, loadedBochur, settings, cashierNam
             </div>
 
             {/* Balance tab */}
-            {method === 'balance' && loadedBochur && (
+            {method === 'balance' && selectedBochur && (
               <div className="space-y-3 mb-4">
-                {loadedBochur.account_type && loadedBochur.account_type.discount_type !== 'none' && (
+                {selectedBochur.account_type && selectedBochur.account_type.discount_type !== 'none' && (
                   <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
                     <span className="text-blue-600 text-xs">🏷️</span>
                     <span className="text-blue-700 text-xs font-medium">
-                      {loadedBochur.account_type.name} discount applied automatically at checkout
+                      {selectedBochur.account_type.name} discount applied automatically at checkout
                     </span>
                   </div>
                 )}
                 <div className="bg-pos-bg rounded-xl p-4 space-y-2">
                   <div className="flex justify-between text-sm">
                     <span className="text-pos-subtext">Current balance</span>
-                    <span className="font-semibold text-pos-text">{formatCurrency(loadedBochur.balance)}</span>
+                    <span className="font-semibold text-pos-text">{formatCurrency(selectedBochur.balance)}</span>
                   </div>
                   <div className="flex justify-between text-sm">
                     <span className="text-pos-subtext">This order</span>
