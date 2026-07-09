@@ -32,6 +32,7 @@ app/
     settings/        # App-wide settings (tax, cc fee, out-of-stock behavior)
     inventory/       # Stock management
     topups/          # Balance top-up log
+    menu/            # Menu export (CSV) + printable HTML menu (cashiers can view at /menu)
   (pos)/
     page.tsx         # Main POS terminal
   api/pos/
@@ -115,6 +116,7 @@ lib/utils.ts         # formatCurrency, cn
 | Bundles in POS | `app/(pos)/pos/page.tsx`, `components/pos/BundleGrid.tsx` | Deals tab wired, addBundleToCart handler |
 | Account type discounts | `app/api/pos/checkout/route.ts` | Per-item: %, cost price, fixed; category exclusions |
 | Checkout mobile layout | `components/pos/CheckoutModal.tsx` | Tip row wraps, cash 3-col, addon sub-line, button cleaner |
+| Menu export + printable flyer | `app/(admin)/menu/page.tsx` | CSV download (products + bundles) + on-screen HTML menu with @media print; sidebar link; cashier-viewable |
 
 ### ❌ Not Yet Built
 
@@ -205,7 +207,4 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: checkout order summary shows addon price in line item total (price + addon_total) |
 | 2026-07-07 | Fix: account_types missing is_active column — added via Supabase migration |
 | 2026-07-07 | Fix: checkout modal mobile layout — tip row wraps on small screens, cash buttons 3-col on mobile, addon names on own line, Complete Order button cleaner |
-| 2026-07-09 | Fix: BochurSearch now trims whitespace before query so "Moshe " finds "Moshe Cohen" correctly |
-| 2026-07-09 | Fix: transactions page uses LEFT JOIN for bochurim so anonymous (walk-in) orders appear; default filter changed to "all"; label updated to "Walk-in / No account" |
-| 2026-07-09 | Fix: transactions page default status filter is now "all" so voided orders are visible by default and show the "Voided" badge |
-| 2026-07-09 | Fix: account type creation no longer fails — slug auto-generated from name + timestamp before insert |
+| 2026-07-09 | Feat: Menu page (/menu) — CSV export (products + bundles) and printable HTML menu grouped by category; @media print hides nav/buttons; accessible to cashiers at /menu |
