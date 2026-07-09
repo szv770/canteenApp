@@ -257,3 +257,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Feat: daily revenue target gauge on dashboard — progress bar toward target set in settings |
 | 2026-07-09 | Feat: low balance alert log — failed balance checkouts logged to failed_checkout_log; shown on dashboard |
 | 2026-07-09 | Feat: checkout discount preview — account type discount shown as line item with estimated amount |
+| 2026-07-09 | Feat: category filter pills on products admin page — All + one pill per category for client-side filtering; active pill highlighted with category color |
+| 2026-07-09 | Feat: category delete warning now shows product count affected; product count shown on hover in category panel |
+| 2026-07-09 | Chore: removed "Categories" from sidebar nav — categories are managed inline on the Products page |
