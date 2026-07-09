@@ -4,7 +4,7 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
-  LayoutDashboard, Users, Package, Tag, Warehouse,
+  LayoutDashboard, Users, Package, Warehouse,
   Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift,
   RotateCcw, BookOpen, TrendingDown, Bell, Wallet
 } from 'lucide-react'
@@ -16,7 +16,6 @@ const NAV = [
   { href: '/bochurim', icon: Users, label: 'Bochurim' },
   { href: '/products', icon: Package, label: 'Products' },
   { href: '/bundles', icon: Gift, label: 'Bundles' },
-  { href: '/categories', icon: Tag, label: 'Categories' },
   { href: '/inventory', icon: Warehouse, label: 'Inventory' },
   { href: '/transactions', icon: Receipt, label: 'Transactions' },
   { href: '/refund-requests', icon: RotateCcw, label: 'Refund Requests' },
