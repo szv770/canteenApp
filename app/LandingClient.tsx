@@ -138,6 +138,10 @@ function CreditCardWarningModal({ onCancel, onConfirm }: { onCancel: () => void;
         <p className="text-sm text-gray-600 text-center leading-relaxed mt-2">
           Zelle, Venmo, and Cash App have no processing fees and can be refunded.
         </p>
+        <p className="text-xs text-gray-400 text-center leading-relaxed mt-3 bg-gray-50 rounded-xl px-3 py-2">
+          The payment page will open in a <strong>new browser tab</strong>. After paying, come back to
+          this tab to submit the request form below so we know to credit the account.
+        </p>
         <div className="flex flex-col gap-2 mt-5">
           <button
             onClick={onConfirm}
