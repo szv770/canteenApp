@@ -76,6 +76,12 @@ lib/utils.ts         # formatCurrency, cn
 | `bundle_items` | `bundle_id`, `product_id`, `quantity` |
 | `app_settings` | Key/value: tax_rate, cc_fee_percent, out_of_stock_behavior, etc. |
 | `account_types` | `is_active bool DEFAULT true` — added 2026-07-07 (was missing from schema) |
+| `cashier_notifications` | `message`, `type` (info/warning/urgent), `is_active`, `expires_at`, `created_by` |
+| `expense_entries` | `amount`, `description`, `expense_type` (equipment/tax/supply/other), `entered_by`, `date` |
+| `wastage_log` | `product_id`, `product_name`, `quantity`, `reason`, `unit_cost`, `unit_price`, `cashier_id` |
+| `refund_requests` | `order_id`, `requested_by`, `reason`, `amount`, `status` (pending/approved/rejected), `resolved_by`, `resolution_note` |
+| `bochurim` | Also has `banned_until timestamptz`, `ban_reason text`, `allow_negative bool`, `max_negative_balance numeric` |
+| `products` | Also has `image_url text` for Supabase Storage (bucket: `product-images`) |
 
 ---
 
@@ -115,6 +121,22 @@ lib/utils.ts         # formatCurrency, cn
 | Bundles in POS | `app/(pos)/pos/page.tsx`, `components/pos/BundleGrid.tsx` | Deals tab wired, addBundleToCart handler |
 | Account type discounts | `app/api/pos/checkout/route.ts` | Per-item: %, cost price, fixed; category exclusions |
 | Checkout mobile layout | `components/pos/CheckoutModal.tsx` | Tip row wraps, cash 3-col, addon sub-line, button cleaner |
+| Timed ban | `BochurProfileModal.tsx`, `checkout/route.ts`, `BochurSearch.tsx` | Preset (1d/3d/1w) or custom date; orange warning in POS; 403 at checkout |
+| COGS / Wastage page | `app/(admin)/cogs/page.tsx` | Two tabs: Wastage Log + Expenses; monthly totals |
+| Wastage logging (POS) | `components/pos/WastageModal.tsx` | Cashiers log waste; notifies admin; deducts stock optionally |
+| Top-up from POS | `components/pos/TopUpModal.tsx` | Cashier adds balance from POS header |
+| Quick charge | `components/pos/QuickChargeModal.tsx` | Fast balance charge without full checkout |
+| Admin notifications → cashiers | `app/(admin)/notifications/page.tsx`, POS realtime | Admin composes; POS receives as styled toasts via Supabase Realtime |
+| Refund requests | `app/(admin)/refund-requests/page.tsx`, transactions page | Cashier files from transactions; admin approves/rejects + triggers refund |
+| Cashier dashboard | `app/cashier-dashboard/page.tsx` | Orders/students/top item today + recent orders; no revenue shown |
+| Category hierarchy (POS) | `components/pos/CategoryTabs.tsx` | Top-level tabs + subcategory pills; filter cascades |
+| Product image upload | `app/(admin)/products/page.tsx` | Upload to `product-images` Storage bucket; shown in POS grid |
+| Printable menu | `app/(admin)/menu/page.tsx` | Grouped by category; CSV export; cashier-accessible |
+| Account types in bochurim tab | `app/(admin)/bochurim/page.tsx`, `AccountTypesPanel.tsx` | Moved from sidebar into Students/Account Types tabs |
+| Negative balance support | BochurProfileModal, checkout API | allow_negative + max_negative_balance per student; enforced at checkout |
+| Manual CC checkout | `components/pos/CheckoutModal.tsx` | Shows "Charge $X on your reader" + enables Complete Order |
+| COGS in reports | `app/(admin)/reports/page.tsx` | 5-card strip: Gross / Product COGS / Expenses / Wastage / Net Profit |
+| Supabase Storage bucket | Migration | `product-images` bucket (public, 5MB, image/* types) with RLS |
 
 ### ❌ Not Yet Built
 
@@ -122,9 +144,9 @@ lib/utils.ts         # formatCurrency, cn
 |---|---|
 | Inventory burn-rate trendline | Projects stock-out date from sales velocity — no DB support yet |
 | Daily revenue vs target gauge | Need target_revenue in app_settings |
-| Wastage/spoilage tracking | No DB table yet |
 | Declined/low-balance alert log | Would need a new `failed_transactions` table or column |
 | Checkout discount display on client | Server applies account type discount correctly; client-side preview not yet computed |
+| Stripe / card reader integration | User still deciding between Stripe Terminal vs manual phone reader |
 
 ---
 
@@ -209,3 +231,20 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Fix: transactions page uses LEFT JOIN for bochurim so anonymous (walk-in) orders appear; default filter changed to "all"; label updated to "Walk-in / No account" |
 | 2026-07-09 | Fix: transactions page default status filter is now "all" so voided orders are visible by default and show the "Voided" badge |
 | 2026-07-09 | Fix: account type creation no longer fails — slug auto-generated from name + timestamp before insert |
+| 2026-07-09 | Fix: reports/page.tsx TS error — recharts LabelFormatter formatter typed as (v: any) |
+| 2026-07-09 | Feat: manual CC checkout enabled — shows "Charge $X on your reader" prompt; Complete Order button unblocked |
+| 2026-07-09 | Feat: reports COGS expanded — expense_entries + wastage_log included; 5-card strip (Gross/COGS/Expenses/Wastage/Net) |
+| 2026-07-09 | Feat: WastageModal — cashier logs waste from POS header button; looks up session internally |
+| 2026-07-09 | Feat: POS subscribes to cashier_notifications via Supabase Realtime → styled toast by type (info/warning/urgent) |
+| 2026-07-09 | Feat: cashier-dashboard page — today's orders, students served, top item, recent 10 orders (no revenue) |
+| 2026-07-09 | Infra: created product-images Supabase Storage bucket (public, 5MB limit, RLS policies) |
+| 2026-07-09 | Feat: timed ban on bochurim — preset durations + custom date; orange warning in POS; 403 at checkout |
+| 2026-07-09 | Feat: COGS page (/cogs) — wastage log + expense entry form; sidebar link |
+| 2026-07-09 | Feat: admin notifications page — compose info/warning/urgent messages; cashiers receive as POS toasts |
+| 2026-07-09 | Feat: refund requests — cashier submits from transactions page; admin approves/rejects + refunds balance |
+| 2026-07-09 | Feat: quick charge modal + top-up modal in POS header |
+| 2026-07-09 | Feat: category hierarchy in POS — top-level tabs + subcategory pills |
+| 2026-07-09 | Feat: product image upload (Supabase Storage) + shown in POS grid |
+| 2026-07-09 | Feat: printable menu page (/menu) — grouped by category, CSV export |
+| 2026-07-09 | Feat: account types moved to bochurim page tab (Students / Account Types) |
+| 2026-07-09 | Feat: negative balance allowed per student (allow_negative + max_negative_balance), enforced at checkout |
