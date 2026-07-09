@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { LogOut, Settings, ShoppingCart } from 'lucide-react'
+import { LogOut, Settings, ShoppingCart, Wallet } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import BochurSearch from '@/components/pos/BochurSearch'
@@ -13,6 +13,7 @@ import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
 import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
+import TopUpModal from '@/components/pos/TopUpModal'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
 
 export default function PosPage() {
@@ -38,6 +39,7 @@ export default function PosPage() {
   const [bundles, setBundles] = useState<ProductBundleWithItems[]>([])
   const [loading, setLoading] = useState(true)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
+  const [showTopUp, setShowTopUp] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -264,6 +266,14 @@ export default function PosPage() {
               {cashierName}
             </span>
           )}
+          <button
+            onClick={() => setShowTopUp(true)}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 min-h-[44px] rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all"
+            title="Top up an account"
+          >
+            <Wallet className="w-4 h-4" />
+            <span className="hidden sm:inline">Top Up</span>
+          </button>
           {cashierRole === 'admin' && (
             <button
               onClick={() => router.push('/dashboard')}
@@ -386,6 +396,13 @@ export default function PosPage() {
             setAddonProduct(null)
             setAddonVariant(undefined)
           }}
+        />
+      )}
+
+      {showTopUp && (
+        <TopUpModal
+          onClose={() => setShowTopUp(false)}
+          onSuccess={() => { if (loadedBochur) loadData() }}
         />
       )}
 
