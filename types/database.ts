@@ -32,6 +32,7 @@ export interface Product {
   stock_quantity: number | null
   low_stock_threshold: number
   icon: string | null
+  image_url: string | null
   has_variants: boolean
   is_active: boolean
   show_when_out_of_stock: boolean

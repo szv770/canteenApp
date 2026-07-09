@@ -37,13 +37,14 @@ export default function BochurSearch({ loadedBochur, onBochurLoaded, onClear }: 
 
   const search = useCallback((q: string) => {
     clearTimeout(debounceRef.current)
-    if (!q.trim()) { setResults([]); setOpen(false); return }
+    const trimmed = q.trim()
+    if (!trimmed) { setResults([]); setOpen(false); return }
     debounceRef.current = setTimeout(async () => {
       setLoading(true)
       const { data } = await supabase
         .from('bochurim_with_id')
         .select('*, account_type:account_types(*)')
-        .or(`name.ilike.%${q}%,bochur_id.ilike.%${q}%`)
+        .or(`name.ilike.%${trimmed}%,bochur_id.ilike.%${trimmed}%`)
         .eq('archived', false)
         .limit(6)
       setResults(data || [])

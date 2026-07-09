@@ -2,10 +2,18 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, X } from 'lucide-react'
+import { Plus, Search, X, TrendingDown } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, Supplier } from '@/types/database'
+
+type SlowMover = Product & { last_sale_date: string | null }
+
+function daysSince(dateStr: string | null): string {
+  if (!dateStr) return 'Never sold'
+  const days = Math.floor((Date.now() - new Date(dateStr).getTime()) / (1000 * 60 * 60 * 24))
+  return `${days}d ago`
+}
 
 export default function InventoryPage() {
   const supabase = createClient()
@@ -14,6 +22,10 @@ export default function InventoryPage() {
   const [search, setSearch] = useState('')
   const [loading, setLoading] = useState(true)
   const [restockProduct, setRestockProduct] = useState<Product | null>(null)
+  const [view, setView] = useState<'all' | 'slow'>('all')
+  const [slowMovers, setSlowMovers] = useState<SlowMover[]>([])
+  const [slowLoading, setSlowLoading] = useState(false)
+  const [slowLoaded, setSlowLoaded] = useState(false)
 
   useEffect(() => { loadData() }, [])
 
@@ -26,9 +38,93 @@ export default function InventoryPage() {
     setProducts(pRes.data || [])
     setSuppliers(sRes.data || [])
     setLoading(false)
+    setSlowLoaded(false) // reset slow cache when products reload
+  }
+
+  async function loadSlowMovers(allProducts: Product[]) {
+    setSlowLoading(true)
+    try {
+      const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+
+      // Step 1: get order IDs from last 30 days
+      const { data: recentOrders } = await supabase
+        .from('orders')
+        .select('id')
+        .gte('created_at', thirtyDaysAgo)
+
+      const recentOrderIds = (recentOrders || []).map((o: any) => o.id)
+
+      // Step 2: get product IDs sold in those orders
+      let soldProductIds = new Set<string>()
+      if (recentOrderIds.length > 0) {
+        const { data: recentItems } = await supabase
+          .from('order_items')
+          .select('product_id')
+          .in('order_id', recentOrderIds)
+        soldProductIds = new Set((recentItems || []).map((i: any) => i.product_id))
+      }
+
+      // Step 3: filter to stocked, active products not sold recently
+      const candidates = allProducts.filter(p =>
+        p.is_active &&
+        p.stock_quantity !== null &&
+        p.stock_quantity > 0 &&
+        !soldProductIds.has(p.id)
+      )
+
+      if (candidates.length === 0) {
+        setSlowMovers([])
+        setSlowLoaded(true)
+        return
+      }
+
+      // Step 4: get last sale date for each candidate
+      const { data: lastSaleItems } = await supabase
+        .from('order_items')
+        .select('product_id, orders!order_id(created_at)')
+        .in('product_id', candidates.map(p => p.id))
+
+      const lastSaleMap: Record<string, string> = {}
+      if (lastSaleItems) {
+        for (const item of lastSaleItems as any[]) {
+          const d = item.orders?.created_at
+          if (d && (!lastSaleMap[item.product_id] || d > lastSaleMap[item.product_id])) {
+            lastSaleMap[item.product_id] = d
+          }
+        }
+      }
+
+      const slow: SlowMover[] = candidates.map(p => ({
+        ...p,
+        last_sale_date: lastSaleMap[p.id] || null,
+      }))
+
+      // Sort: never sold first, then by last sale date ascending (oldest first)
+      slow.sort((a, b) => {
+        if (!a.last_sale_date && !b.last_sale_date) return 0
+        if (!a.last_sale_date) return -1
+        if (!b.last_sale_date) return 1
+        return a.last_sale_date < b.last_sale_date ? -1 : 1
+      })
+
+      setSlowMovers(slow)
+      setSlowLoaded(true)
+    } finally {
+      setSlowLoading(false)
+    }
+  }
+
+  function switchToSlow() {
+    setView('slow')
+    if (!slowLoaded) {
+      loadSlowMovers(products)
+    }
   }
 
   const filtered = products.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+  const filteredSlow = slowMovers.filter(p => p.name.toLowerCase().includes(search.toLowerCase()))
+
+  const slowTotalCost = slowMovers.reduce((sum, p) => sum + (p.stock_quantity ?? 0) * (p.cost_price ?? 0), 0)
 
   return (
     <div className="p-4 sm:p-6">
@@ -39,6 +135,49 @@ export default function InventoryPage() {
         </div>
       </div>
 
+      {/* View toggle */}
+      <div className="flex gap-2 mb-4">
+        <button
+          onClick={() => setView('all')}
+          className={`px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+            view === 'all'
+              ? 'bg-amber-500 text-white shadow-sm'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-amber-300'
+          }`}
+        >
+          All Stock
+        </button>
+        <button
+          onClick={switchToSlow}
+          className={`flex items-center gap-1.5 px-4 py-2 rounded-xl text-sm font-medium transition-all ${
+            view === 'slow'
+              ? 'bg-orange-500 text-white shadow-sm'
+              : 'bg-white text-gray-600 border border-gray-200 hover:border-orange-300'
+          }`}
+        >
+          <TrendingDown className="w-4 h-4" />
+          Slow Movers
+        </button>
+      </div>
+
+      {/* Slow movers summary banner */}
+      {view === 'slow' && !slowLoading && slowLoaded && (
+        <div className={`mb-4 p-4 rounded-xl border ${
+          slowMovers.length === 0
+            ? 'bg-green-50 border-green-200 text-green-700'
+            : 'bg-orange-50 border-orange-200 text-orange-800'
+        }`}>
+          {slowMovers.length === 0 ? (
+            <p className="text-sm font-medium">No slow movers — all stocked products have sold in the last 30 days.</p>
+          ) : (
+            <p className="text-sm font-medium">
+              {slowMovers.length} product{slowMovers.length !== 1 ? 's' : ''} stocked but not selling
+              {slowTotalCost > 0 && <> — <span className="font-bold">{formatCurrency(slowTotalCost)}</span> tied up in stock</>}
+            </p>
+          )}
+        </div>
+      )}
+
       <div className="relative mb-4">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-gray-400" />
         <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search products..." className="input-admin pl-9" />
@@ -46,43 +185,109 @@ export default function InventoryPage() {
 
       <div className="admin-card overflow-hidden">
         <div className="overflow-x-auto">
-        <table className="w-full min-w-[400px]">
-          <thead>
-            <tr className="border-b border-gray-100 bg-gray-50/50">
-              <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Product</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Stock</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Alert At</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Cost</th>
-              <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
-            </tr>
-          </thead>
-          <tbody>
-            {loading ? (
-              <tr><td colSpan={5} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
-            ) : filtered.map(p => (
-              <tr key={p.id} className="table-row">
-                <td className="px-5 py-3">
-                  <div className="flex items-center gap-2">
-                    <span className="text-xl">{p.icon || '📦'}</span>
-                    <span className="text-sm font-medium text-gray-900">{p.name}</span>
-                  </div>
-                </td>
-                <td className="px-5 py-3 text-right">
-                  <span className={`badge font-semibold ${p.stock_quantity == null ? 'bg-gray-100 text-gray-500' : p.stock_quantity <= 0 ? 'bg-red-100 text-red-600' : p.stock_quantity <= p.low_stock_threshold ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
-                    {p.stock_quantity ?? '∞'}
-                  </span>
-                </td>
-                <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{p.low_stock_threshold}</td>
-                <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{formatCurrency(p.cost_price)}</td>
-                <td className="px-5 py-3 text-right">
-                  <button onClick={() => setRestockProduct(p)} className="btn-secondary text-xs py-1.5 px-3">
-                    <Plus className="w-3.5 h-3.5" /> Restock
-                  </button>
-                </td>
+
+        {/* ALL STOCK view */}
+        {view === 'all' && (
+          <table className="w-full min-w-[400px]">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Product</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Stock</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Alert At</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Cost</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
               </tr>
-            ))}
-          </tbody>
-        </table>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={5} className="px-5 py-12 text-center text-gray-400">Loading...</td></tr>
+              ) : filtered.length === 0 ? (
+                <tr><td colSpan={5} className="px-5 py-12 text-center text-gray-400">No products found</td></tr>
+              ) : filtered.map(p => (
+                <tr key={p.id} className="table-row">
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      {p.image_url ? (
+                        <img src={p.image_url} alt={p.name} className="w-8 h-8 object-cover rounded-lg shrink-0" />
+                      ) : (
+                        <span className="text-xl">{p.icon || '📦'}</span>
+                      )}
+                      <span className="text-sm font-medium text-gray-900">{p.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <span className={`badge font-semibold ${p.stock_quantity == null ? 'bg-gray-100 text-gray-500' : p.stock_quantity <= 0 ? 'bg-red-100 text-red-600' : p.stock_quantity <= p.low_stock_threshold ? 'bg-amber-100 text-amber-600' : 'bg-green-100 text-green-600'}`}>
+                      {p.stock_quantity ?? '∞'}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{p.low_stock_threshold}</td>
+                  <td className="px-5 py-3 text-sm text-gray-500 text-right hidden sm:table-cell">{formatCurrency(p.cost_price)}</td>
+                  <td className="px-5 py-3 text-right">
+                    <button onClick={() => setRestockProduct(p)} className="btn-secondary text-xs py-1.5 px-3">
+                      <Plus className="w-3.5 h-3.5" /> Restock
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
+        {/* SLOW MOVERS view */}
+        {view === 'slow' && (
+          <table className="w-full min-w-[500px]">
+            <thead>
+              <tr className="border-b border-gray-100 bg-gray-50/50">
+                <th className="text-left text-xs font-medium text-gray-400 px-5 py-3">Product</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Stock</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Last Sale</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3 hidden sm:table-cell">Cost Value</th>
+                <th className="text-right text-xs font-medium text-gray-400 px-5 py-3">Actions</th>
+              </tr>
+            </thead>
+            <tbody>
+              {slowLoading ? (
+                <tr><td colSpan={5} className="px-5 py-12 text-center text-gray-400">Analyzing sales...</td></tr>
+              ) : filteredSlow.length === 0 && slowLoaded ? (
+                <tr><td colSpan={5} className="px-5 py-12 text-center text-gray-400">No slow movers found</td></tr>
+              ) : filteredSlow.map(p => (
+                <tr key={p.id} className="table-row">
+                  <td className="px-5 py-3">
+                    <div className="flex items-center gap-2">
+                      {p.image_url ? (
+                        <img src={p.image_url} alt={p.name} className="w-8 h-8 object-cover rounded-lg shrink-0" />
+                      ) : (
+                        <span className="text-xl">{p.icon || '📦'}</span>
+                      )}
+                      <span className="text-sm font-medium text-gray-900">{p.name}</span>
+                    </div>
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <span className="badge bg-amber-100 text-amber-700 font-semibold">
+                      {p.stock_quantity}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-right hidden sm:table-cell">
+                    <span className={`text-sm font-medium ${
+                      !p.last_sale_date ? 'text-red-500' : 'text-gray-500'
+                    }`}>
+                      {daysSince(p.last_sale_date)}
+                    </span>
+                  </td>
+                  <td className="px-5 py-3 text-sm text-gray-700 font-medium text-right hidden sm:table-cell">
+                    {formatCurrency((p.stock_quantity ?? 0) * (p.cost_price ?? 0))}
+                  </td>
+                  <td className="px-5 py-3 text-right">
+                    <button onClick={() => setRestockProduct(p)} className="btn-secondary text-xs py-1.5 px-3">
+                      <Plus className="w-3.5 h-3.5" /> Restock
+                    </button>
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        )}
+
         </div>
       </div>
 
