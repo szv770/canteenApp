@@ -130,7 +130,7 @@ lib/utils.ts         # formatCurrency, cn
 | Quick charge | `components/pos/QuickChargeModal.tsx` | Fast balance charge without full checkout |
 | Admin notifications → cashiers | `app/(admin)/notifications/page.tsx`, POS realtime | Admin composes; POS receives as styled toasts via Supabase Realtime |
 | Refund requests | `app/(admin)/refund-requests/page.tsx`, transactions page | Cashier files from transactions; admin approves/rejects + triggers refund |
-| Cashier dashboard | `app/cashier-dashboard/page.tsx` | Orders/students/top item today + recent orders; no revenue shown |
+| Cashier dashboard | `app/cashier-dashboard/page.tsx` | Orders/students/top item today + recent orders (all cashiers, shared view); tap a row to expand item names; shows "rung by [cashier]"; no revenue/$ shown |
 | Category hierarchy (POS) | `components/pos/CategoryTabs.tsx` | Top-level tabs + subcategory pills; filter cascades |
 | Product image upload | `app/(admin)/products/page.tsx` | Upload to `product-images` Storage bucket; shown in POS grid |
 | Printable menu | `app/(admin)/menu/page.tsx` | Grouped by category; CSV export; cashier-accessible |
@@ -190,6 +190,8 @@ lib/utils.ts         # formatCurrency, cn
 9. **account_types.is_active** — column was missing from initial schema; added via Supabase migration 2026-07-07. If getting "column not found in schema cache" errors on account_types, check this column exists.
 
 10. **Public home page data must go through `lib/home.ts` (service-role, tightly-scoped selects)** — `cashier_notifications` and `order_items`/`orders` have no anon RLS SELECT policy on purpose (they contain internal/customer data). The home page and `/api/home/top-sellers` never query them with the anon client; they use `createAdminClient()` in `lib/home.ts` and select only the specific columns needed (e.g. `id, message, type` for announcements; product `name, icon` only for top sellers — never prices, costs, quantities, or order/customer fields). Do not widen these selects without re-checking what becomes publicly visible.
+
+11. **`supabase/rls-policies.sql` is stale — don't trust it for the actual deployed policy.** Live policies (checked via Supabase MCP `execute_sql` against `pg_policies`) are simpler than the file: `orders`, `order_items`, and `cashier_profiles` all use a single permissive `auth_all` policy (`auth.role() = 'authenticated'`) — any authenticated cashier can read/write all rows, not just their own. This is why cross-cashier joins (e.g. cashier-dashboard showing "rung by [other cashier]") work without extra policy changes. When in doubt about what's really enforced, query `pg_policies` directly instead of reading the checked-in file.
 
 ---
 
@@ -269,3 +271,5 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Feat: checkout discount preview — account type discount shown as line item with estimated amount |
 | 2026-07-09 | Feat: home page redesign — Cash App payment method, online credit card top-up with no-refund warning modal, general payment-notes reminder banner ("CANTEEN - camper name"), Popular Items section (manual or safe DB-aggregated), Nine Days blurb + flyer upload, dismissible admin-posted home page announcement banner, hero text-wrap/spacing cleanup |
 | 2026-07-09 | Infra: added `cashier_notifications.show_on_home_page` column; extended `balance_topups.method` check constraint with `cashapp`/`credit_card`; created `site-assets` Storage bucket (public, 10MB, image/PDF) with RLS |
+| 2026-07-09 | Feat: cashier dashboard "Recent Orders" — tap to expand and see actual item names bought (not just a count); now shows which cashier rang up each order since all cashiers share this view; still no prices/$ shown |
+| 2026-07-09 | Fix: CC top-up warning modal now explicitly tells parents the payment link opens in a new tab and to come back to submit the request — the app already opens Stripe/CC links via `window.open(..., '_blank')` rather than a same-tab redirect, so no dependency on Stripe redirecting back into the site |
