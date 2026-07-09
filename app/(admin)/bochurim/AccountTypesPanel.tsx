@@ -37,7 +37,7 @@ function discountBadge(t: AccountType) {
   }
 }
 
-export default function AccountTypesPage() {
+export default function AccountTypesPanel() {
   const supabase = createClient()
   const [types, setTypes] = useState<AccountType[]>([])
   const [categories, setCategories] = useState<Category[]>([])
@@ -83,11 +83,10 @@ export default function AccountTypesPage() {
   const catName = (id: string) => categories.find(c => c.id === id)?.name || 'Unknown'
 
   return (
-    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
+    <div>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Account Types</h1>
-          <p className="text-slate-500 text-sm mt-1">
+          <p className="text-slate-500 text-sm">
             Control what discount each group of bochurim gets at the register
           </p>
         </div>
@@ -263,10 +262,8 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
     }
 
     setSaving(true)
-    const trimmedName = name.trim()
-    const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now()
     const payload = {
-      name: trimmedName,
+      name: name.trim(),
       color,
       discount_type: discountType,
       discount_value: discountType === 'none' ? 0 : (isNaN(parsedValue) ? 0 : parsedValue),
@@ -279,7 +276,7 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
 
     const { error } = isEdit
       ? await supabase.from('account_types').update(payload).eq('id', accountType!.id)
-      : await supabase.from('account_types').insert({ ...payload, slug })
+      : await supabase.from('account_types').insert(payload)
 
     if (error) { toast.error(error.message); setSaving(false); return }
     toast.success(isEdit ? 'Account type updated' : 'Account type created')

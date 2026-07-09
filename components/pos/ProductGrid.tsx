@@ -63,6 +63,8 @@ function ProductCard({ product, variantsMap, outOfStockBehavior, onTap }: {
 
   if (isHidden) return null
 
+  const hasVisual = !!(product.image_url || product.icon)
+
   return (
     <button
       onClick={() => !isBlocked && onTap(product)}
@@ -97,13 +99,21 @@ function ProductCard({ product, variantsMap, outOfStockBehavior, onTap }: {
         </div>
       )}
 
-      {product.icon && (
-        <div className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center mb-1.5 shrink-0">
-          <span className="text-2xl sm:text-3xl leading-none select-none">{product.icon}</span>
+      {hasVisual && (
+        <div className="w-10 h-10 sm:w-11 sm:h-11 flex items-center justify-center mb-1.5 shrink-0 overflow-hidden">
+          {product.image_url ? (
+            <img
+              src={product.image_url}
+              alt={product.name}
+              className="w-10 h-10 sm:w-11 sm:h-11 object-cover rounded-lg"
+            />
+          ) : (
+            <span className="text-2xl sm:text-3xl leading-none select-none">{product.icon}</span>
+          )}
         </div>
       )}
 
-      <p className={`text-xs sm:text-[13px] font-semibold text-slate-800 text-center line-clamp-3 leading-snug w-full ${product.icon ? '' : 'mt-2'}`}>
+      <p className={`text-xs sm:text-[13px] font-semibold text-slate-800 text-center line-clamp-3 leading-snug w-full ${hasVisual ? '' : 'mt-2'}`}>
         {product.name}
       </p>
 

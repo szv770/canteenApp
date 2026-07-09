@@ -1,14 +1,14 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2, ChevronDown, ChevronUp, Check } from 'lucide-react'
+import { Plus, Search, Edit2, X, ToggleLeft, ToggleRight, Trash2, ChevronDown, ChevronUp, Check, Upload } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, Category, ProductVariant, ProductAddon } from '@/types/database'
 import TableSkeleton from '@/components/admin/TableSkeleton'
 
-const EMOJIS = ['🍕','🌮','🌯','🥗','🍔','🍟','🍦','🧁','🍰','🍩','🍪','🥤','☕','🧃','🍫','🍬','🍭','🧇','🥞','🌽','🍿','🧀','🥨','🫐','🍓','🍎','🍌','🍉','🍑','🍒']
+const EMOJIS = ['🍕','🌮','🌯','🥗','🍔','🍟','🍦','🧡','🍰','🍩','🍪','🥤','☕','🧣','🍫','🍬','🍭','🧇','🥞','🌽','🍿','🧀','🥨','🪰','🍓','🍎','🍌','🍉','🍑','🍒']
 const CAT_COLORS = ['#EF4444','#F97316','#F59E0B','#10B981','#06B6D4','#3B82F6','#8B5CF6','#EC4899','#6B7280','#1E293B']
 
 export default function ProductsPage() {
@@ -223,7 +223,11 @@ export default function ProductsPage() {
               <tr key={p.id} className="table-row">
                 <td className="px-5 py-3">
                   <div className="flex items-center gap-2">
-                    <span className="text-xl">{p.icon || '📦'}</span>
+                    {p.image_url ? (
+                      <img src={p.image_url} alt={p.name} className="w-8 h-8 object-cover rounded-lg shrink-0" />
+                    ) : (
+                      <span className="text-xl">{p.icon || '📦'}</span>
+                    )}
                     <div>
                       <div className="flex items-center gap-1.5">
                         <p className="text-sm font-semibold text-slate-900">{p.name}</p>
@@ -245,7 +249,7 @@ export default function ProductsPage() {
                             {name}
                           </span>
                         ))
-                      : <span className="text-xs text-slate-300">—</span>
+                      : <span className="text-xs text-slate-300">&mdash;</span>
                     }
                   </div>
                 </td>
@@ -253,7 +257,7 @@ export default function ProductsPage() {
                 <td className="px-3 sm:px-5 py-3 text-sm text-slate-500 text-right hidden sm:table-cell">{formatCurrency(p.cost_price)}</td>
                 <td className="px-5 py-3 text-right">
                   {p.stock_quantity === null ? (
-                    <span className="badge bg-slate-50 text-slate-400 border border-slate-100">∞</span>
+                    <span className="badge bg-slate-50 text-slate-400 border border-slate-100">&infin;</span>
                   ) : (
                     <span className={`badge ${p.stock_quantity <= 0 ? 'bg-red-50 text-red-600 border border-red-100' : p.stock_quantity <= p.low_stock_threshold ? 'bg-amber-50 text-amber-600 border border-amber-100' : 'bg-emerald-50 text-emerald-600 border border-emerald-100'}`}>
                       {p.stock_quantity}
@@ -346,6 +350,9 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     sale_label: product?.sale_label || '',
     sale_ends_at: product?.sale_ends_at ? product.sale_ends_at.slice(0, 16) : '',
   })
+  const [imageUrl, setImageUrl] = useState<string>(product?.image_url || '')
+  const [imageUploading, setImageUploading] = useState(false)
+  const fileInputRef = useRef<HTMLInputElement>(null)
   const [selectedCategoryIds, setSelectedCategoryIds] = useState<string[]>(initialCategoryIds)
   const [variants, setVariants] = useState<VariantDraft[]>([])
   const [variantsLoading, setVariantsLoading] = useState(false)
@@ -410,6 +417,30 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     }
   }, [])
 
+  async function handleImageUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setImageUploading(true)
+    try {
+      const ext = file.name.split('.').pop() || 'jpg'
+      const filename = `${Date.now()}-${Math.random().toString(36).slice(2)}.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from('product-images')
+        .upload(filename, file, { upsert: true })
+      if (uploadError) {
+        toast.error(`Upload failed: ${uploadError.message}`)
+        return
+      }
+      const { data: urlData } = supabase.storage.from('product-images').getPublicUrl(filename)
+      setImageUrl(urlData.publicUrl)
+      toast.success('Image uploaded')
+    } finally {
+      setImageUploading(false)
+      // reset input so same file can be re-selected if needed
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
   function handleHasAddonsChange(checked: boolean) {
     setHasAddons(checked)
     if (checked && addons.length === 0) {
@@ -473,6 +504,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
       stock_quantity: form.stock_quantity !== '' ? parseInt(form.stock_quantity) || 0 : null,
       low_stock_threshold: form.low_stock_threshold,
       icon: form.icon,
+      image_url: imageUrl || null,
       has_variants: form.has_variants,
       show_when_out_of_stock: form.show_when_out_of_stock,
       is_active: form.is_active,
@@ -598,6 +630,45 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
                 ))}
               </div>
             </details>
+          </div>
+
+          {/* Product Image upload */}
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-2">Product Image <span className="text-slate-400 font-normal">(optional — overrides emoji icon in POS)</span></label>
+            <div className="flex items-center gap-3">
+              {imageUrl ? (
+                <img src={imageUrl} alt="Product" className="w-12 h-12 object-cover rounded-xl border border-slate-200 shrink-0" />
+              ) : (
+                <div className="w-12 h-12 bg-slate-100 rounded-xl flex items-center justify-center shrink-0">
+                  <span className="text-slate-300 text-xs text-center leading-tight">No img</span>
+                </div>
+              )}
+              <input
+                ref={fileInputRef}
+                type="file"
+                accept="image/*"
+                className="hidden"
+                onChange={handleImageUpload}
+              />
+              <button
+                type="button"
+                onClick={() => fileInputRef.current?.click()}
+                disabled={imageUploading}
+                className="btn-secondary text-sm flex items-center gap-1.5"
+              >
+                <Upload className="w-3.5 h-3.5" />
+                {imageUploading ? 'Uploading...' : imageUrl ? 'Replace' : 'Upload Image'}
+              </button>
+              {imageUrl && (
+                <button
+                  type="button"
+                  onClick={() => setImageUrl('')}
+                  className="text-sm text-red-500 hover:text-red-600 font-medium"
+                >
+                  Remove
+                </button>
+              )}
+            </div>
           </div>
 
           <div>

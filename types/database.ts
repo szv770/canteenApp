@@ -32,6 +32,7 @@ export interface Product {
   stock_quantity: number | null
   low_stock_threshold: number
   icon: string | null
+  image_url: string | null
   has_variants: boolean
   is_active: boolean
   show_when_out_of_stock: boolean
@@ -97,6 +98,8 @@ export interface Bochur {
   archived: boolean
   is_frozen: boolean
   freeze_reason: string | null
+  banned_until: string | null
+  ban_reason: string | null
   created_at: string
   updated_at: string
 }

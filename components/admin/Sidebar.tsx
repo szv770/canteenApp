@@ -1,24 +1,28 @@
 'use client'
 
 import { usePathname, useRouter } from 'next/navigation'
-import { useState } from 'react'
+import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, Users, Package, Tag, Warehouse,
-  Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift, Percent
+  Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift,
+  RotateCcw, BookOpen, TrendingDown, Bell
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
   { href: '/bochurim', icon: Users, label: 'Bochurim' },
-  { href: '/account-types', icon: Percent, label: 'Account Types' },
   { href: '/products', icon: Package, label: 'Products' },
   { href: '/bundles', icon: Gift, label: 'Bundles' },
   { href: '/categories', icon: Tag, label: 'Categories' },
   { href: '/inventory', icon: Warehouse, label: 'Inventory' },
   { href: '/transactions', icon: Receipt, label: 'Transactions' },
+  { href: '/refund-requests', icon: RotateCcw, label: 'Refund Requests' },
   { href: '/reports', icon: BarChart2, label: 'Reports' },
+  { href: '/menu', icon: BookOpen, label: 'Menu' },
+  { href: '/cogs', icon: TrendingDown, label: 'COGS' },
+  { href: '/notifications', icon: Bell, label: 'Notifications' },
   { href: '/topups', icon: CreditCard, label: 'Top-ups' },
   { href: '/cashiers', icon: UserCog, label: 'Cashiers' },
   { href: '/settings', icon: Settings, label: 'Settings' },
@@ -29,6 +33,24 @@ export default function AdminSidebar() {
   const router = useRouter()
   const supabase = createClient()
   const [mobileOpen, setMobileOpen] = useState(false)
+  const [pendingRefunds, setPendingRefunds] = useState(0)
+
+  useEffect(() => {
+    let active = true
+    async function loadCount() {
+      const { count } = await supabase
+        .from('refund_requests')
+        .select('id', { count: 'exact', head: true })
+        .eq('status', 'pending')
+      if (active) setPendingRefunds(count || 0)
+    }
+    loadCount()
+    const channel = supabase
+      .channel('sidebar_refund_requests')
+      .on('postgres_changes', { event: '*', schema: 'public', table: 'refund_requests' }, loadCount)
+      .subscribe()
+    return () => { active = false; supabase.removeChannel(channel) }
+  }, [pathname])
 
   async function signOut() {
     await supabase.auth.signOut()
@@ -80,6 +102,11 @@ export default function AdminSidebar() {
             >
               <item.icon className={cn('w-4 h-4 shrink-0', active ? 'text-amber-400' : '')} />
               <span className={active ? 'text-white font-semibold' : ''}>{item.label}</span>
+              {item.href === '/refund-requests' && pendingRefunds > 0 && (
+                <span className="ml-auto min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full">
+                  {pendingRefunds > 9 ? '9+' : pendingRefunds}
+                </span>
+              )}
             </button>
           )
         })}

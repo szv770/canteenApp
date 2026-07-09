@@ -1,0 +1,357 @@
+'use client'
+
+import { useEffect, useState } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { formatCurrency } from '@/lib/utils'
+import { Plus, AlertTriangle, DollarSign } from 'lucide-react'
+import toast from 'react-hot-toast'
+
+interface WastageEntry {
+  id: string
+  product_id: string | null
+  product_name: string
+  quantity: number
+  reason: string
+  unit_cost: number
+  unit_price: number
+  notes: string | null
+  cashier_id: string | null
+  created_at: string
+  cashier_profiles?: { name: string } | null
+}
+
+interface ExpenseEntry {
+  id: string
+  amount: number
+  description: string
+  expense_type: 'equipment' | 'tax' | 'supply' | 'other'
+  entered_by: string | null
+  date: string
+  notes: string | null
+  created_at: string
+}
+
+const TYPE_BADGE: Record<string, string> = {
+  equipment: 'bg-blue-50 text-blue-700 border-blue-200',
+  tax: 'bg-red-50 text-red-700 border-red-200',
+  supply: 'bg-green-50 text-green-700 border-green-200',
+  other: 'bg-slate-50 text-slate-600 border-slate-200',
+}
+
+export default function CogsPage() {
+  const supabase = createClient()
+  const [tab, setTab] = useState<'wastage' | 'expenses'>('wastage')
+  const [wastage, setWastage] = useState<WastageEntry[]>([])
+  const [expenses, setExpenses] = useState<ExpenseEntry[]>([])
+  const [loading, setLoading] = useState(true)
+
+  // Expense form
+  const [amount, setAmount] = useState('')
+  const [description, setDescription] = useState('')
+  const [expenseType, setExpenseType] = useState<'equipment' | 'tax' | 'supply' | 'other'>('supply')
+  const [date, setDate] = useState(new Date().toISOString().split('T')[0])
+  const [notes, setNotes] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => { loadData() }, [])
+
+  async function loadData() {
+    setLoading(true)
+    const [wRes, eRes] = await Promise.all([
+      supabase
+        .from('wastage_log')
+        .select('*, cashier_profiles!cashier_id(name)')
+        .order('created_at', { ascending: false })
+        .limit(300),
+      supabase
+        .from('expense_entries')
+        .select('*')
+        .order('date', { ascending: false })
+        .limit(300),
+    ])
+    if (wRes.error) toast.error(wRes.error.message)
+    if (eRes.error) toast.error(eRes.error.message)
+    setWastage(wRes.data || [])
+    setExpenses(eRes.data || [])
+    setLoading(false)
+  }
+
+  // Month boundaries
+  const now = new Date()
+  const monthStart = new Date(now.getFullYear(), now.getMonth(), 1).toISOString()
+  const monthStartDate = monthStart.split('T')[0]
+
+  const wastageThisMonth = wastage.filter(w => w.created_at >= monthStart)
+  const wastageTotal = wastageThisMonth.reduce((sum, w) => sum + w.unit_cost * w.quantity, 0)
+
+  const expensesThisMonth = expenses.filter(e => e.date >= monthStartDate)
+  const expensesTotal = expensesThisMonth.reduce((sum, e) => sum + e.amount, 0)
+
+  async function handleAddExpense(e: React.FormEvent) {
+    e.preventDefault()
+    if (!amount || !description.trim()) return
+    setSubmitting(true)
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('expense_entries').insert({
+      amount: parseFloat(amount),
+      description: description.trim(),
+      expense_type: expenseType,
+      date,
+      notes: notes.trim() || null,
+      entered_by: user?.id || null,
+    })
+    if (error) { toast.error(error.message); setSubmitting(false); return }
+    toast.success('Expense added')
+    setAmount('')
+    setDescription('')
+    setNotes('')
+    setSubmitting(false)
+    loadData()
+  }
+
+  return (
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto">
+      <div className="mb-6">
+        <h1 className="text-2xl font-bold text-slate-900">COGS &amp; Expenses</h1>
+        <p className="text-slate-500 text-sm mt-1">Track wastage, spoilage, and operational expenses</p>
+      </div>
+
+      {/* Tab bar */}
+      <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mb-6">
+        {(['wastage', 'expenses'] as const).map(t => (
+          <button
+            key={t}
+            onClick={() => setTab(t)}
+            className={`px-5 py-2 rounded-lg text-sm font-semibold transition-all ${
+              tab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {t === 'wastage' ? 'Wastage Log' : 'Expenses'}
+          </button>
+        ))}
+      </div>
+
+      {/* ── WASTAGE TAB ── */}
+      {tab === 'wastage' && (
+        <div className="space-y-4">
+          {/* Summary */}
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 flex items-center gap-4 shadow-sm">
+            <div className="w-10 h-10 bg-red-50 rounded-xl flex items-center justify-center shrink-0">
+              <AlertTriangle className="w-5 h-5 text-red-500" />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500">Wastage Cost — This Month</p>
+              <p className="text-2xl font-bold text-red-600">{formatCurrency(wastageTotal)}</p>
+            </div>
+            <div className="ml-auto text-right">
+              <p className="text-sm text-slate-500">Entries this month</p>
+              <p className="text-xl font-bold text-slate-700">{wastageThisMonth.length}</p>
+            </div>
+          </div>
+
+          {/* Table */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Cashier</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Product</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600">Qty</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600">Unit Cost</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600">Total Loss</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Reason</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <tr key={i}>
+                        {Array.from({ length: 7 }).map((_, j) => (
+                          <td key={j} className="px-4 py-3">
+                            <div className="h-4 bg-slate-100 rounded animate-pulse" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : wastage.length === 0 ? (
+                    <tr>
+                      <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
+                        No wastage entries yet. Use the POS “Log Waste” button to record spoilage.
+                      </td>
+                    </tr>
+                  ) : wastage.map(w => (
+                    <tr key={w.id} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                        {new Date(w.created_at).toLocaleDateString()}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">
+                        {(w.cashier_profiles as any)?.name || <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-4 py-3 font-medium text-slate-800">{w.product_name}</td>
+                      <td className="px-4 py-3 text-right text-slate-700">{w.quantity}</td>
+                      <td className="px-4 py-3 text-right text-slate-600">{formatCurrency(w.unit_cost)}</td>
+                      <td className="px-4 py-3 text-right font-semibold text-red-600">
+                        {formatCurrency(w.unit_cost * w.quantity)}
+                      </td>
+                      <td className="px-4 py-3 text-slate-600">{w.reason}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* ── EXPENSES TAB ── */}
+      {tab === 'expenses' && (
+        <div className="space-y-6">
+          {/* Summary */}
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 flex items-center gap-4 shadow-sm">
+            <div className="w-10 h-10 bg-violet-50 rounded-xl flex items-center justify-center shrink-0">
+              <DollarSign className="w-5 h-5 text-violet-500" />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500">Expenses — This Month</p>
+              <p className="text-2xl font-bold text-violet-700">{formatCurrency(expensesTotal)}</p>
+            </div>
+            <div className="ml-auto text-right">
+              <p className="text-sm text-slate-500">Entries this month</p>
+              <p className="text-xl font-bold text-slate-700">{expensesThisMonth.length}</p>
+            </div>
+          </div>
+
+          {/* Add form */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5">
+            <h2 className="font-bold text-slate-900 mb-4 flex items-center gap-2 text-base">
+              <Plus className="w-4 h-4" /> Add Expense
+            </h2>
+            <form onSubmit={handleAddExpense} className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Amount ($) *</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  min="0.01"
+                  required
+                  value={amount}
+                  onChange={e => setAmount(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Type *</label>
+                <select
+                  value={expenseType}
+                  onChange={e => setExpenseType(e.target.value as typeof expenseType)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+                >
+                  <option value="equipment">Equipment</option>
+                  <option value="tax">Tax</option>
+                  <option value="supply">Supply</option>
+                  <option value="other">Other</option>
+                </select>
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Description *</label>
+                <input
+                  type="text"
+                  required
+                  value={description}
+                  onChange={e => setDescription(e.target.value)}
+                  placeholder="e.g. Paper bags, fridge repair..."
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Date *</label>
+                <input
+                  type="date"
+                  required
+                  value={date}
+                  onChange={e => setDate(e.target.value)}
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Notes</label>
+                <input
+                  type="text"
+                  value={notes}
+                  onChange={e => setNotes(e.target.value)}
+                  placeholder="Optional notes..."
+                  className="w-full px-3.5 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+                />
+              </div>
+              <div className="sm:col-span-2">
+                <button
+                  type="submit"
+                  disabled={submitting}
+                  className="px-6 py-2.5 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold rounded-xl text-sm transition-colors"
+                >
+                  {submitting ? 'Adding...' : 'Add Expense'}
+                </button>
+              </div>
+            </form>
+          </div>
+
+          {/* Expenses table */}
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Type</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Description</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600">Amount</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {loading ? (
+                    Array.from({ length: 4 }).map((_, i) => (
+                      <tr key={i}>
+                        {Array.from({ length: 4 }).map((_, j) => (
+                          <td key={j} className="px-4 py-3">
+                            <div className="h-4 bg-slate-100 rounded animate-pulse" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : expenses.length === 0 ? (
+                    <tr>
+                      <td colSpan={4} className="px-4 py-12 text-center text-slate-400">
+                        No expenses logged yet.
+                      </td>
+                    </tr>
+                  ) : expenses.map(e => (
+                    <tr key={e.id} className="hover:bg-slate-50/50">
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{e.date}</td>
+                      <td className="px-4 py-3">
+                        <span className={`px-2 py-0.5 rounded-lg text-xs font-semibold border capitalize ${
+                          TYPE_BADGE[e.expense_type] || TYPE_BADGE.other
+                        }`}>
+                          {e.expense_type}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-slate-800">
+                        {e.description}
+                        {e.notes && <span className="text-slate-400 text-xs ml-2">{e.notes}</span>}
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-700">
+                        {formatCurrency(e.amount)}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+    </div>
+  )
+}

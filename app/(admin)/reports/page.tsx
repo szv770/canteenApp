@@ -10,7 +10,7 @@ import {
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
-type DateRange = 'today' | 'this_week' | 'this_month' | 'last_30'
+type DateRange = 'today' | 'this_week' | 'this_month' | 'last_30' | 'custom'
 
 interface HourlyData {
   hour: number
@@ -82,9 +82,25 @@ interface BochurCredit {
   seenRecently: boolean
 }
 
+interface DailyAvgOrder {
+  date: string
+  avg: number
+  count: number
+}
+
+interface AccountTypeRevData {
+  name: string
+  revenue: number
+}
+
+interface VisitFreqData {
+  bucket: string
+  count: number
+}
+
 // ─── Helpers ─────────────────────────────────────────────────────────────────
 
-function getDateRange(range: DateRange): { from: Date; to: Date } {
+function getDateRangeForPreset(range: Exclude<DateRange, 'custom'>): { from: Date; to: Date } {
   const now = new Date()
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
   const to = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate() + 1))
@@ -106,6 +122,17 @@ function getDateRange(range: DateRange): { from: Date; to: Date } {
   const from = new Date(today)
   from.setUTCDate(from.getUTCDate() - 30)
   return { from, to }
+}
+
+function todayStr() {
+  const now = new Date()
+  return `${now.getFullYear()}-${String(now.getMonth() + 1).padStart(2, '0')}-${String(now.getDate()).padStart(2, '0')}`
+}
+
+function daysAgoStr(days: number) {
+  const d = new Date()
+  d.setDate(d.getDate() - days)
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
 const HOUR_LABELS = Array.from({ length: 24 }, (_, i) => {
@@ -174,7 +201,7 @@ function CurrencyTooltip({ active, payload, label }: any) {
       <p className="font-semibold text-slate-700 mb-1">{label}</p>
       {payload.map((entry: any) => (
         <p key={entry.dataKey} style={{ color: entry.color }}>
-          {entry.name}: {entry.name?.toLowerCase().includes('revenue') || entry.name?.toLowerCase().includes('gross') || entry.name?.toLowerCase().includes('net') || entry.name?.toLowerCase().includes('cogs')
+          {entry.name}: {entry.name?.toLowerCase().includes('revenue') || entry.name?.toLowerCase().includes('gross') || entry.name?.toLowerCase().includes('net') || entry.name?.toLowerCase().includes('cogs') || entry.name?.toLowerCase().includes('avg')
             ? formatCurrency(entry.value)
             : entry.value}
         </p>
@@ -188,7 +215,10 @@ function CurrencyTooltip({ active, payload, label }: any) {
 export default function ReportsPage() {
   const supabase = createClient()
   const [range, setRange] = useState<DateRange>('last_30')
+  const [customFrom, setCustomFrom] = useState<string>(daysAgoStr(30))
+  const [customTo, setCustomTo] = useState<string>(todayStr())
   const [loading, setLoading] = useState(true)
+  const [exporting, setExporting] = useState(false)
 
   const [hourly, setHourly] = useState<HourlyData[]>([])
   const [topProducts, setTopProducts] = useState<TopProduct[]>([])
@@ -202,12 +232,26 @@ export default function ReportsPage() {
   const [bottomSellers, setBottomSellers] = useState<TopProduct[]>([])
   const [pairs, setPairs] = useState<ProductPair[]>([])
   const [credits, setCredits] = useState<BochurCredit[]>([])
+  const [dailyAvgOrder, setDailyAvgOrder] = useState<DailyAvgOrder[]>([])
+  const [accountTypeRevenue, setAccountTypeRevenue] = useState<AccountTypeRevData[]>([])
+  const [visitFrequency, setVisitFrequency] = useState<VisitFreqData[]>([])
+
+  function resolveRange(): { fromISO: string; toISO: string } {
+    if (range === 'custom') {
+      const from = customFrom || daysAgoStr(30)
+      const to = customTo || todayStr()
+      return {
+        fromISO: from + 'T00:00:00.000Z',
+        toISO: to + 'T23:59:59.999Z',
+      }
+    }
+    const { from, to } = getDateRangeForPreset(range as Exclude<DateRange, 'custom'>)
+    return { fromISO: from.toISOString(), toISO: to.toISOString() }
+  }
 
   const fetchData = useCallback(async () => {
     setLoading(true)
-    const { from, to } = getDateRange(range)
-    const fromISO = from.toISOString()
-    const toISO = to.toISOString()
+    const { fromISO, toISO } = resolveRange()
 
     const [
       ordersRes,
@@ -215,11 +259,12 @@ export default function ReportsPage() {
       paymentsRes,
       productsRes,
       allOrdersForCustomers,
+      accountTypeOrdersRes,
     ] = await Promise.all([
-      // All orders in range (any status) for void/refund stats
+      // All orders in range (any status) for void/refund stats + bochur name for CSV
       supabase
         .from('orders')
-        .select('id, status, total, bochur_id, created_at, cashier_profiles(name)')
+        .select('id, status, total, bochur_id, created_at, cashier_profiles!cashier_id(name), bochurim!bochur_id(name)')
         .gte('created_at', fromISO)
         .lt('created_at', toISO),
 
@@ -250,6 +295,14 @@ export default function ReportsPage() {
         .select('bochur_id, created_at')
         .eq('status', 'completed')
         .not('bochur_id', 'is', null),
+
+      // Orders with account type info for revenue-by-account-type chart
+      supabase
+        .from('orders')
+        .select('total, bochur_id, bochurim!bochur_id(account_types(name))')
+        .eq('status', 'completed')
+        .gte('created_at', fromISO)
+        .lt('created_at', toISO),
     ])
 
     // ── 1 & 2: Hourly heatmap + line graph ──────────────────────────────────
@@ -377,7 +430,6 @@ export default function ReportsPage() {
     // ── 10: New vs returning customers ────────────────────────────────────────
 
     const allBochurOrders = allOrdersForCustomers.data || []
-    // Find first order date for each bochur
     const firstOrderDate: Record<string, string> = {}
     for (const o of allBochurOrders as any[]) {
       const bid = o.bochur_id
@@ -385,7 +437,6 @@ export default function ReportsPage() {
         firstOrderDate[bid] = o.created_at
       }
     }
-    // New = bochur whose FIRST ever order falls in the current range
     let newC = 0, returningC = 0
     const bochurimInRange = new Set<string>()
     for (const o of allBochurOrders as any[]) {
@@ -412,7 +463,6 @@ export default function ReportsPage() {
 
     // ── 12: Frequently bought together ────────────────────────────────────────
 
-    // Build order -> [products] map from already-fetched order items
     const orderProducts: Record<string, { id: string; name: string }[]> = {}
     for (const item of (orderItemsRes.data || []) as any[]) {
       const orderId = (item.orders as any)?.id || item.order_id
@@ -426,7 +476,6 @@ export default function ReportsPage() {
     }
     const pairCount: Record<string, { a: string; b: string; count: number }> = {}
     for (const prods of Object.values(orderProducts)) {
-      // deduplicate products per order
       const unique = Array.from(new Map(prods.map(p => [p.id, p])).values())
       for (let i = 0; i < unique.length; i++) {
         for (let j = i + 1; j < unique.length; j++) {
@@ -452,7 +501,6 @@ export default function ReportsPage() {
       .order('balance', { ascending: false })
       .limit(20)
 
-    // Find last order date per bochur
     const { data: recentBochurOrders } = await supabase
       .from('orders')
       .select('bochur_id, created_at')
@@ -467,7 +515,6 @@ export default function ReportsPage() {
       }
     }
 
-    // Find bochur IDs who placed an order in the current range
     const bochurimSeenInRange = new Set(
       (allOrdersForCustomers.data || [])
         .filter((o: any) => o.created_at >= fromISO && o.created_at < toISO)
@@ -484,14 +531,135 @@ export default function ReportsPage() {
     }))
     setCredits(creditList)
 
+    // ── 14: Average order value by day ────────────────────────────────────────
+
+    const dailyMap: Record<string, { total: number; count: number }> = {}
+    for (const order of completedOrders) {
+      const date = order.created_at.split('T')[0]
+      if (!dailyMap[date]) dailyMap[date] = { total: 0, count: 0 }
+      dailyMap[date].total += Number(order.total)
+      dailyMap[date].count += 1
+    }
+    const dailyAvgData: DailyAvgOrder[] = Object.entries(dailyMap)
+      .sort(([a], [b]) => a.localeCompare(b))
+      .map(([date, d]) => {
+        const dt = new Date(date + 'T00:00:00Z')
+        return {
+          date: dt.toLocaleDateString('en-US', { month: 'short', day: 'numeric' }),
+          avg: d.count > 0 ? Math.round((d.total / d.count) * 100) / 100 : 0,
+          count: d.count,
+        }
+      })
+    setDailyAvgOrder(dailyAvgData)
+
+    // ── 15: Revenue by account type ───────────────────────────────────────────
+
+    const atMap: Record<string, number> = {}
+    for (const order of (accountTypeOrdersRes.data || []) as any[]) {
+      const atName = order.bochurim?.account_types?.name || (order.bochur_id ? 'No Account Type' : 'Walk-in')
+      atMap[atName] = (atMap[atName] || 0) + Number(order.total)
+    }
+    const atData: AccountTypeRevData[] = Object.entries(atMap)
+      .map(([name, revenue]) => ({ name, revenue }))
+      .sort((a, b) => b.revenue - a.revenue)
+    setAccountTypeRevenue(atData)
+
+    // ── 16: Student visit frequency ───────────────────────────────────────────
+
+    const bochurOrderCount: Record<string, number> = {}
+    for (const o of allBochurOrders as any[]) {
+      if (o.created_at >= fromISO && o.created_at < toISO) {
+        bochurOrderCount[o.bochur_id] = (bochurOrderCount[o.bochur_id] || 0) + 1
+      }
+    }
+    let freq1 = 0, freq2to5 = 0, freq6plus = 0
+    for (const count of Object.values(bochurOrderCount)) {
+      if (count === 1) freq1++
+      else if (count <= 5) freq2to5++
+      else freq6plus++
+    }
+    setVisitFrequency([
+      { bucket: '1 visit', count: freq1 },
+      { bucket: '2–5 visits', count: freq2to5 },
+      { bucket: '6+ visits', count: freq6plus },
+    ])
+
     setLoading(false)
-  }, [range])
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [range, customFrom, customTo])
 
   useEffect(() => {
     fetchData()
   }, [fetchData])
 
-  const RANGE_OPTIONS: { value: DateRange; label: string }[] = [
+  // ── Preset button handler ─────────────────────────────────────────────────
+
+  function applyPreset(preset: Exclude<DateRange, 'custom'>) {
+    setRange(preset)
+    const { from, to } = getDateRangeForPreset(preset)
+    const fmtDate = (d: Date) => {
+      const y = d.getUTCFullYear()
+      const m = String(d.getUTCMonth() + 1).padStart(2, '0')
+      const day = String(d.getUTCDate()).padStart(2, '0')
+      return `${y}-${m}-${day}`
+    }
+    setCustomFrom(fmtDate(from))
+    // to is exclusive (next day), so subtract a day for display
+    const toDisplay = new Date(to)
+    toDisplay.setUTCDate(toDisplay.getUTCDate() - 1)
+    setCustomTo(fmtDate(toDisplay))
+  }
+
+  // ── Export CSV ────────────────────────────────────────────────────────────
+
+  async function exportCSV() {
+    setExporting(true)
+    try {
+      const { fromISO, toISO } = resolveRange()
+      const { data } = await supabase
+        .from('orders')
+        .select('id, created_at, total, bochurim!bochur_id(name), cashier_profiles!cashier_id(name), payments(method, amount)')
+        .eq('status', 'completed')
+        .gte('created_at', fromISO)
+        .lt('created_at', toISO)
+        .order('created_at', { ascending: true })
+
+      if (!data || data.length === 0) {
+        alert('No orders found in this date range.')
+        return
+      }
+
+      const headers = ['Date', 'Time', 'Order ID', 'Student', 'Cashier', 'Payment Method', 'Total']
+      const rows = (data as any[]).map(o => {
+        const d = new Date(o.created_at)
+        const methods = Array.isArray(o.payments) ? o.payments.map((p: any) => p.method).join('/') : ''
+        return [
+          d.toLocaleDateString('en-US'),
+          d.toLocaleTimeString('en-US'),
+          o.id,
+          `"${(o.bochurim as any)?.name || 'Walk-in'}"`,
+          `"${(o.cashier_profiles as any)?.name || ''}"`,
+          `"${methods}"`,
+          Number(o.total).toFixed(2),
+        ].join(',')
+      })
+
+      const csv = [headers.join(','), ...rows].join('\n')
+      const blob = new Blob([csv], { type: 'text/csv' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `canteen-${customFrom}-to-${customTo}.csv`
+      document.body.appendChild(a)
+      a.click()
+      document.body.removeChild(a)
+      URL.revokeObjectURL(url)
+    } finally {
+      setExporting(false)
+    }
+  }
+
+  const RANGE_OPTIONS: { value: Exclude<DateRange, 'custom'>; label: string }[] = [
     { value: 'today', label: 'Today' },
     { value: 'this_week', label: 'This Week' },
     { value: 'this_month', label: 'This Month' },
@@ -506,30 +674,83 @@ export default function ReportsPage() {
       ]
     : []
 
+  const visitTotal = visitFrequency.reduce((s, f) => s + f.count, 0)
+
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto space-y-6">
       {/* Header */}
-      <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
-        <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Reports</h1>
-          <p className="text-slate-500 text-sm mt-1">Analytics and sales insights</p>
+      <div className="flex flex-col gap-4">
+        <div className="flex flex-col sm:flex-row sm:items-center sm:justify-between gap-3">
+          <div>
+            <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Reports</h1>
+            <p className="text-slate-500 text-sm mt-1">Analytics and sales insights</p>
+          </div>
+
+          {/* Export button */}
+          <button
+            onClick={exportCSV}
+            disabled={exporting || loading}
+            className="inline-flex items-center gap-2 px-4 py-2 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-sm font-semibold rounded-xl transition-all shadow-sm"
+          >
+            {exporting ? (
+              <svg className="w-4 h-4 animate-spin" fill="none" viewBox="0 0 24 24">
+                <circle className="opacity-25" cx="12" cy="12" r="10" stroke="currentColor" strokeWidth="4" />
+                <path className="opacity-75" fill="currentColor" d="M4 12a8 8 0 018-8V0C5.373 0 0 5.373 0 12h4z" />
+              </svg>
+            ) : (
+              <svg className="w-4 h-4" fill="none" viewBox="0 0 24 24" stroke="currentColor" strokeWidth={2}>
+                <path strokeLinecap="round" strokeLinejoin="round" d="M4 16v1a3 3 0 003 3h10a3 3 0 003-3v-1m-4-4l-4 4m0 0l-4-4m4 4V4" />
+              </svg>
+            )}
+            Export CSV
+          </button>
         </div>
 
-        {/* Date range picker */}
-        <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1">
-          {RANGE_OPTIONS.map(opt => (
-            <button
-              key={opt.value}
-              onClick={() => setRange(opt.value)}
-              className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
-                range === opt.value
-                  ? 'bg-white text-slate-900 shadow-sm'
-                  : 'text-slate-500 hover:text-slate-700'
+        {/* Date range controls */}
+        <div className="flex flex-col sm:flex-row gap-3 items-start sm:items-center">
+          {/* Preset buttons */}
+          <div className="flex items-center gap-1 bg-slate-100 rounded-xl p-1 shrink-0">
+            {RANGE_OPTIONS.map(opt => (
+              <button
+                key={opt.value}
+                onClick={() => applyPreset(opt.value)}
+                className={`px-3 py-1.5 rounded-lg text-xs font-semibold transition-all ${
+                  range === opt.value
+                    ? 'bg-white text-slate-900 shadow-sm'
+                    : 'text-slate-500 hover:text-slate-700'
+                }`}
+              >
+                {opt.label}
+              </button>
+            ))}
+          </div>
+
+          {/* Custom date inputs */}
+          <div className="flex items-center gap-2">
+            <span className="text-xs text-slate-400 font-medium shrink-0">From</span>
+            <input
+              type="date"
+              value={customFrom}
+              onChange={e => { setCustomFrom(e.target.value); setRange('custom') }}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400 ${
+                range === 'custom' ? 'border-indigo-300 bg-white text-slate-900' : 'border-slate-200 bg-white text-slate-600'
               }`}
-            >
-              {opt.label}
-            </button>
-          ))}
+            />
+            <span className="text-xs text-slate-400 font-medium shrink-0">To</span>
+            <input
+              type="date"
+              value={customTo}
+              onChange={e => { setCustomTo(e.target.value); setRange('custom') }}
+              className={`px-3 py-1.5 text-xs rounded-lg border transition-all focus:outline-none focus:ring-2 focus:ring-indigo-400/30 focus:border-indigo-400 ${
+                range === 'custom' ? 'border-indigo-300 bg-white text-slate-900' : 'border-slate-200 bg-white text-slate-600'
+              }`}
+            />
+            {range === 'custom' && (
+              <span className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-indigo-50 text-indigo-700 shrink-0">
+                Custom
+              </span>
+            )}
+          </div>
         </div>
       </div>
 
@@ -562,6 +783,44 @@ export default function ReportsPage() {
           </>
         ) : null}
       </div>
+
+      {/* ── NEW: Average Order Value Trend ───────────────────────────────────── */}
+      <SectionCard title="Average Order Value Trend" subtitle="Daily avg order value over the selected range">
+        {loading ? (
+          <ChartSkeleton />
+        ) : dailyAvgOrder.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-10">No orders in this period</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <LineChart data={dailyAvgOrder} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={false}
+                interval={Math.max(0, Math.floor(dailyAvgOrder.length / 8) - 1)}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v) => `$${v}`}
+              />
+              <Tooltip content={<CurrencyTooltip />} />
+              <Line
+                type="monotone"
+                dataKey="avg"
+                name="Avg Order"
+                stroke="#6366f1"
+                strokeWidth={2}
+                dot={dailyAvgOrder.length <= 31}
+                activeDot={{ r: 4 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </SectionCard>
 
       {/* ── Sections 1 & 2: Hourly charts ────────────────────────────────────── */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -757,6 +1016,90 @@ export default function ReportsPage() {
                   )
                 })}
               </div>
+            </div>
+          )}
+        </SectionCard>
+      </div>
+
+      {/* ── NEW: Revenue by Account Type + Student Visit Frequency ───────────── */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Revenue by account type */}
+        <SectionCard title="Revenue by Account Type" subtitle="Total spend per account type">
+          {loading ? (
+            <ChartSkeleton />
+          ) : accountTypeRevenue.length === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-10">No account type data</p>
+          ) : (
+            <ResponsiveContainer width="100%" height={Math.max(180, accountTypeRevenue.length * 48)}>
+              <BarChart
+                data={accountTypeRevenue}
+                layout="vertical"
+                margin={{ top: 4, right: 80, left: 8, bottom: 0 }}
+              >
+                <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" horizontal={false} />
+                <XAxis
+                  type="number"
+                  tick={{ fontSize: 10, fill: '#94a3b8' }}
+                  tickLine={false}
+                  axisLine={false}
+                  tickFormatter={(v) => `$${v}`}
+                />
+                <YAxis
+                  dataKey="name"
+                  type="category"
+                  tick={{ fontSize: 11, fill: '#475569' }}
+                  tickLine={false}
+                  axisLine={false}
+                  width={110}
+                />
+                <Tooltip content={<CurrencyTooltip />} />
+                <Bar
+                  dataKey="revenue"
+                  name="Revenue"
+                  fill="#8b5cf6"
+                  radius={[0, 3, 3, 0]}
+                  label={{
+                    position: 'right',
+                    fontSize: 10,
+                    fill: '#94a3b8',
+                    formatter: (v: number) => formatCurrency(v),
+                  }}
+                />
+              </BarChart>
+            </ResponsiveContainer>
+          )}
+        </SectionCard>
+
+        {/* Student visit frequency */}
+        <SectionCard title="Student Visit Frequency" subtitle="How often students purchased in this period">
+          {loading ? (
+            <ChartSkeleton />
+          ) : visitTotal === 0 ? (
+            <p className="text-sm text-slate-400 text-center py-10">No student orders in this period</p>
+          ) : (
+            <div className="space-y-5 py-2">
+              <p className="text-xs text-slate-500">
+                <span className="font-semibold text-slate-700">{visitTotal}</span> students made at least one purchase
+              </p>
+              {visitFrequency.map((f) => {
+                const pct = visitTotal > 0 ? (f.count / visitTotal) * 100 : 0
+                return (
+                  <div key={f.bucket} className="space-y-1.5">
+                    <div className="flex items-center justify-between text-xs">
+                      <span className="font-medium text-slate-700">{f.bucket}</span>
+                      <span className="text-slate-500">
+                        <span className="font-semibold text-slate-800">{f.count}</span> students ({pct.toFixed(0)}%)
+                      </span>
+                    </div>
+                    <div className="h-2.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-400 rounded-full transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
         </SectionCard>
