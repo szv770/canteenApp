@@ -97,6 +97,8 @@ export interface Bochur {
   archived: boolean
   is_frozen: boolean
   freeze_reason: string | null
+  banned_until: string | null
+  ban_reason: string | null
   created_at: string
   updated_at: string
 }

@@ -379,7 +379,7 @@ export async function POST(req: NextRequest) {
   const grandTotal = Math.round((total + tipAmount) * 100) / 100
 
   // --- Balance check for bochur payments ---
-  let bochurData: { balance: number; allow_negative: boolean; max_negative_balance: number; is_frozen: boolean } | null = null
+  let bochurData: { balance: number; allow_negative: boolean; max_negative_balance: number; is_frozen: boolean; banned_until: string | null; ban_reason: string | null } | null = null
   if (method === 'balance') {
     if (!bochurId) {
       return NextResponse.json(
@@ -389,7 +389,7 @@ export async function POST(req: NextRequest) {
     }
     const { data: bochur } = await admin
       .from('bochurim')
-      .select('balance, allow_negative, max_negative_balance, is_frozen')
+      .select('balance, allow_negative, max_negative_balance, is_frozen, banned_until, ban_reason')
       .eq('id', bochurId)
       .eq('archived', false)
       .single()
@@ -399,6 +399,12 @@ export async function POST(req: NextRequest) {
     }
     if (bochur.is_frozen) {
       return NextResponse.json({ error: 'This account is frozen. Please contact an admin.' }, { status: 403 })
+    }
+    if (bochur.banned_until && new Date(bochur.banned_until) > new Date()) {
+      return NextResponse.json(
+        { error: 'Account is temporarily banned', banned_until: bochur.banned_until, ban_reason: bochur.ban_reason },
+        { status: 403 }
+      )
     }
     bochurData = bochur
     const balanceAfter = Math.round((bochur.balance - subtotalAfterDiscount - tipAmount) * 100) / 100
