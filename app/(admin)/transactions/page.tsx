@@ -11,7 +11,7 @@ export default function TransactionsPage() {
   const supabase = createClient()
   const [orders, setOrders] = useState<any[]>([])
   const [search, setSearch] = useState('')
-  const [statusFilter, setStatusFilter] = useState('completed')
+  const [statusFilter, setStatusFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [viewOrder, setViewOrder] = useState<any | null>(null)
 
@@ -21,7 +21,7 @@ export default function TransactionsPage() {
     setLoading(true)
     let q = supabase
       .from('orders')
-      .select('*, cashier_profiles!cashier_id(name), bochurim!bochur_id(name,bochur_number)')
+      .select('*, cashier_profiles!cashier_id(name), bochurim!bochur_id!left(name,bochur_number)')
       .order('created_at', { ascending: false })
       .limit(200)
 
@@ -128,7 +128,7 @@ export default function TransactionsPage() {
                 <td className="px-5 py-3 text-sm font-semibold text-slate-900">#{o.order_number}</td>
                 <td className="px-5 py-3 text-sm text-slate-500">{format(new Date(o.created_at), 'MM/dd HH:mm')}</td>
                 <td className="px-5 py-3 text-sm text-slate-700">{o.cashier_profiles?.name || '—'}</td>
-                <td className="px-5 py-3 text-sm text-slate-700">{o.bochurim?.name || <span className="text-slate-400">Walk-in</span>}</td>
+                <td className="px-5 py-3 text-sm text-slate-700">{o.bochurim?.name || <span className="text-slate-400">Walk-in / No account</span>}</td>
                 <td className="px-5 py-3 text-center">
                   <span className={`badge ${statusBadge[o.status] || 'bg-slate-100 text-slate-500'}`}>{o.status}</span>
                 </td>
