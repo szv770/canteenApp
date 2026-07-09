@@ -32,6 +32,7 @@ export interface Product {
   stock_quantity: number | null
   low_stock_threshold: number
   icon: string | null
+  image_url: string | null
   has_variants: boolean
   is_active: boolean
   show_when_out_of_stock: boolean
@@ -208,38 +209,4 @@ export interface BundleItem {
 
 export interface ProductBundleWithItems extends ProductBundle {
   bundle_items: BundleItem[]
-}
-
-export interface WastageLog {
-  id: string
-  product_id: string | null
-  product_name: string
-  quantity: number
-  reason: string
-  unit_cost: number
-  unit_price: number
-  notes: string | null
-  cashier_id: string | null
-  created_at: string
-}
-
-export interface ExpenseEntry {
-  id: string
-  amount: number
-  description: string
-  expense_type: 'equipment' | 'tax' | 'supply' | 'other'
-  entered_by: string | null
-  date: string
-  notes: string | null
-  created_at: string
-}
-
-export interface CashierNotification {
-  id: string
-  message: string
-  type: string
-  is_active: boolean
-  expires_at: string | null
-  created_by: string | null
-  created_at: string
 }

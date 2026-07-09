@@ -22,7 +22,7 @@
 app/
   (admin)/
     dashboard/       # Quick-glance stats cards
-    products/        # Product editor (variants, add-ons, sale prices, icon picker)
+    products/        # Product editor (variants, add-ons, sale prices, icon picker, image upload)
     categories/      # Category management
     bochurim/        # Student accounts + BochurProfileModal (click any row)
     cashiers/        # Cashier accounts
@@ -30,9 +30,8 @@ app/
     reports/         # Full analytics (charts, heatmaps, tables)
     bundles/         # Combo deal bundles admin
     settings/        # App-wide settings (tax, cc fee, out-of-stock behavior)
-    inventory/       # Stock management
+    inventory/       # Stock management + Slow Movers tab
     topups/          # Balance top-up log
-    cogs/            # COGS: Wastage Log + Expenses tabs
   (pos)/
     page.tsx         # Main POS terminal
   api/pos/
@@ -44,7 +43,7 @@ components/
     Sidebar.tsx      # Nav links
     TableSkeleton.tsx
   pos/
-    ProductGrid.tsx  # Name-first cards, icon optional, SALE badge, "From $X" for variants
+    ProductGrid.tsx  # Name-first cards, image_url > emoji icon, SALE badge, "From $X" for variants
     Cart.tsx         # Clear button, type-in qty, addon subtotals
     BochurSearch.tsx # Student lookup — red frozen warning banner when is_frozen=true
     CategoryTabs.tsx # Category filter + "Deals" tab
@@ -52,7 +51,6 @@ components/
     VariantModal.tsx # Size/option picker
     AddonModal.tsx   # Extras/toppings picker (toggle chips, running total)
     BundleGrid.tsx   # Combo deal cards on "Deals" tab
-    WastageModal.tsx # Log product waste from POS — product search, qty, reason, cost preview
 
 types/database.ts    # All TS interfaces — update here when adding DB columns
 lib/utils.ts         # formatCurrency, cn
@@ -66,11 +64,11 @@ lib/utils.ts         # formatCurrency, cn
 |---|---|
 | `bochurim` | `is_frozen bool DEFAULT false`, `freeze_reason text` — added 2026-06-26 |
 | `cashier_profiles` | FK: `orders.cashier_id → cashier_profiles.id` |
-| `products` | `sale_price`, `sale_active`, `sale_label`, `sale_ends_at`, `has_variants`, `icon` |
+| `products` | `sale_price`, `sale_active`, `sale_label`, `sale_ends_at`, `has_variants`, `icon`, `image_url text` |
 | `product_variants` | `label`, `price`, `stock_quantity`, `sort_order`, `is_active` |
 | `product_addons` | `name`, `price_addition`, `is_active`, `sort_order` |
 | `orders` | `cashier_id`, `bochur_id`, `discount_amount`, `status` |
-| `order_items` | Snapshot of name/price at sale time |
+| `order_items` | Snapshot of name/price at sale time; `product_id`, `quantity` used for slow-movers analytics |
 | `payments` | `method`: balance / cash / credit_card / zelle / mixed |
 | `balance_ledger` | Full audit trail for every balance change |
 | `discount_codes` | `type` percent/fixed, `value`, `max_uses`, `uses_count`, `expires_at` |
@@ -78,9 +76,7 @@ lib/utils.ts         # formatCurrency, cn
 | `bundle_items` | `bundle_id`, `product_id`, `quantity` |
 | `app_settings` | Key/value: tax_rate, cc_fee_percent, out_of_stock_behavior, etc. |
 | `account_types` | `is_active bool DEFAULT true` — added 2026-07-07 (was missing from schema) |
-| `wastage_log` | `product_id`, `product_name`, `quantity`, `reason`, `unit_cost`, `unit_price`, `notes`, `cashier_id` |
-| `expense_entries` | `amount`, `description`, `expense_type` (equipment/tax/supply/other), `entered_by`, `date`, `notes` |
-| `cashier_notifications` | `message`, `type`, `is_active`, `expires_at`, `created_by` |
+| Storage | `product-images` bucket (public, 5 MB limit, images only) — created 2026-07-09 |
 
 ---
 
@@ -120,8 +116,9 @@ lib/utils.ts         # formatCurrency, cn
 | Bundles in POS | `app/(pos)/pos/page.tsx`, `components/pos/BundleGrid.tsx` | Deals tab wired, addBundleToCart handler |
 | Account type discounts | `app/api/pos/checkout/route.ts` | Per-item: %, cost price, fixed; category exclusions |
 | Checkout mobile layout | `components/pos/CheckoutModal.tsx` | Tip row wraps, cash 3-col, addon sub-line, button cleaner |
-| Wastage logging (POS) | `components/pos/WastageModal.tsx`, `app/(pos)/pos/page.tsx` | Log Waste button in POS header; inserts wastage_log + cashier_notifications |
-| COGS admin page | `app/(admin)/cogs/page.tsx` | Two tabs: Wastage Log + Expenses; monthly summaries; add expense form |
+| **Slow Movers inventory tab** | `app/(admin)/inventory/page.tsx` | Toggle above table; products with stock > 0 and zero sales in 30 days; last sale date, cost value, summary |
+| **Product image upload** | `app/(admin)/products/page.tsx` | Upload to product-images bucket; thumbnail preview + Remove; emoji still fallback |
+| **Product images in POS grid** | `components/pos/ProductGrid.tsx` | Shows image_url if set, falls back to emoji icon |
 
 ### ❌ Not Yet Built
 
@@ -129,6 +126,7 @@ lib/utils.ts         # formatCurrency, cn
 |---|---|
 | Inventory burn-rate trendline | Projects stock-out date from sales velocity — no DB support yet |
 | Daily revenue vs target gauge | Need target_revenue in app_settings |
+| Wastage/spoilage tracking | No DB table yet |
 | Declined/low-balance alert log | Would need a new `failed_transactions` table or column |
 | Checkout discount display on client | Server applies account type discount correctly; client-side preview not yet computed |
 
@@ -160,7 +158,9 @@ lib/utils.ts         # formatCurrency, cn
 
 9. **account_types.is_active** — column was missing from initial schema; added via migration 2026-07-07. If getting "column not found in schema cache" errors on account_types, check this column exists.
 
-10. **wastage_log FK join** — use `cashier_profiles!cashier_id(name)` when joining cashier name on wastage_log (same PostgREST FK hint pattern).
+10. **product-images Storage bucket** — public bucket created 2026-07-09. Max file size 5 MB; allowed types: jpeg, png, gif, webp, svg. If upload returns "Bucket not found", verify the bucket exists in Supabase dashboard → Storage.
+
+11. **Slow Movers query pattern** — two-step: (1) get order IDs in last 30 days from `orders`, (2) get product_ids from `order_items` for those orders. Products NOT in that set with stock > 0 are slow movers. Last sale date is computed by joining `order_items` with `orders!order_id(created_at)` for candidate products only.
 
 ---
 
@@ -211,6 +211,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: checkout order summary shows addon price in line item total (price + addon_total) |
 | 2026-07-07 | Fix: account_types missing is_active column — added via Supabase migration |
 | 2026-07-07 | Fix: checkout modal mobile layout — tip row wraps on small screens, cash buttons 3-col on mobile, addon names on own line, Complete Order button cleaner |
-| 2026-07-09 | Feat: wastage logging on POS — Log Waste button in header opens WastageModal (product search, qty, reason, cost preview, optional stock deduction, auto admin notification) |
-| 2026-07-09 | Feat: COGS admin page (/cogs) — Wastage Log tab + Expenses tab with monthly totals and add-expense form; COGS link in sidebar |
-| 2026-07-09 | Docs: types/database.ts — added WastageLog, ExpenseEntry, CashierNotification interfaces |
+| 2026-07-09 | Feat: Slow Movers tab in inventory — toggle shows stocked products with no sales in 30 days, days since last sale, cost value tied up, summary banner |
+| 2026-07-09 | Feat: product image upload — upload to product-images Supabase Storage bucket; thumbnail preview + Remove in admin; image_url column added to Product type |
+| 2026-07-09 | Feat: product images shown in POS grid — image_url takes priority over emoji icon; falls back gracefully |
