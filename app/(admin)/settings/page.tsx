@@ -23,6 +23,7 @@ const SETTINGS_CONFIG: SettingRow[] = [
     { value: 'block', label: 'Block purchase' },
   ]},
   { key: 'cc_fee_percent', label: 'Credit Card Fee (%)', description: 'Processing fee % added to CC payments', type: 'number' },
+  { key: 'daily_revenue_target', label: 'Daily Revenue Target ($)', description: 'Target daily revenue shown as a progress gauge on the dashboard', type: 'number' },
   { key: 'tax_rate', label: 'Tax Rate (%)', description: 'Sales tax percentage (0 for no tax)', type: 'number' },
   { key: 'stripe_enabled', label: 'Stripe Payments', description: 'Enable Stripe Terminal card reader', type: 'toggle' },
   { key: 'offline_mode_enabled', label: 'Offline Mode', description: 'Allow POS to work without internet', type: 'toggle' },

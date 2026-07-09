@@ -146,14 +146,19 @@ lib/utils.ts         # formatCurrency, cn
 | Nine Days menu section | `app/(admin)/settings/page.tsx`, `app/LandingClient.tsx` | Admin blurb + optional flyer (image/PDF) upload to new `site-assets` bucket; section hidden unless filled in |
 | Supabase Storage bucket | Migration | `site-assets` bucket (public, 10MB, image/*+PDF) with RLS — home page assets like the Nine Days flyer |
 
+### ✅ Also Working
+
+| Feature | Files | Notes |
+|---|---|---|
+| Inventory burn-rate | `app/(admin)/inventory/page.tsx` | "Burn Rate" column: ~X days to stockout, red/amber/green, computed from last-30-day velocity |
+| Daily revenue target gauge | `app/(admin)/dashboard/page.tsx`, `settings/page.tsx` | Progress bar on dashboard; set target in Settings → Daily Revenue Target |
+| Low balance alert log | `app/(admin)/dashboard/page.tsx`, `app/api/pos/checkout/route.ts` | Failed balance checkouts logged to `failed_checkout_log` table; shown as today's table on dashboard |
+| Checkout discount preview | `components/pos/CheckoutModal.tsx` | Account type discount shown as line item with estimated $ amount; coupon shown separately |
+
 ### ❌ Not Yet Built
 
 | Feature | Notes |
 |---|---|
-| Inventory burn-rate trendline | Projects stock-out date from sales velocity — no DB support yet |
-| Daily revenue vs target gauge | Need target_revenue in app_settings |
-| Declined/low-balance alert log | Would need a new `failed_transactions` table or column |
-| Checkout discount display on client | Server applies account type discount correctly; client-side preview not yet computed |
 | Stripe / card reader integration | User still deciding between Stripe Terminal vs manual phone reader |
 
 ---
@@ -258,5 +263,9 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Feat: printable menu page (/menu) — grouped by category, CSV export |
 | 2026-07-09 | Feat: account types moved to bochurim page tab (Students / Account Types) |
 | 2026-07-09 | Feat: negative balance allowed per student (allow_negative + max_negative_balance), enforced at checkout |
+| 2026-07-09 | Feat: inventory burn-rate — Burn Rate column shows ~X days to stockout from 30-day velocity |
+| 2026-07-09 | Feat: daily revenue target gauge on dashboard — progress bar toward target set in settings |
+| 2026-07-09 | Feat: low balance alert log — failed balance checkouts logged to failed_checkout_log; shown on dashboard |
+| 2026-07-09 | Feat: checkout discount preview — account type discount shown as line item with estimated amount |
 | 2026-07-09 | Feat: home page redesign — Cash App payment method, online credit card top-up with no-refund warning modal, general payment-notes reminder banner ("CANTEEN - camper name"), Popular Items section (manual or safe DB-aggregated), Nine Days blurb + flyer upload, dismissible admin-posted home page announcement banner, hero text-wrap/spacing cleanup |
 | 2026-07-09 | Infra: added `cashier_notifications.show_on_home_page` column; extended `balance_topups.method` check constraint with `cashapp`/`credit_card`; created `site-assets` Storage bucket (public, 10MB, image/PDF) with RLS |
