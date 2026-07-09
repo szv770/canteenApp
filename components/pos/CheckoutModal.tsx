@@ -74,6 +74,7 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
   const rawSubtotal = cart.reduce((sum, i) => sum + (i.price + (i.addon_total || 0)) * i.quantity, 0)
 
   // Estimate account type discount for display (actual calculation is server-side)
+  const atDiscountType = selectedBochur?.account_type?.discount_type
   const atDiscount = (() => {
     const at = selectedBochur?.account_type
     if (!at || at.discount_type === 'none' || !at.discount_value) return 0
@@ -83,6 +84,7 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
     if (at.discount_type === 'fixed') {
       return Math.min(rawSubtotal, at.discount_value)
     }
+    // cost_price: server applies it; we can't estimate client-side without product costs
     return 0
   })()
 
@@ -349,15 +351,20 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
                     <span className="text-pos-subtext">Subtotal</span>
                     <span className="font-semibold text-pos-text">{formatCurrency(rawSubtotal)}</span>
                   </div>
-                  {atDiscount > 0 && (
+                  {selectedBochur.account_type && atDiscountType && atDiscountType !== 'none' && (
                     <div className="flex justify-between text-sm">
                       <span className="text-blue-600 font-medium">
-                        🏷️ {selectedBochur.account_type!.name}
-                        {selectedBochur.account_type!.discount_type === 'percentage'
-                          ? ` (${selectedBochur.account_type!.discount_value}% off)`
-                          : ''}
+                        🏷️ {selectedBochur.account_type.name}
+                        {atDiscountType === 'percentage'
+                          ? ` (${selectedBochur.account_type.discount_value}% off)`
+                          : atDiscountType === 'fixed'
+                          ? ` (-$${selectedBochur.account_type.discount_value} off)`
+                          : ' (at cost price)'}
                       </span>
-                      <span className="font-semibold text-blue-600">-{formatCurrency(atDiscount)}</span>
+                      {atDiscount > 0
+                        ? <span className="font-semibold text-blue-600">-{formatCurrency(atDiscount)}</span>
+                        : <span className="text-xs text-blue-500 italic">applied at checkout</span>
+                      }
                     </div>
                   )}
                   {discountAmount > 0 && (
