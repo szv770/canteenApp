@@ -11,9 +11,13 @@ import toast from 'react-hot-toast'
 import type { BochurWithId, AccountType } from '@/types/database'
 import TableSkeleton from '@/components/admin/TableSkeleton'
 import BochurProfileModal from './BochurProfileModal'
+import AccountTypesPanel from './AccountTypesPanel'
+
+type TabKey = 'students' | 'account_types'
 
 export default function BochurimPage() {
   const supabase = createClient()
+  const [tab, setTab] = useState<TabKey>('students')
   const [bochurim, setBochurim] = useState<BochurWithId[]>([])
   const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
   const [search, setSearch] = useState('')
@@ -87,10 +91,35 @@ export default function BochurimPage() {
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
+      <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Bochurim</h1>
+
+      {/* Tab switcher */}
+      <div className="flex gap-1 mt-4 mb-6 border-b border-slate-200">
+        {([
+          { key: 'students', label: 'Students' },
+          { key: 'account_types', label: 'Account Types' },
+        ] as { key: TabKey; label: string }[]).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+              tab === t.key
+                ? 'border-amber-500 text-amber-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+
+      {tab === 'account_types' ? (
+        <AccountTypesPanel />
+      ) : (
+      <>
       <div className="flex flex-wrap items-start justify-between gap-3 mb-6">
         <div>
-          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Bochurim</h1>
-          <p className="text-slate-500 text-sm mt-1">{filtered.length} {showArchived ? 'archived' : 'active'} accounts</p>
+          <p className="text-slate-500 text-sm">{filtered.length} {showArchived ? 'archived' : 'active'} accounts</p>
         </div>
         <div className="flex items-center gap-2 flex-wrap">
           {hasSelection ? (
@@ -258,6 +287,8 @@ export default function BochurimPage() {
       )}
       {showBulkImport && (
         <BulkImportModal accountTypes={accountTypes} onClose={() => setShowBulkImport(false)} onSaved={() => { setShowBulkImport(false); loadData() }} />
+      )}
+      </>
       )}
     </div>
   )
