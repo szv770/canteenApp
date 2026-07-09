@@ -490,17 +490,44 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Credit tip to cashier's balance if routing = cashier_balance
+  // Credit tip — if cashier has a linked bochur account, credit there; otherwise pool in tip_balance
   if (tipAmount > 0) {
     const { data: tipRoutingSetting } = await admin.from('settings').select('value').eq('key', 'tip_routing').single()
     const tipRouting = String(tipRoutingSetting?.value ?? 'cashier_balance').replace(/"/g, '')
     if (tipRouting === 'cashier_balance') {
-      const { data: cashierRow } = await admin.from('cashier_profiles').select('tip_balance').eq('id', user.id).single()
-      if (cashierRow) {
+      const { data: cashierRow } = await admin
+        .from('cashier_profiles').select('tip_balance, bochur_id').eq('id', user.id).single()
+      if (cashierRow?.bochur_id) {
+        // Linked bochur account — credit balance and log to ledger
+        const { data: bochurRow } = await admin.from('bochurim').select('balance').eq('id', cashierRow.bochur_id).single()
+        if (bochurRow) {
+          const newBal = Math.round((Number(bochurRow.balance) + tipAmount) * 100) / 100
+          await admin.from('bochurim').update({ balance: newBal }).eq('id', cashierRow.bochur_id)
+          await admin.from('balance_ledger').insert({
+            bochur_id: cashierRow.bochur_id,
+            amount: tipAmount,
+            type: 'tip',
+            method: 'tip',
+            order_id: order.id,
+            cashier_id: user.id,
+            note: `Tip from order`,
+          })
+        }
+      } else if (cashierRow) {
+        // No linked account — accumulate in tip_balance for cash payout
         await admin.from('cashier_profiles')
           .update({ tip_balance: Math.round(((cashierRow.tip_balance || 0) + tipAmount) * 100) / 100 })
           .eq('id', user.id)
       }
+      // Log to tips table either way
+      await admin.from('tips').insert({
+        order_id: order.id,
+        cashier_id: user.id,
+        amount: tipAmount,
+        method,
+        paid_out: !!cashierRow?.bochur_id,
+        note: cashierRow?.bochur_id ? 'Credited to linked bochur account' : 'Pending cash payout',
+      }).then(() => {})
     }
   }
 
