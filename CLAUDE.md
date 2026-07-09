@@ -32,7 +32,7 @@ app/
     settings/        # App-wide settings (tax, cc fee, out-of-stock behavior)
     inventory/       # Stock management
     topups/          # Balance top-up log
-    notifications/   # Compose & manage cashier notifications (Realtime push to POS)
+    cogs/            # COGS: Wastage Log + Expenses tabs
   (pos)/
     page.tsx         # Main POS terminal
   api/pos/
@@ -52,6 +52,7 @@ components/
     VariantModal.tsx # Size/option picker
     AddonModal.tsx   # Extras/toppings picker (toggle chips, running total)
     BundleGrid.tsx   # Combo deal cards on "Deals" tab
+    WastageModal.tsx # Log product waste from POS — product search, qty, reason, cost preview
 
 types/database.ts    # All TS interfaces — update here when adding DB columns
 lib/utils.ts         # formatCurrency, cn
@@ -77,7 +78,9 @@ lib/utils.ts         # formatCurrency, cn
 | `bundle_items` | `bundle_id`, `product_id`, `quantity` |
 | `app_settings` | Key/value: tax_rate, cc_fee_percent, out_of_stock_behavior, etc. |
 | `account_types` | `is_active bool DEFAULT true` — added 2026-07-07 (was missing from schema) |
-| `cashier_notifications` | `message`, `type` ('info'\|'warning'\|'urgent'), `is_active bool`, `expires_at timestamptz`, `created_by uuid` |
+| `wastage_log` | `product_id`, `product_name`, `quantity`, `reason`, `unit_cost`, `unit_price`, `notes`, `cashier_id` |
+| `expense_entries` | `amount`, `description`, `expense_type` (equipment/tax/supply/other), `entered_by`, `date`, `notes` |
+| `cashier_notifications` | `message`, `type`, `is_active`, `expires_at`, `created_by` |
 
 ---
 
@@ -117,7 +120,8 @@ lib/utils.ts         # formatCurrency, cn
 | Bundles in POS | `app/(pos)/pos/page.tsx`, `components/pos/BundleGrid.tsx` | Deals tab wired, addBundleToCart handler |
 | Account type discounts | `app/api/pos/checkout/route.ts` | Per-item: %, cost price, fixed; category exclusions |
 | Checkout mobile layout | `components/pos/CheckoutModal.tsx` | Tip row wraps, cash 3-col, addon sub-line, button cleaner |
-| Cashier notifications | `app/(admin)/notifications/page.tsx`, `app/(pos)/pos/page.tsx` | Admin compose/manage; POS receives via Supabase Realtime + initial fetch on load |
+| Wastage logging (POS) | `components/pos/WastageModal.tsx`, `app/(pos)/pos/page.tsx` | Log Waste button in POS header; inserts wastage_log + cashier_notifications |
+| COGS admin page | `app/(admin)/cogs/page.tsx` | Two tabs: Wastage Log + Expenses; monthly summaries; add expense form |
 
 ### ❌ Not Yet Built
 
@@ -125,7 +129,6 @@ lib/utils.ts         # formatCurrency, cn
 |---|---|
 | Inventory burn-rate trendline | Projects stock-out date from sales velocity — no DB support yet |
 | Daily revenue vs target gauge | Need target_revenue in app_settings |
-| Wastage/spoilage tracking | No DB table yet |
 | Declined/low-balance alert log | Would need a new `failed_transactions` table or column |
 | Checkout discount display on client | Server applies account type discount correctly; client-side preview not yet computed |
 
@@ -157,7 +160,7 @@ lib/utils.ts         # formatCurrency, cn
 
 9. **account_types.is_active** — column was missing from initial schema; added via migration 2026-07-07. If getting "column not found in schema cache" errors on account_types, check this column exists.
 
-10. **cashier_notifications Realtime** — POS subscribes to `INSERT` events only. If a notification row already exists when the cashier loads, it is fetched via the initial `loadNotifications()` call (is_active=true, not expired). Urgent toasts have `duration: Infinity` and must be dismissed manually by the cashier.
+10. **wastage_log FK join** — use `cashier_profiles!cashier_id(name)` when joining cashier name on wastage_log (same PostgREST FK hint pattern).
 
 ---
 
@@ -208,4 +211,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: checkout order summary shows addon price in line item total (price + addon_total) |
 | 2026-07-07 | Fix: account_types missing is_active column — added via Supabase migration |
 | 2026-07-07 | Fix: checkout modal mobile layout — tip row wraps on small screens, cash buttons 3-col on mobile, addon names on own line, Complete Order button cleaner |
-| 2026-07-09 | Feat: cashier notifications — admin compose/manage page (/notifications); POS fetches active notifications on load and subscribes via Supabase Realtime; info/warning/urgent toast styles (urgent stays open until dismissed) |
+| 2026-07-09 | Feat: wastage logging on POS — Log Waste button in header opens WastageModal (product search, qty, reason, cost preview, optional stock deduction, auto admin notification) |
+| 2026-07-09 | Feat: COGS admin page (/cogs) — Wastage Log tab + Expenses tab with monthly totals and add-expense form; COGS link in sidebar |
+| 2026-07-09 | Docs: types/database.ts — added WastageLog, ExpenseEntry, CashierNotification interfaces |

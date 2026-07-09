@@ -1,8 +1,8 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { LogOut, Settings, ShoppingCart } from 'lucide-react'
+import { LogOut, Settings, ShoppingCart, Trash2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import BochurSearch from '@/components/pos/BochurSearch'
@@ -13,39 +13,8 @@ import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
 import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
+import WastageModal from '@/components/pos/WastageModal'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
-
-function showNotificationToast(notif: { message: string; type: string }) {
-  if (notif.type === 'urgent') {
-    toast(notif.message, {
-      duration: Infinity,
-      icon: '🚨',
-      style: {
-        background: '#FEE2E2',
-        color: '#991B1B',
-        border: '1px solid #FECACA',
-        fontWeight: '600',
-        maxWidth: '420px',
-      },
-    })
-  } else if (notif.type === 'warning') {
-    toast(notif.message, {
-      duration: 6000,
-      icon: '⚠️',
-      style: {
-        background: '#FEF3C7',
-        color: '#92400E',
-        border: '1px solid #FDE68A',
-        maxWidth: '420px',
-      },
-    })
-  } else {
-    toast(notif.message, {
-      duration: 5000,
-      icon: 'ℹ️',
-    })
-  }
-}
 
 export default function PosPage() {
   const supabaseRef = useRef(createClient())
@@ -58,11 +27,13 @@ export default function PosPage() {
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [cashierName, setCashierName] = useState('')
   const [cashierRole, setCashierRole] = useState('')
+  const [cashierId, setCashierId] = useState('')
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [searchQuery, setSearchQuery] = useState('')
   const [cart, setCart] = useState<CartItem[]>([])
   const [loadedBochur, setLoadedBochur] = useState<BochurWithId | null>(null)
   const [showCheckout, setShowCheckout] = useState(false)
+  const [showWastage, setShowWastage] = useState(false)
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({})
   const [variantProduct, setVariantProduct] = useState<Product | null>(null)
   const [addonProduct, setAddonProduct] = useState<Product | null>(null)
@@ -74,14 +45,11 @@ export default function PosPage() {
   useEffect(() => {
     loadData()
     loadCashier()
-    loadNotifications()
 
     // Redirect to login if session expires mid-use
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
-      if (event === 'SIGNED_OUT' || event === 'TOKEN_REFRESHED') {
-        if (event === 'SIGNED_OUT') {
-          window.location.href = '/login'
-        }
+      if (event === 'SIGNED_OUT') {
+        window.location.href = '/login'
       }
     })
 
@@ -99,39 +67,11 @@ export default function PosPage() {
       })
       .subscribe()
 
-    // Real-time cashier notifications
-    const notifChannel = supabase
-      .channel('cashier-notifications')
-      .on('postgres_changes', {
-        event: 'INSERT',
-        schema: 'public',
-        table: 'cashier_notifications',
-      }, (payload) => {
-        const notif = payload.new as { message: string; type: string; is_active: boolean; expires_at: string | null }
-        if (!notif.is_active) return
-        if (notif.expires_at && new Date(notif.expires_at) < new Date()) return
-        showNotificationToast(notif)
-      })
-      .subscribe()
-
     return () => {
       subscription.unsubscribe()
       supabase.removeChannel(channel)
-      supabase.removeChannel(notifChannel)
     }
   }, [])
-
-  async function loadNotifications() {
-    const now = new Date().toISOString()
-    const { data } = await supabase
-      .from('cashier_notifications')
-      .select('id, message, type')
-      .eq('is_active', true)
-      .or(`expires_at.is.null,expires_at.gt.${now}`)
-    if (data) {
-      data.forEach((n: { message: string; type: string }) => showNotificationToast(n))
-    }
-  }
 
   async function loadData() {
     const [cats, prods, setts, catLinks, allVariants, allBundles] = await Promise.all([
@@ -172,6 +112,7 @@ export default function PosPage() {
   async function loadCashier() {
     const { data: { user } } = await supabase.auth.getUser()
     if (!user) return
+    setCashierId(user.id)
     const { data } = await supabase.from('cashier_profiles').select('name,role').eq('id', user.id).single()
     if (data) { setCashierName(data.name); setCashierRole(data.role) }
   }
@@ -193,7 +134,6 @@ export default function PosPage() {
     const addonTotal = addons && addons.length > 0 ? addons.reduce((sum, a) => sum + a.price_addition, 0) : undefined
 
     setCart(prev => {
-      // If item has addons, always add as new line (don't merge)
       if (addonIds && addonIds.length > 0) {
         return [...prev, {
           product_id: product.id,
@@ -325,6 +265,14 @@ export default function PosPage() {
               {cashierName}
             </span>
           )}
+          {/* Log Waste button */}
+          <button
+            onClick={() => setShowWastage(true)}
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:bg-red-50 hover:text-red-500 transition-all"
+            title="Log Waste"
+          >
+            <Trash2 className="w-5 h-5" />
+          </button>
           {cashierRole === 'admin' && (
             <button
               onClick={() => router.push('/dashboard')}
@@ -465,6 +413,13 @@ export default function PosPage() {
             if (loadedBochur) loadData()
             toast.success('Order completed!')
           }}
+        />
+      )}
+
+      {showWastage && cashierId && (
+        <WastageModal
+          cashierId={cashierId}
+          onClose={() => setShowWastage(false)}
         />
       )}
     </div>
