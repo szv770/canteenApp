@@ -15,6 +15,38 @@ import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
 
+function showNotificationToast(notif: { message: string; type: string }) {
+  if (notif.type === 'urgent') {
+    toast(notif.message, {
+      duration: Infinity,
+      icon: '🚨',
+      style: {
+        background: '#FEE2E2',
+        color: '#991B1B',
+        border: '1px solid #FECACA',
+        fontWeight: '600',
+        maxWidth: '420px',
+      },
+    })
+  } else if (notif.type === 'warning') {
+    toast(notif.message, {
+      duration: 6000,
+      icon: '⚠️',
+      style: {
+        background: '#FEF3C7',
+        color: '#92400E',
+        border: '1px solid #FDE68A',
+        maxWidth: '420px',
+      },
+    })
+  } else {
+    toast(notif.message, {
+      duration: 5000,
+      icon: 'ℹ️',
+    })
+  }
+}
+
 export default function PosPage() {
   const supabaseRef = useRef(createClient())
   const supabase = supabaseRef.current
@@ -42,6 +74,7 @@ export default function PosPage() {
   useEffect(() => {
     loadData()
     loadCashier()
+    loadNotifications()
 
     // Redirect to login if session expires mid-use
     const { data: { subscription } } = supabase.auth.onAuthStateChange((event) => {
@@ -66,11 +99,39 @@ export default function PosPage() {
       })
       .subscribe()
 
+    // Real-time cashier notifications
+    const notifChannel = supabase
+      .channel('cashier-notifications')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'cashier_notifications',
+      }, (payload) => {
+        const notif = payload.new as { message: string; type: string; is_active: boolean; expires_at: string | null }
+        if (!notif.is_active) return
+        if (notif.expires_at && new Date(notif.expires_at) < new Date()) return
+        showNotificationToast(notif)
+      })
+      .subscribe()
+
     return () => {
       subscription.unsubscribe()
       supabase.removeChannel(channel)
+      supabase.removeChannel(notifChannel)
     }
   }, [])
+
+  async function loadNotifications() {
+    const now = new Date().toISOString()
+    const { data } = await supabase
+      .from('cashier_notifications')
+      .select('id, message, type')
+      .eq('is_active', true)
+      .or(`expires_at.is.null,expires_at.gt.${now}`)
+    if (data) {
+      data.forEach((n: { message: string; type: string }) => showNotificationToast(n))
+    }
+  }
 
   async function loadData() {
     const [cats, prods, setts, catLinks, allVariants, allBundles] = await Promise.all([

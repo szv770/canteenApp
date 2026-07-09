@@ -209,3 +209,13 @@ export interface BundleItem {
 export interface ProductBundleWithItems extends ProductBundle {
   bundle_items: BundleItem[]
 }
+
+export interface CashierNotification {
+  id: string
+  message: string
+  type: 'info' | 'warning' | 'urgent'
+  is_active: boolean
+  expires_at: string | null
+  created_by: string | null
+  created_at: string
+}

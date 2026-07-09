@@ -32,7 +32,7 @@ app/
     settings/        # App-wide settings (tax, cc fee, out-of-stock behavior)
     inventory/       # Stock management
     topups/          # Balance top-up log
-    menu/            # Menu export (CSV) + printable HTML menu (cashiers can view at /menu)
+    notifications/   # Compose & manage cashier notifications (Realtime push to POS)
   (pos)/
     page.tsx         # Main POS terminal
   api/pos/
@@ -77,6 +77,7 @@ lib/utils.ts         # formatCurrency, cn
 | `bundle_items` | `bundle_id`, `product_id`, `quantity` |
 | `app_settings` | Key/value: tax_rate, cc_fee_percent, out_of_stock_behavior, etc. |
 | `account_types` | `is_active bool DEFAULT true` — added 2026-07-07 (was missing from schema) |
+| `cashier_notifications` | `message`, `type` ('info'\|'warning'\|'urgent'), `is_active bool`, `expires_at timestamptz`, `created_by uuid` |
 
 ---
 
@@ -116,7 +117,7 @@ lib/utils.ts         # formatCurrency, cn
 | Bundles in POS | `app/(pos)/pos/page.tsx`, `components/pos/BundleGrid.tsx` | Deals tab wired, addBundleToCart handler |
 | Account type discounts | `app/api/pos/checkout/route.ts` | Per-item: %, cost price, fixed; category exclusions |
 | Checkout mobile layout | `components/pos/CheckoutModal.tsx` | Tip row wraps, cash 3-col, addon sub-line, button cleaner |
-| Menu export + printable flyer | `app/(admin)/menu/page.tsx` | CSV download (products + bundles) + on-screen HTML menu with @media print; sidebar link; cashier-viewable |
+| Cashier notifications | `app/(admin)/notifications/page.tsx`, `app/(pos)/pos/page.tsx` | Admin compose/manage; POS receives via Supabase Realtime + initial fetch on load |
 
 ### ❌ Not Yet Built
 
@@ -154,7 +155,9 @@ lib/utils.ts         # formatCurrency, cn
 
 8. **inventory/page.tsx null stock** — `stock_quantity` is `number | null`; guard with `?? 0` before arithmetic and `?? '∞'` for display. Null = unlimited tracking.
 
-9. **account_types.is_active** — column was missing from initial schema; added via Supabase migration 2026-07-07. If getting "column not found in schema cache" errors on account_types, check this column exists.
+9. **account_types.is_active** — column was missing from initial schema; added via migration 2026-07-07. If getting "column not found in schema cache" errors on account_types, check this column exists.
+
+10. **cashier_notifications Realtime** — POS subscribes to `INSERT` events only. If a notification row already exists when the cashier loads, it is fetched via the initial `loadNotifications()` call (is_active=true, not expired). Urgent toasts have `duration: Infinity` and must be dismissed manually by the cashier.
 
 ---
 
@@ -191,8 +194,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Feat: categories inline in products admin — collapsible panel, no separate nav needed |
 | 2026-07-07 | Feat: landing page payment deep links + copy-to-clipboard for Zelle/Venmo/PayPal handles |
 | 2026-07-07 | Perf: preload all variants in POS loadData() — eliminates per-tap DB fetch |
-| 2026-07-07 | Feat: variants show as individual cards in POS grid — no modal needed, tap directly adds to cart |
-| 2026-07-07 | Feat: variant price defaults to product main price if left blank in admin editor |
 | 2026-07-07 | Feat: cashier tip at checkout — quick amounts ($0.25/$0.50/$1/$2) + custom, configurable routing (Settings → tip_routing) |
 | 2026-07-07 | Feat: refund balance from bochur profile — cash/zelle/cc with method-specific guidance; Zelle requires checkbox confirm |
 | 2026-07-07 | Feat: Account Types admin CRUD page (/account-types) — discount rules (%, cost price, fixed), category exclusions, color tags, sidebar link |
@@ -207,4 +208,4 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: checkout order summary shows addon price in line item total (price + addon_total) |
 | 2026-07-07 | Fix: account_types missing is_active column — added via Supabase migration |
 | 2026-07-07 | Fix: checkout modal mobile layout — tip row wraps on small screens, cash buttons 3-col on mobile, addon names on own line, Complete Order button cleaner |
-| 2026-07-09 | Feat: Menu page (/menu) — CSV export (products + bundles) and printable HTML menu grouped by category; @media print hides nav/buttons; accessible to cashiers at /menu |
+| 2026-07-09 | Feat: cashier notifications — admin compose/manage page (/notifications); POS fetches active notifications on load and subscribes via Supabase Realtime; info/warning/urgent toast styles (urgent stays open until dismissed) |
