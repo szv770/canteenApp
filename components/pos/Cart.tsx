@@ -1,7 +1,7 @@
 'use client'
 
 import { useState } from 'react'
-import { ShoppingCart, Trash2, Plus, Minus, X } from 'lucide-react'
+import { ShoppingCart, Trash2, Plus, Minus, X, Zap } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { CartItem, BochurWithId } from '@/types/database'
 
@@ -11,11 +11,12 @@ interface Props {
   loadedBochur: BochurWithId | null
   settings: Record<string, string>
   onCheckout: () => void
+  onQuickCharge?: () => void
   mobileOpen?: boolean
   onMobileClose?: () => void
 }
 
-export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, mobileOpen, onMobileClose }: Props) {
+export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, onQuickCharge, mobileOpen, onMobileClose }: Props) {
   function updateQtyByIndex(index: number, qty: number) {
     if (qty <= 0) {
       setCart(prev => prev.filter((_, i) => i !== index))
@@ -127,12 +128,21 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
             <span className="text-2xl font-bold text-slate-900 tracking-tight">{formatCurrency(subtotal)}</span>
           </div>
         )}
+        {loadedBochur && onQuickCharge && cart.length > 0 && (
+          <button
+            onClick={onQuickCharge}
+            className="w-full min-h-[52px] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-base flex items-center justify-center gap-2 transition-colors shadow-sm"
+          >
+            <Zap className="w-5 h-5" />
+            Charge to Account · {formatCurrency(subtotal)}
+          </button>
+        )}
         <button
           onClick={onCheckout}
           disabled={cart.length === 0}
           className="btn-brand-lg"
         >
-          {cart.length === 0 ? 'Add items to charge' : `Charge ${formatCurrency(subtotal)}`}
+          {cart.length === 0 ? 'Add items to charge' : (loadedBochur ? `Other Payment · ${formatCurrency(subtotal)}` : `Charge ${formatCurrency(subtotal)}`)}
         </button>
       </div>
     </div>

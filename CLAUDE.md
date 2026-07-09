@@ -115,6 +115,8 @@ lib/utils.ts         # formatCurrency, cn
 | Bundles in POS | `app/(pos)/pos/page.tsx`, `components/pos/BundleGrid.tsx` | Deals tab wired, addBundleToCart handler |
 | Account type discounts | `app/api/pos/checkout/route.ts` | Per-item: %, cost price, fixed; category exclusions |
 | Checkout mobile layout | `components/pos/CheckoutModal.tsx` | Tip row wraps, cash 3-col, addon sub-line, button cleaner |
+| Quick "Charge to Account" | `components/pos/QuickChargeModal.tsx`, `components/pos/Cart.tsx`, `app/(pos)/pos/page.tsx` | Green button in cart when bochur loaded; minimal modal (no tip/method), balance-only, blocks past negative limit / frozen |
+| Link camper at checkout | `components/pos/CheckoutModal.tsx` | When opened w/o bochur, soft prompt to search+link a camper (name/ID) or Skip; selected account enables Balance payment |
 
 ### ❌ Not Yet Built
 
@@ -205,3 +207,5 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-07 | Fix: checkout order summary shows addon price in line item total (price + addon_total) |
 | 2026-07-07 | Fix: account_types missing is_active column — added via Supabase migration |
 | 2026-07-07 | Fix: checkout modal mobile layout — tip row wraps on small screens, cash buttons 3-col on mobile, addon names on own line, Complete Order button cleaner |
+| 2026-07-09 | Feat: Quick "Charge to Account" — green cart button (when bochur loaded) opens minimal QuickChargeModal; balance-only charge via /api/pos/checkout, shows new balance, blocks when past negative limit or frozen. Full Checkout still available for cash/card/mixed |
+| 2026-07-09 | Feat: link camper at checkout — CheckoutModal shows a soft search-and-link prompt when opened without a loaded bochur (search by name/ID, Skip option); selecting an account switches to Balance payment |
