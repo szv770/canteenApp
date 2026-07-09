@@ -3,7 +3,12 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ShoppingBag, Users, Star, RefreshCw } from 'lucide-react'
+import { ArrowLeft, ShoppingBag, Users, Star, RefreshCw, ChevronDown } from 'lucide-react'
+
+interface OrderLineItem {
+  product_name: string
+  quantity: number
+}
 
 interface RecentOrder {
   id: string
@@ -11,7 +16,9 @@ interface RecentOrder {
   total: number
   status: string
   bochur_name: string | null
+  cashier_name: string | null
   item_count: number
+  items: OrderLineItem[]
 }
 
 export default function CashierDashboardPage() {
@@ -23,6 +30,7 @@ export default function CashierDashboardPage() {
   const [topItem, setTopItem] = useState<string | null>(null)
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([])
   const [lastRefresh, setLastRefresh] = useState(new Date())
+  const [expandedId, setExpandedId] = useState<string | null>(null)
 
   const loadData = useCallback(async () => {
     const now = new Date()
@@ -46,7 +54,7 @@ export default function CashierDashboardPage() {
 
       supabase
         .from('orders')
-        .select('id, created_at, total, status, bochurim!bochur_id(name), order_items(quantity)')
+        .select('id, created_at, total, status, bochurim!bochur_id(name), cashier_profiles!cashier_id(name), order_items(product_name, quantity)')
         .gte('created_at', todayStart)
         .lt('created_at', todayEnd)
         .order('created_at', { ascending: false })
@@ -72,7 +80,9 @@ export default function CashierDashboardPage() {
       total: Number(o.total),
       status: o.status,
       bochur_name: (o.bochurim as any)?.name || null,
+      cashier_name: (o.cashier_profiles as any)?.name || null,
       item_count: Array.isArray(o.order_items) ? o.order_items.reduce((s: number, i: any) => s + i.quantity, 0) : 0,
+      items: Array.isArray(o.order_items) ? o.order_items.map((i: any) => ({ product_name: i.product_name, quantity: i.quantity })) : [],
     }))
     setRecentOrders(recent)
 
@@ -168,21 +178,47 @@ export default function CashierDashboardPage() {
             <div className="p-8 text-center text-sm text-slate-400">No orders yet today</div>
           ) : (
             <div className="divide-y divide-slate-100">
-              {recentOrders.map(order => (
-                <div key={order.id} className="px-4 py-3 flex items-center gap-3">
-                  <div className="flex-1 min-w-0">
-                    <p className="text-sm font-medium text-slate-800 truncate">
-                      {order.bochur_name || 'Walk-in'}
-                    </p>
-                    <p className="text-xs text-slate-400">
-                      {formatTime(order.created_at)} · {order.item_count} item{order.item_count !== 1 ? 's' : ''}
-                    </p>
+              {recentOrders.map(order => {
+                const expanded = expandedId === order.id
+                return (
+                  <div key={order.id}>
+                    <button
+                      onClick={() => setExpandedId(expanded ? null : order.id)}
+                      className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors"
+                    >
+                      <div className="flex-1 min-w-0">
+                        <p className="text-sm font-medium text-slate-800 truncate">
+                          {order.bochur_name || 'Walk-in'}
+                        </p>
+                        <p className="text-xs text-slate-400">
+                          {formatTime(order.created_at)} · {order.item_count} item{order.item_count !== 1 ? 's' : ''}
+                          {order.cashier_name && <> · rung by {order.cashier_name}</>}
+                        </p>
+                      </div>
+                      <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${STATUS_BADGE[order.status] || 'bg-slate-50 text-slate-500'}`}>
+                        {order.status}
+                      </span>
+                      <ChevronDown className={`w-4 h-4 text-slate-300 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
+                    </button>
+                    {expanded && (
+                      <div className="px-4 pb-3 -mt-1">
+                        <div className="bg-slate-50 rounded-xl p-3 space-y-1">
+                          {order.items.length === 0 ? (
+                            <p className="text-xs text-slate-400">No item details</p>
+                          ) : (
+                            order.items.map((item, i) => (
+                              <div key={i} className="flex justify-between text-xs text-slate-600">
+                                <span>{item.product_name}</span>
+                                <span className="text-slate-400">x{item.quantity}</span>
+                              </div>
+                            ))
+                          )}
+                        </div>
+                      </div>
+                    )}
                   </div>
-                  <span className={`text-xs font-semibold px-2 py-0.5 rounded-full ${STATUS_BADGE[order.status] || 'bg-slate-50 text-slate-500'}`}>
-                    {order.status}
-                  </span>
-                </div>
-              ))}
+                )
+              })}
             </div>
           )}
         </div>
