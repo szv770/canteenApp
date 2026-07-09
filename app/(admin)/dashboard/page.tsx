@@ -9,6 +9,7 @@ async function getStats(supabase: any) {
   // Use UTC midnight so date boundaries are consistent with stored timestamps
   const now = new Date()
   const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
+  const todayDateStr = today.toISOString().split('T')[0]
   const weekAgo = new Date(today); weekAgo.setUTCDate(weekAgo.getUTCDate() - 7)
   const twoWeeksAgo = new Date(today); twoWeeksAgo.setUTCDate(twoWeeksAgo.getUTCDate() - 14)
   const monthAgo = new Date(today); monthAgo.setUTCMonth(monthAgo.getUTCMonth() - 1)
@@ -24,6 +25,9 @@ async function getStats(supabase: any) {
     topProducts,
     paymentBreakdown,
     settingsRows,
+    todayExpensesRes,
+    todayWastageRes,
+    todayCOGSRes,
   ] = await Promise.all([
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', today.toISOString()),
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', weekAgo.toISOString()),
@@ -51,6 +55,16 @@ async function getStats(supabase: any) {
       .gte('created_at', thirtyDaysAgo.toISOString()),
     // App settings for daily revenue target
     supabase.from('app_settings').select('key,value'),
+    // Today's expenses
+    supabase.from('expense_entries').select('amount').gte('date', todayDateStr).lte('date', todayDateStr),
+    // Today's wastage
+    supabase.from('wastage_log').select('unit_cost, quantity').gte('created_at', today.toISOString()),
+    // Today's COGS from completed order items
+    supabase
+      .from('order_items')
+      .select('cost_price, quantity, orders!inner(created_at, status)')
+      .eq('orders.status', 'completed')
+      .gte('orders.created_at', today.toISOString()),
   ])
 
   // Aggregate top products
@@ -81,6 +95,13 @@ async function getStats(supabase: any) {
   for (const s of (settingsRows.data || [])) settingsMap[s.key] = s.value
   const dailyTarget = parseFloat(settingsMap['daily_revenue_target'] || '0') || 0
 
+  const todayExpenses = (todayExpensesRes.data || []).reduce((s: number, e: any) => s + Number(e.amount), 0)
+  const todayWastage = (todayWastageRes.data || []).reduce((s: number, w: any) => s + Number(w.unit_cost || 0) * Number(w.quantity), 0)
+  let todayCOGS = 0
+  for (const item of (todayCOGSRes.data || []) as any[]) {
+    todayCOGS += Number(item.cost_price || 0) * Number(item.quantity)
+  }
+
   return {
     todayRevenue: (todayOrders.data || []).reduce((s: number, o: any) => s + Number(o.total), 0),
     todayCount: todayOrders.data?.length || 0,
@@ -99,6 +120,9 @@ async function getStats(supabase: any) {
     paymentMap,
     paymentTotal,
     dailyTarget,
+    todayCOGS,
+    todayExpenses,
+    todayWastage,
   }
 }
 
@@ -157,6 +181,7 @@ export default async function DashboardPage() {
   )
 
   const avgOrderValue = stats.todayCount > 0 ? stats.todayRevenue / stats.todayCount : 0
+  const todayNetProfit = stats.todayRevenue - stats.todayCOGS - stats.todayExpenses - stats.todayWastage
 
   const statCards = [
     {
@@ -217,6 +242,23 @@ export default async function DashboardPage() {
             {card.extra && <div className="mt-2">{card.extra}</div>}
           </div>
         ))}
+      </div>
+
+      {/* Today's Net Profit card */}
+      <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:shadow-md transition-shadow duration-200">
+        <div className="flex items-start justify-between mb-3">
+          <div className={`w-10 h-10 rounded-xl flex items-center justify-center ${todayNetProfit >= 0 ? 'bg-emerald-100' : 'bg-red-100'}`}>
+            <TrendingUp className={`w-5 h-5 ${todayNetProfit >= 0 ? 'text-emerald-600' : 'text-red-500'}`} />
+          </div>
+        </div>
+        <p className={`text-3xl font-bold tracking-tight ${todayNetProfit >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>
+          {formatCurrency(todayNetProfit)}
+        </p>
+        <p className="text-sm text-slate-500 font-medium mt-1">{"Today's Net Profit"}</p>
+        <div className="text-xs text-slate-400 mt-1 space-y-0.5">
+          <p>Revenue {formatCurrency(stats.todayRevenue)} · COGS −{formatCurrency(stats.todayCOGS)}</p>
+          <p>Expenses −{formatCurrency(stats.todayExpenses)} · Wastage −{formatCurrency(stats.todayWastage)}</p>
+        </div>
       </div>
 
       {/* Daily Revenue Goal */}
