@@ -6,7 +6,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 const MAX_TOPUP_AMOUNT = 10_000 // $10,000 hard cap — adjust as needed
 const MIN_TOPUP_AMOUNT = 1
-const ALLOWED_METHODS = ['zelle', 'venmo', 'paypal', 'cash'] as const
+const ALLOWED_METHODS = ['zelle', 'venmo', 'paypal', 'cashapp', 'cash', 'credit_card'] as const
 type AllowedMethod = typeof ALLOWED_METHODS[number]
 
 // Simple in-memory rate limiter: max 5 requests per IP per 10 minutes.

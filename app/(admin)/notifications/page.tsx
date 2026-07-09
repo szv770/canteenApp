@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Bell, Send, AlertTriangle, Info, Zap, Eye, EyeOff } from 'lucide-react'
+import { Bell, Send, AlertTriangle, Info, Zap, Eye, EyeOff, Home } from 'lucide-react'
 
 type NotifType = 'info' | 'warning' | 'urgent'
 
@@ -14,6 +14,7 @@ interface CashierNotification {
   expires_at: string | null
   created_by: string | null
   created_at: string
+  show_on_home_page: boolean
 }
 
 function TypeBadge({ type }: { type: NotifType }) {
@@ -63,6 +64,7 @@ export default function NotificationsPage() {
   const [type, setType] = useState<NotifType>('info')
   const [noExpiry, setNoExpiry] = useState(true)
   const [expiryValue, setExpiryValue] = useState('')
+  const [showOnHomePage, setShowOnHomePage] = useState(false)
 
   useEffect(() => {
     loadNotifications()
@@ -95,12 +97,14 @@ export default function NotificationsPage() {
         is_active: true,
         expires_at: noExpiry ? null : new Date(expiryValue).toISOString(),
         created_by: user?.id ?? null,
+        show_on_home_page: showOnHomePage,
       })
       if (!error) {
         setMessage('')
         setType('info')
         setNoExpiry(true)
         setExpiryValue('')
+        setShowOnHomePage(false)
         await loadNotifications()
       }
     } finally {
@@ -220,6 +224,21 @@ export default function NotificationsPage() {
           </div>
         </div>
 
+        <label className="flex items-start gap-2 cursor-pointer bg-amber-50 border border-amber-200 rounded-xl px-3 py-2.5">
+          <input
+            type="checkbox"
+            checked={showOnHomePage}
+            onChange={e => setShowOnHomePage(e.target.checked)}
+            className="mt-0.5 rounded border-slate-300 text-amber-500 focus:ring-amber-400"
+          />
+          <span className="text-sm text-slate-700">
+            <span className="font-medium">Also show on parent home page</span>
+            <span className="block text-xs text-slate-500 mt-0.5">
+              Displayed as an ever-present banner (parents can dismiss it) instead of a cashier popup toast.
+            </span>
+          </span>
+        </label>
+
         <button
           onClick={handleSend}
           disabled={submitting || !message.trim() || (!noExpiry && !expiryValue)}
@@ -281,7 +300,14 @@ export default function NotificationsPage() {
                         )}
                       </td>
                       <td className="px-4 py-3.5">
-                        <TypeBadge type={n.type} />
+                        <div className="flex items-center gap-1.5 flex-wrap">
+                          <TypeBadge type={n.type} />
+                          {n.show_on_home_page && (
+                            <span className="inline-flex items-center gap-1 px-2 py-1 rounded-lg text-xs font-semibold bg-emerald-100 text-emerald-700">
+                              <Home className="w-3 h-3" />Home page
+                            </span>
+                          )}
+                        </div>
                       </td>
                       <td className="px-4 py-3.5 text-slate-500 whitespace-nowrap">
                         {formatDate(n.created_at)}
