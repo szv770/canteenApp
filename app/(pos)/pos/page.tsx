@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { LogOut, Settings, ShoppingCart, Wallet } from 'lucide-react'
+import { LogOut, Settings, ShoppingCart, Wallet, Trash2, BarChart2 } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import BochurSearch from '@/components/pos/BochurSearch'
@@ -15,6 +15,7 @@ import QuickChargeModal from '@/components/pos/QuickChargeModal'
 import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
 import TopUpModal from '@/components/pos/TopUpModal'
+import WastageModal from '@/components/pos/WastageModal'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
 
 export default function PosPage() {
@@ -42,6 +43,7 @@ export default function PosPage() {
   const [loading, setLoading] = useState(true)
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [showTopUp, setShowTopUp] = useState(false)
+  const [showWastage, setShowWastage] = useState(false)
 
   useEffect(() => {
     loadData()
@@ -70,9 +72,32 @@ export default function PosPage() {
       })
       .subscribe()
 
+    // Admin → cashier notifications via Realtime
+    const seen = new Set<string>()
+    const notifChannel = supabase
+      .channel('pos_notifications')
+      .on('postgres_changes', {
+        event: 'INSERT',
+        schema: 'public',
+        table: 'cashier_notifications',
+      }, (payload) => {
+        const n = payload.new as { id: string; message: string; type: string; is_active: boolean; expires_at: string | null }
+        if (!n.is_active || seen.has(n.id)) return
+        if (n.expires_at && new Date(n.expires_at) < new Date()) return
+        seen.add(n.id)
+        const style = n.type === 'urgent'
+          ? { background: '#fef2f2', color: '#991b1b', border: '1px solid #fca5a5' }
+          : n.type === 'warning'
+          ? { background: '#fffbeb', color: '#92400e', border: '1px solid #fcd34d' }
+          : { background: '#eff6ff', color: '#1e3a5f', border: '1px solid #bfdbfe' }
+        toast(n.message, { duration: 8000, style })
+      })
+      .subscribe()
+
     return () => {
       subscription.unsubscribe()
       supabase.removeChannel(channel)
+      supabase.removeChannel(notifChannel)
     }
   }, [])
 
@@ -284,6 +309,21 @@ export default function PosPage() {
             <Wallet className="w-4 h-4" />
             <span className="hidden sm:inline">Top Up</span>
           </button>
+          <button
+            onClick={() => setShowWastage(true)}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 min-h-[44px] rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all"
+            title="Log wastage"
+          >
+            <Trash2 className="w-4 h-4" />
+            <span className="hidden sm:inline">Wastage</span>
+          </button>
+          <button
+            onClick={() => router.push('/cashier-dashboard')}
+            className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-all"
+            title="My activity"
+          >
+            <BarChart2 className="w-5 h-5" />
+          </button>
           {cashierRole === 'admin' && (
             <button
               onClick={() => router.push('/dashboard')}
@@ -429,6 +469,13 @@ export default function PosPage() {
         <TopUpModal
           onClose={() => setShowTopUp(false)}
           onSuccess={() => { if (loadedBochur) loadData() }}
+        />
+      )}
+
+      {showWastage && (
+        <WastageModal
+          onClose={() => setShowWastage(false)}
+          onSuccess={() => { setShowWastage(false); loadData() }}
         />
       )}
 

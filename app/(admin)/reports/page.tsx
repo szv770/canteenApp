@@ -45,6 +45,8 @@ interface CashierData {
 interface FinancialData {
   gross: number
   cogs: number
+  expenses: number
+  wastage: number
   net: number
   margin: number
 }
@@ -260,6 +262,8 @@ export default function ReportsPage() {
       productsRes,
       allOrdersForCustomers,
       accountTypeOrdersRes,
+      expensesRes,
+      wastageRes,
     ] = await Promise.all([
       // All orders in range (any status) for void/refund stats + bochur name for CSV
       supabase
@@ -301,6 +305,20 @@ export default function ReportsPage() {
         .from('orders')
         .select('total, bochur_id, bochurim!bochur_id(account_types(name))')
         .eq('status', 'completed')
+        .gte('created_at', fromISO)
+        .lt('created_at', toISO),
+
+      // Expense entries in range
+      supabase
+        .from('expense_entries')
+        .select('amount')
+        .gte('date', fromISO.split('T')[0])
+        .lte('date', toISO.split('T')[0]),
+
+      // Wastage log in range
+      supabase
+        .from('wastage_log')
+        .select('quantity, unit_cost')
         .gte('created_at', fromISO)
         .lt('created_at', toISO),
     ])
@@ -393,9 +411,11 @@ export default function ReportsPage() {
       const cost = Number((item.products as any)?.cost_price || 0)
       cogs += cost * item.quantity
     }
-    const net = gross - cogs
+    const expenses = (expensesRes.data || []).reduce((s: number, e: any) => s + Number(e.amount), 0)
+    const wastage = (wastageRes.data || []).reduce((s: number, w: any) => s + Number(w.unit_cost || 0) * Number(w.quantity), 0)
+    const net = gross - cogs - expenses - wastage
     const margin = gross > 0 ? (net / gross) * 100 : 0
-    setFinancial({ gross, cogs, net, margin })
+    setFinancial({ gross, cogs, expenses, wastage, net, margin })
 
     // ── 8: Void & refund rate ─────────────────────────────────────────────────
 
@@ -755,9 +775,9 @@ export default function ReportsPage() {
       </div>
 
       {/* ── Section 7: Gross vs Net (summary strip) ────────────────────────── */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         {loading ? (
-          Array.from({ length: 4 }).map((_, i) => (
+          Array.from({ length: 5 }).map((_, i) => (
             <div key={i} className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
               <StatSkeleton />
             </div>
@@ -769,16 +789,21 @@ export default function ReportsPage() {
               <p className="text-2xl font-bold text-slate-900 mt-1">{formatCurrency(financial.gross)}</p>
             </div>
             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">COGS</p>
-              <p className="text-2xl font-bold text-red-500 mt-1">{formatCurrency(financial.cogs)}</p>
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Product COGS</p>
+              <p className="text-2xl font-bold text-orange-500 mt-1">{formatCurrency(financial.cogs)}</p>
             </div>
             <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Expenses</p>
+              <p className="text-2xl font-bold text-red-500 mt-1">{formatCurrency(financial.expenses)}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Wastage</p>
+              <p className="text-2xl font-bold text-red-400 mt-1">{formatCurrency(financial.wastage)}</p>
+            </div>
+            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5 sm:col-span-3 lg:col-span-1">
               <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Net Profit</p>
-              <p className="text-2xl font-bold text-emerald-600 mt-1">{formatCurrency(financial.net)}</p>
-            </div>
-            <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
-              <p className="text-xs font-semibold text-slate-400 uppercase tracking-widest">Profit Margin</p>
-              <p className="text-2xl font-bold text-violet-600 mt-1">{financial.margin.toFixed(1)}%</p>
+              <p className={`text-2xl font-bold mt-1 ${financial.net >= 0 ? 'text-emerald-600' : 'text-red-600'}`}>{formatCurrency(financial.net)}</p>
+              <p className="text-xs text-slate-400 mt-1">{financial.margin.toFixed(1)}% margin</p>
             </div>
           </>
         ) : null}
@@ -1062,7 +1087,7 @@ export default function ReportsPage() {
                     position: 'right',
                     fontSize: 10,
                     fill: '#94a3b8',
-                    formatter: (v: number) => formatCurrency(v),
+                    formatter: (v: any) => formatCurrency(Number(v)),
                   }}
                 />
               </BarChart>

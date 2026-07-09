@@ -8,11 +8,11 @@ import toast from 'react-hot-toast'
 import type { Product } from '@/types/database'
 
 interface Props {
-  cashierId: string
   onClose: () => void
+  onSuccess?: () => void
 }
 
-export default function WastageModal({ cashierId, onClose }: Props) {
+export default function WastageModal({ onClose, onSuccess }: Props) {
   const supabase = createClient()
   const [products, setProducts] = useState<Product[]>([])
   const [loading, setLoading] = useState(true)
@@ -22,8 +22,12 @@ export default function WastageModal({ cashierId, onClose }: Props) {
   const [quantity, setQuantity] = useState(1)
   const [reason, setReason] = useState('')
   const [deductStock, setDeductStock] = useState(true)
+  const [cashierId, setCashierId] = useState<string | null>(null)
 
   useEffect(() => {
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (user) setCashierId(user.id)
+    })
     supabase
       .from('products')
       .select('*')
@@ -83,7 +87,7 @@ export default function WastageModal({ cashierId, onClose }: Props) {
       })
 
       toast.success('Waste logged')
-      onClose()
+      onSuccess ? onSuccess() : onClose()
     } catch (err: any) {
       toast.error(err.message || 'Failed to log waste')
     } finally {
