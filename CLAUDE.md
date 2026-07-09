@@ -82,6 +82,8 @@ lib/utils.ts         # formatCurrency, cn
 | `refund_requests` | `order_id`, `requested_by`, `reason`, `amount`, `status` (pending/approved/rejected), `resolved_by`, `resolution_note` |
 | `bochurim` | Also has `banned_until timestamptz`, `ban_reason text`, `allow_negative bool`, `max_negative_balance numeric` |
 | `products` | Also has `image_url text` for Supabase Storage (bucket: `product-images`) |
+| `cashier_notifications` | Also has `show_on_home_page bool DEFAULT false` — added 2026-07-09; same composer posts to cashier POS toast and/or parent home page banner |
+| `balance_topups` | `method` check constraint extended to include `cashapp`, `credit_card` (was cash/zelle/venmo/paypal/stripe/manual) — added 2026-07-09 |
 
 ---
 
@@ -137,6 +139,12 @@ lib/utils.ts         # formatCurrency, cn
 | Manual CC checkout | `components/pos/CheckoutModal.tsx` | Shows "Charge $X on your reader" + enables Complete Order |
 | COGS in reports | `app/(admin)/reports/page.tsx` | 5-card strip: Gross / Product COGS / Expenses / Wastage / Net Profit |
 | Supabase Storage bucket | Migration | `product-images` bucket (public, 5MB, image/* types) with RLS |
+| Home page redesign | `app/LandingClient.tsx`, `app/page.tsx` | Reordered sections, balanced hero text wrap, Cash App added, general "include CANTEEN - camper name in notes" banner |
+| Online credit card top-up | `app/LandingClient.tsx`, `app/(admin)/settings/page.tsx` | Admin toggle + link (optional amount/name query-param prefill for Stripe); parent sees no-refund warning modal before opening link; still submits a normal pending top-up request |
+| Home page announcements | `app/(admin)/notifications/page.tsx`, `app/LandingClient.tsx`, `lib/home.ts` | Same composer as cashier notifications, `show_on_home_page` checkbox; renders as dismissible (localStorage) banner on home page vs. popup toast for cashiers |
+| Popular items section | `app/(admin)/settings/page.tsx`, `app/api/home/top-sellers/route.ts`, `lib/home.ts` | Manual (admin-typed, default) or Auto mode; Auto safely aggregates last-30-day completed order_items server-side and only ever returns product name + icon — no prices/costs/customer data |
+| Nine Days menu section | `app/(admin)/settings/page.tsx`, `app/LandingClient.tsx` | Admin blurb + optional flyer (image/PDF) upload to new `site-assets` bucket; section hidden unless filled in |
+| Supabase Storage bucket | Migration | `site-assets` bucket (public, 10MB, image/*+PDF) with RLS — home page assets like the Nine Days flyer |
 
 ### ✅ Also Working
 
@@ -180,6 +188,8 @@ lib/utils.ts         # formatCurrency, cn
 8. **inventory/page.tsx null stock** — `stock_quantity` is `number | null`; guard with `?? 0` before arithmetic and `?? '∞'` for display. Null = unlimited tracking.
 
 9. **account_types.is_active** — column was missing from initial schema; added via Supabase migration 2026-07-07. If getting "column not found in schema cache" errors on account_types, check this column exists.
+
+10. **Public home page data must go through `lib/home.ts` (service-role, tightly-scoped selects)** — `cashier_notifications` and `order_items`/`orders` have no anon RLS SELECT policy on purpose (they contain internal/customer data). The home page and `/api/home/top-sellers` never query them with the anon client; they use `createAdminClient()` in `lib/home.ts` and select only the specific columns needed (e.g. `id, message, type` for announcements; product `name, icon` only for top sellers — never prices, costs, quantities, or order/customer fields). Do not widen these selects without re-checking what becomes publicly visible.
 
 ---
 
@@ -257,3 +267,5 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Feat: daily revenue target gauge on dashboard — progress bar toward target set in settings |
 | 2026-07-09 | Feat: low balance alert log — failed balance checkouts logged to failed_checkout_log; shown on dashboard |
 | 2026-07-09 | Feat: checkout discount preview — account type discount shown as line item with estimated amount |
+| 2026-07-09 | Feat: home page redesign — Cash App payment method, online credit card top-up with no-refund warning modal, general payment-notes reminder banner ("CANTEEN - camper name"), Popular Items section (manual or safe DB-aggregated), Nine Days blurb + flyer upload, dismissible admin-posted home page announcement banner, hero text-wrap/spacing cleanup |
+| 2026-07-09 | Infra: added `cashier_notifications.show_on_home_page` column; extended `balance_topups.method` check constraint with `cashapp`/`credit_card`; created `site-assets` Storage bucket (public, 10MB, image/PDF) with RLS |
