@@ -231,8 +231,16 @@ export default function PosPage() {
   const filteredProducts = products.filter(p => {
     const matchesSearch = !searchQuery || p.name.toLowerCase().includes(searchQuery.toLowerCase())
     if (!matchesSearch) return false
-    if (!selectedCategory) return true
-    return (productCategoryMap[p.id] || []).includes(selectedCategory)
+    if (!selectedCategory || selectedCategory === DEALS_TAB) return true
+    const productCats = productCategoryMap[p.id] || []
+    const selCat = categories.find(c => c.id === selectedCategory)
+    // Top-level category selected → match the category itself OR any of its subcategories
+    if (selCat && !selCat.parent_id) {
+      const subIds = categories.filter(c => c.parent_id === selectedCategory).map(c => c.id)
+      return productCats.includes(selectedCategory) || subIds.some(id => productCats.includes(id))
+    }
+    // Subcategory (or unknown) → exact match only
+    return productCats.includes(selectedCategory)
   })
 
   const outOfStockBehavior = settings['out_of_stock_behavior'] || 'warn'
