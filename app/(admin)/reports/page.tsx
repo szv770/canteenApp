@@ -237,6 +237,10 @@ export default function ReportsPage() {
   const [dailyAvgOrder, setDailyAvgOrder] = useState<DailyAvgOrder[]>([])
   const [accountTypeRevenue, setAccountTypeRevenue] = useState<AccountTypeRevData[]>([])
   const [visitFrequency, setVisitFrequency] = useState<VisitFreqData[]>([])
+  const [dailyRevenue, setDailyRevenue] = useState<{ date: string; revenue: number }[]>([])
+  const [dayOfWeekRevenue, setDayOfWeekRevenue] = useState<{ day: string; revenue: number; count: number; avg: number }[]>([])
+  const [categoriesDetail, setCategoriesDetail] = useState<{ name: string; revenue: number; quantity: number }[]>([])
+  const [topSpenders, setTopSpenders] = useState<{ name: string; total: number }[]>([])
 
   function resolveRange(): { fromISO: string; toISO: string } {
     if (range === 'custom') {
@@ -603,6 +607,75 @@ export default function ReportsPage() {
       { bucket: '2–5 visits', count: freq2to5 },
       { bucket: '6+ visits', count: freq6plus },
     ])
+
+    // ── 17: Daily revenue over range ──────────────────────────────────────────
+
+    const dailyRevMap: Record<string, number> = {}
+    for (const order of completedOrders) {
+      const dateKey = order.created_at.split('T')[0]
+      dailyRevMap[dateKey] = (dailyRevMap[dateKey] || 0) + Number(order.total)
+    }
+    // Fill every calendar day in the range (missing days get 0)
+    const rangeFrom = new Date(fromISO)
+    const rangeTo = new Date(toISO)
+    const dailyRevData: { date: string; revenue: number }[] = []
+    const cur = new Date(rangeFrom)
+    while (cur < rangeTo) {
+      const dateKey = cur.toISOString().split('T')[0]
+      const label = new Date(dateKey + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      dailyRevData.push({ date: label, revenue: dailyRevMap[dateKey] || 0 })
+      cur.setUTCDate(cur.getUTCDate() + 1)
+    }
+    setDailyRevenue(dailyRevData)
+
+    // ── 18: Day-of-week revenue ────────────────────────────────────────────────
+
+    const DOW_LABELS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    const dowMap: Record<number, { revenue: number; count: number }> = {}
+    for (let i = 0; i < 7; i++) dowMap[i] = { revenue: 0, count: 0 }
+    for (const order of completedOrders) {
+      const dow = new Date(order.created_at).getUTCDay()
+      dowMap[dow].revenue += Number(order.total)
+      dowMap[dow].count += 1
+    }
+    // Order Mon→Sun
+    const dowData = [1, 2, 3, 4, 5, 6, 0].map(i => ({
+      day: DOW_LABELS[i],
+      revenue: dowMap[i].revenue,
+      count: dowMap[i].count,
+      avg: dowMap[i].count > 0 ? dowMap[i].revenue / dowMap[i].count : 0,
+    }))
+    setDayOfWeekRevenue(dowData)
+
+    // ── 19: Category revenue detail table ────────────────────────────────────
+
+    const catDetailMap: Record<string, { revenue: number; quantity: number }> = {}
+    for (const item of (orderItemsRes.data || []) as any[]) {
+      const catName =
+        (item.products as any)?.product_categories?.[0]?.categories?.name ||
+        'Uncategorised'
+      if (!catDetailMap[catName]) catDetailMap[catName] = { revenue: 0, quantity: 0 }
+      catDetailMap[catName].revenue += Number(item.total)
+      catDetailMap[catName].quantity += Number(item.quantity)
+    }
+    const catDetailData = Object.entries(catDetailMap)
+      .map(([name, d]) => ({ name, revenue: d.revenue, quantity: d.quantity }))
+      .sort((a, b) => b.revenue - a.revenue)
+    setCategoriesDetail(catDetailData)
+
+    // ── 20: Top 10 student spenders ───────────────────────────────────────────
+
+    const spenderMap: Record<string, { name: string; total: number }> = {}
+    for (const order of (ordersRes.data || []) as any[]) {
+      if (!order.bochur_id || order.status !== 'completed') continue
+      const name = (order.bochurim as any)?.name || 'Unknown'
+      if (!spenderMap[order.bochur_id]) spenderMap[order.bochur_id] = { name, total: 0 }
+      spenderMap[order.bochur_id].total += Number(order.total)
+    }
+    const topSpendersData = Object.values(spenderMap)
+      .sort((a, b) => b.total - a.total)
+      .slice(0, 10)
+    setTopSpenders(topSpendersData)
 
     setLoading(false)
   // eslint-disable-next-line react-hooks/exhaustive-deps
@@ -1357,6 +1430,154 @@ export default function ReportsPage() {
                 ))}
               </tbody>
             </table>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── Section A: Daily Revenue Line Chart ──────────────────────────────── */}
+      <SectionCard title="Daily Revenue" subtitle="Total revenue by day over selected range">
+        {loading ? (
+          <ChartSkeleton />
+        ) : dailyRevenue.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-10">No orders in this period</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={240}>
+            <LineChart data={dailyRevenue} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={false}
+                interval={Math.max(0, Math.floor(dailyRevenue.length / 8) - 1)}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: any) => `$${v}`}
+              />
+              <Tooltip
+                formatter={(value: any) => [formatCurrency(Number(value)), 'Revenue']}
+                labelStyle={{ color: '#475569', fontWeight: 600 }}
+                contentStyle={{ border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12 }}
+              />
+              <Line
+                type="monotone"
+                dataKey="revenue"
+                name="Revenue"
+                stroke="#10b981"
+                strokeWidth={2}
+                dot={dailyRevenue.length <= 31}
+                activeDot={{ r: 4 }}
+              />
+            </LineChart>
+          </ResponsiveContainer>
+        )}
+      </SectionCard>
+
+      {/* ── Section B: Day-of-Week Revenue Bar Chart ─────────────────────────── */}
+      <SectionCard title="Revenue by Day of Week" subtitle="Average daily revenue Mon–Sun over selected range">
+        {loading ? (
+          <ChartSkeleton />
+        ) : dayOfWeekRevenue.every(d => d.revenue === 0) ? (
+          <p className="text-sm text-slate-400 text-center py-10">No orders in this period</p>
+        ) : (
+          <ResponsiveContainer width="100%" height={220}>
+            <BarChart data={dayOfWeekRevenue} margin={{ top: 4, right: 4, left: -10, bottom: 0 }}>
+              <CartesianGrid strokeDasharray="3 3" stroke="#f1f5f9" />
+              <XAxis
+                dataKey="day"
+                tick={{ fontSize: 11, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={false}
+              />
+              <YAxis
+                tick={{ fontSize: 10, fill: '#94a3b8' }}
+                tickLine={false}
+                axisLine={false}
+                tickFormatter={(v: any) => `$${v}`}
+              />
+              <Tooltip
+                formatter={(value: any, name: any) => [
+                  name === 'avg' ? formatCurrency(Number(value)) : Number(value),
+                  name === 'avg' ? 'Avg Revenue' : name === 'revenue' ? 'Total Revenue' : 'Orders',
+                ]}
+                labelStyle={{ color: '#475569', fontWeight: 600 }}
+                contentStyle={{ border: '1px solid #e2e8f0', borderRadius: 8, fontSize: 12 }}
+              />
+              <Legend formatter={(v: any) => v === 'revenue' ? 'Total Revenue' : v === 'avg' ? 'Avg Revenue/Day' : v} />
+              <Bar dataKey="revenue" name="revenue" fill="#6366f1" radius={[3, 3, 0, 0]} />
+              <Bar dataKey="avg" name="avg" fill="#a5b4fc" radius={[3, 3, 0, 0]} />
+            </BarChart>
+          </ResponsiveContainer>
+        )}
+      </SectionCard>
+
+      {/* ── Section C: Category Revenue Table ────────────────────────────────── */}
+      <SectionCard title="Revenue by Category" subtitle="Total revenue and units sold per category — sorted by revenue">
+        {loading ? (
+          <ChartSkeleton height={180} />
+        ) : categoriesDetail.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-10">No category data in this period</p>
+        ) : (
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[400px]">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">#</th>
+                  <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Category</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide py-2 pr-4">Units Sold</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide py-2">Revenue</th>
+                </tr>
+              </thead>
+              <tbody>
+                {categoriesDetail.map((cat, i) => (
+                  <tr
+                    key={cat.name}
+                    className={`border-b border-slate-50 last:border-0 ${i % 2 === 1 ? 'bg-slate-50/50' : ''}`}
+                  >
+                    <td className="py-2.5 pr-4 text-xs text-slate-400 font-medium">#{i + 1}</td>
+                    <td className="py-2.5 pr-4 text-sm font-medium text-slate-800">{cat.name}</td>
+                    <td className="py-2.5 pr-4 text-sm text-slate-600 text-right">{cat.quantity}</td>
+                    <td className="py-2.5 text-sm font-semibold text-slate-800 text-right">{formatCurrency(cat.revenue)}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        )}
+      </SectionCard>
+
+      {/* ── Section D: Top 10 Student Spenders ───────────────────────────────── */}
+      <SectionCard title="Top 10 Student Spenders" subtitle="Highest-spending bochurim in selected period">
+        {loading ? (
+          <ChartSkeleton height={220} />
+        ) : topSpenders.length === 0 ? (
+          <p className="text-sm text-slate-400 text-center py-10">No student orders in this period</p>
+        ) : (
+          <div className="space-y-2">
+            {topSpenders.map((s, i) => {
+              const maxTotal = topSpenders[0]?.total || 1
+              const pct = (s.total / maxTotal) * 100
+              return (
+                <div key={`${s.name}-${i}`} className="flex items-center gap-3">
+                  <span className="w-6 text-xs font-bold text-slate-400 text-right shrink-0">#{i + 1}</span>
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center justify-between mb-1">
+                      <span className="text-sm font-medium text-slate-800 truncate">{s.name}</span>
+                      <span className="text-sm font-bold text-slate-900 ml-2 shrink-0">{formatCurrency(s.total)}</span>
+                    </div>
+                    <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
+                      <div
+                        className="h-full bg-indigo-400 rounded-full transition-all"
+                        style={{ width: `${pct}%` }}
+                      />
+                    </div>
+                  </div>
+                </div>
+              )
+            })}
           </div>
         )}
       </SectionCard>

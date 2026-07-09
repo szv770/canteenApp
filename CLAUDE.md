@@ -157,6 +157,8 @@ lib/utils.ts         # formatCurrency, cn
 | Low balance alert log | `app/(admin)/dashboard/page.tsx`, `app/api/pos/checkout/route.ts` | Failed balance checkouts logged to `failed_checkout_log` table; shown as today's table on dashboard |
 | Checkout discount preview | `components/pos/CheckoutModal.tsx` | Account type discount shown as line item with estimated $ amount; coupon shown separately |
 | Accounts page (financial reconciliation) | `app/(admin)/accounts/page.tsx` | Date-range payment balances by method (Cash/Zelle/CC/Balance/Total) + outstanding student balance liability card + withdrawal log with add/delete |
+| Dashboard Net Profit card | `app/(admin)/dashboard/page.tsx` | Today's revenue − COGS − expenses − wastage; green if positive, red if negative |
+| Reports enhanced analytics | `app/(admin)/reports/page.tsx` | Daily Revenue line chart, Day-of-Week bar chart, Category Revenue table, Top 10 Student Spenders ranked list |
 
 ### ❌ Not Yet Built
 
@@ -283,3 +285,5 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Feat: category filter pills on products admin page — All + one pill per category for client-side filtering; active pill highlighted with category color |
 | 2026-07-09 | Feat: category delete warning now shows product count affected; product count shown on hover in category panel |
 | 2026-07-09 | Chore: removed "Categories" from sidebar nav — categories are managed inline on the Products page |
+| 2026-07-09 | Feat: dashboard Today's Net Profit card — queries today's expenses, wastage, COGS; shows revenue minus all costs in green/red |
+| 2026-07-09 | Feat: reports new sections — Daily Revenue line chart (fills missing dates), Day-of-Week bar chart (Mon–Sun total + avg), Category Revenue table (zebra rows, units+revenue), Top 10 Student Spenders ranked list |
