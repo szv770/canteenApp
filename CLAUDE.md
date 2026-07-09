@@ -32,6 +32,7 @@ app/
     settings/        # App-wide settings (tax, cc fee, out-of-stock behavior)
     inventory/       # Stock management
     topups/          # Balance top-up log
+    accounts/        # Financial reconciliation — payment balances by method + withdrawal log
   (pos)/
     page.tsx         # Main POS terminal
   api/pos/
@@ -84,6 +85,7 @@ lib/utils.ts         # formatCurrency, cn
 | `products` | Also has `image_url text` for Supabase Storage (bucket: `product-images`) |
 | `cashier_notifications` | Also has `show_on_home_page bool DEFAULT false` — added 2026-07-09; same composer posts to cashier POS toast and/or parent home page banner |
 | `balance_topups` | `method` check constraint extended to include `cashapp`, `credit_card` (was cash/zelle/venmo/paypal/stripe/manual) — added 2026-07-09 |
+| `withdrawal_log` | `account` (zelle/stripe/cash), `amount`, `date`, `note`, `recorded_by` — added 2026-07-09 |
 
 ---
 
@@ -154,6 +156,7 @@ lib/utils.ts         # formatCurrency, cn
 | Daily revenue target gauge | `app/(admin)/dashboard/page.tsx`, `settings/page.tsx` | Progress bar on dashboard; set target in Settings → Daily Revenue Target |
 | Low balance alert log | `app/(admin)/dashboard/page.tsx`, `app/api/pos/checkout/route.ts` | Failed balance checkouts logged to `failed_checkout_log` table; shown as today's table on dashboard |
 | Checkout discount preview | `components/pos/CheckoutModal.tsx` | Account type discount shown as line item with estimated $ amount; coupon shown separately |
+| Accounts page (financial reconciliation) | `app/(admin)/accounts/page.tsx` | Date-range payment balances by method (Cash/Zelle/CC/Balance/Total) + outstanding student balance liability card + withdrawal log with add/delete |
 | Dashboard Net Profit card | `app/(admin)/dashboard/page.tsx` | Today's revenue − COGS − expenses − wastage; green if positive, red if negative |
 | Reports enhanced analytics | `app/(admin)/reports/page.tsx` | Daily Revenue line chart, Day-of-Week bar chart, Category Revenue table, Top 10 Student Spenders ranked list |
 
@@ -278,5 +281,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Feat: cashier dashboard "Recent Orders" — tap to expand and see actual item names bought (not just a count); now shows which cashier rang up each order since all cashiers share this view; still no prices/$ shown |
 | 2026-07-09 | Fix: CC top-up warning modal now explicitly tells parents the payment link opens in a new tab and to come back to submit the request — the app already opens Stripe/CC links via `window.open(..., '_blank')` rather than a same-tab redirect, so no dependency on Stripe redirecting back into the site |
 | 2026-07-09 | Fix: `payment_cc_link` opened as a relative path (e.g. `canteen.szvtech.org/randomlink.com/...`) when the admin typed a link without `http(s)://` — now auto-prefixed with `https://` if missing |
+| 2026-07-09 | Feat: Accounts admin page (/accounts) — date-range payment balance cards (Cash/Zelle/CC/Balance/Total), outstanding student balance liability, withdrawal log with form + delete; new `withdrawal_log` table with RLS |
 | 2026-07-09 | Feat: dashboard Today's Net Profit card — queries today's expenses, wastage, COGS; shows revenue minus all costs in green/red |
 | 2026-07-09 | Feat: reports new sections — Daily Revenue line chart (fills missing dates), Day-of-Week bar chart (Mon–Sun total + avg), Category Revenue table (zebra rows, units+revenue), Top 10 Student Spenders ranked list |
