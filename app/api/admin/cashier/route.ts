@@ -102,6 +102,14 @@ export async function PATCH(req: NextRequest) {
   if (name !== undefined && typeof name === 'string') profileUpdate.name = name.trim()
   if (role !== undefined) profileUpdate.role = role
   if (is_active !== undefined && typeof is_active === 'boolean') profileUpdate.is_active = is_active
+  // bochur_id: allow setting (UUID string) or unsetting (null)
+  if ('bochur_id' in body) {
+    profileUpdate.bochur_id = body.bochur_id ?? null
+  }
+  // tip_balance: allow resetting to 0 (mark tips paid out)
+  if ('tip_balance' in body && typeof body.tip_balance === 'number') {
+    profileUpdate.tip_balance = body.tip_balance
+  }
 
   if (Object.keys(profileUpdate).length > 0) {
     const { error } = await admin.from('cashier_profiles').update(profileUpdate).eq('id', id)
