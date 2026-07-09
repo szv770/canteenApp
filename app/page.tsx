@@ -1,5 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import LandingClient from './LandingClient'
+import { getAutoTopSellers, getHomeAnnouncement, TopSellerItem } from '@/lib/home'
 
 export default async function HomePage() {
   const supabase = createClient()
@@ -13,5 +14,26 @@ export default async function HomePage() {
     settings[s.key] = raw.startsWith('"') ? raw.slice(1, -1) : raw
   })
 
-  return <LandingClient loggedIn={!!user} settings={settings} />
+  const announcement = await getHomeAnnouncement()
+
+  let topSellers: TopSellerItem[] = []
+  if (settings['top_sellers_mode'] === 'auto') {
+    topSellers = await getAutoTopSellers()
+  } else {
+    topSellers = (settings['top_sellers_manual'] || '')
+      .split('\n')
+      .map(s => s.trim())
+      .filter(Boolean)
+      .slice(0, 5)
+      .map(name => ({ name, icon: null }))
+  }
+
+  return (
+    <LandingClient
+      loggedIn={!!user}
+      settings={settings}
+      announcement={announcement}
+      topSellers={topSellers}
+    />
+  )
 }

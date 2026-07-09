@@ -1,15 +1,15 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Save } from 'lucide-react'
+import { Save, Upload, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface SettingRow {
   key: string
   label: string
   description: string
-  type: 'toggle' | 'number' | 'select' | 'text'
+  type: 'toggle' | 'number' | 'select' | 'text' | 'textarea'
   options?: { value: string; label: string }[]
 }
 
@@ -43,11 +43,34 @@ const PAYMENT_SETTINGS: SettingRow[] = [
   { key: 'payment_venmo_info', label: 'Venmo Handle', description: 'e.g. @YeshivaCanteen', type: 'text' },
   { key: 'payment_paypal_enabled', label: 'PayPal', description: 'Show PayPal as a payment option for parents', type: 'toggle' },
   { key: 'payment_paypal_info', label: 'PayPal Link / Email', description: 'PayPal.me link or email address', type: 'text' },
+  { key: 'payment_cashapp_enabled', label: 'Cash App', description: 'Show Cash App as a payment option for parents', type: 'toggle' },
+  { key: 'payment_cashapp_info', label: 'Cash App $Cashtag', description: 'e.g. $YeshivaCanteen', type: 'text' },
   { key: 'payment_cash_enabled', label: 'Cash / Check', description: 'Show bring-cash option on the parent page', type: 'toggle' },
+]
+
+const CC_PAYMENT_SETTINGS: SettingRow[] = [
+  { key: 'payment_cc_enabled', label: 'Credit Card (Online)', description: 'Show an online credit card top-up option for parents', type: 'toggle' },
+  { key: 'payment_cc_link', label: 'Payment Link', description: 'Your Stripe (or other) payment link parents are sent to', type: 'text' },
+  { key: 'payment_cc_prefill_enabled', label: 'Append Amount / Name to Link', description: 'Add query params to the link with the amount and student name entered in the form', type: 'toggle' },
+  { key: 'payment_cc_amount_param', label: 'Amount Param Name', description: 'Query param name for the amount, e.g. prefilled_amount', type: 'text' },
+  { key: 'payment_cc_name_param', label: 'Name Param Name', description: 'Query param name for the student name, e.g. client_reference_id', type: 'text' },
+]
+
+const TOP_SELLERS_SETTINGS: SettingRow[] = [
+  { key: 'top_sellers_mode', label: 'Mode', description: 'How the "Popular right now" list on the home page is filled', type: 'select', options: [
+    { value: 'manual', label: 'Manual — I type the list' },
+    { value: 'auto', label: 'Auto — pull from recent sales' },
+  ]},
+  { key: 'top_sellers_manual', label: 'Manual List', description: 'One item per line, up to 5 (used when Mode is Manual)', type: 'textarea' },
+]
+
+const NINE_DAYS_SETTINGS: SettingRow[] = [
+  { key: 'nine_days_blurb', label: 'Blurb', description: "Short note about Nine Days alternatives, shown on the home page", type: 'textarea' },
 ]
 
 function SettingControl({ s, settings, set }: { s: SettingRow; settings: Record<string, string>; set: (k: string, v: string) => void }) {
   const isToggle = s.type === 'toggle'
+  const isTextarea = s.type === 'textarea'
   return (
     <div className={`admin-card p-4 ${isToggle ? 'flex items-start justify-between gap-4' : 'space-y-2'}`}>
       <div className={isToggle ? 'flex-1 min-w-0' : ''}>
@@ -74,6 +97,62 @@ function SettingControl({ s, settings, set }: { s: SettingRow; settings: Record<
         {s.type === 'text' && (
           <input type="text" className="input-admin w-full" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} />
         )}
+        {isTextarea && (
+          <textarea rows={4} className="input-admin w-full resize-none" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} />
+        )}
+      </div>
+    </div>
+  )
+}
+
+function NineDaysFlyerUpload({ settings, set }: { settings: Record<string, string>; set: (k: string, v: string) => void }) {
+  const supabase = createClient()
+  const fileInputRef = useRef<HTMLInputElement>(null)
+  const [uploading, setUploading] = useState(false)
+  const fileUrl = settings['nine_days_file_url'] || ''
+
+  async function handleUpload(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0]
+    if (!file) return
+    setUploading(true)
+    try {
+      const ext = file.name.split('.').pop() || 'png'
+      const filename = `nine-days-${Date.now()}.${ext}`
+      const { error: uploadError } = await supabase.storage
+        .from('site-assets')
+        .upload(filename, file, { upsert: true })
+      if (uploadError) {
+        toast.error(`Upload failed: ${uploadError.message}`)
+        return
+      }
+      const { data: urlData } = supabase.storage.from('site-assets').getPublicUrl(filename)
+      set('nine_days_file_url', urlData.publicUrl)
+      toast.success('Flyer uploaded')
+    } finally {
+      setUploading(false)
+      if (fileInputRef.current) fileInputRef.current.value = ''
+    }
+  }
+
+  return (
+    <div className="admin-card p-4 space-y-2">
+      <p className="text-sm font-semibold text-gray-900">Flyer (image or PDF)</p>
+      <p className="text-xs text-gray-400 mt-0.5">Optional — shown as a link/thumbnail below the blurb</p>
+      <div className="flex items-center gap-3 pt-1">
+        {fileUrl && (
+          <a href={fileUrl} target="_blank" rel="noopener noreferrer" className="flex items-center gap-1.5 text-sm text-brand hover:underline">
+            <FileText className="w-4 h-4" /> View current flyer
+          </a>
+        )}
+        <input ref={fileInputRef} type="file" accept="image/*,application/pdf" className="hidden" onChange={handleUpload} />
+        <button type="button" onClick={() => fileInputRef.current?.click()} disabled={uploading} className="btn-secondary text-sm flex items-center gap-1.5">
+          <Upload className="w-3.5 h-3.5" /> {uploading ? 'Uploading...' : fileUrl ? 'Replace' : 'Upload Flyer'}
+        </button>
+        {fileUrl && (
+          <button type="button" onClick={() => set('nine_days_file_url', '')} className="text-sm text-red-500 hover:text-red-600 font-medium">
+            Remove
+          </button>
+        )}
       </div>
     </div>
   )
@@ -98,8 +177,10 @@ export default function SettingsPage() {
     })
   }, [])
 
+  const ALL_CONFIG = [...SETTINGS_CONFIG, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS]
+
   function parseSettingValue(key: string, raw: string): unknown {
-    const config = [...SETTINGS_CONFIG, ...PAYMENT_SETTINGS].find(s => s.key === key)
+    const config = ALL_CONFIG.find(s => s.key === key)
     if (!config) return raw
     if (config.type === 'toggle') return raw === 'true'
     if (config.type === 'number') return raw === '' ? null : Number(raw)
@@ -150,6 +231,31 @@ export default function SettingsPage() {
           </p>
           <div className="space-y-3">
             {PAYMENT_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Online Credit Card Top-up</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            Parents see a no-refunds warning before being sent to this link. We eat a processing fee even on refunds, so encourage smaller initial charges.
+          </p>
+          <div className="space-y-3">
+            {CC_PAYMENT_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Popular Items (Home Page)</h2>
+          <div className="space-y-3">
+            {TOP_SELLERS_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Nine Days Menu</h2>
+          <div className="space-y-3">
+            {NINE_DAYS_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+            <NineDaysFlyerUpload settings={settings} set={set} />
           </div>
         </section>
       </div>
