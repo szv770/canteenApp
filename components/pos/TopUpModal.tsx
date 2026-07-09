@@ -1,0 +1,211 @@
+'use client'
+
+import { useState, useCallback, useRef } from 'react'
+import { createClient } from '@/lib/supabase/client'
+import { Search, X, User, DollarSign } from 'lucide-react'
+import { formatCurrency } from '@/lib/utils'
+import type { BochurWithId } from '@/types/database'
+import toast from 'react-hot-toast'
+
+interface Props {
+  onClose: () => void
+  onSuccess?: () => void
+}
+
+const METHODS = ['cash', 'zelle', 'venmo', 'other'] as const
+type Method = typeof METHODS[number]
+
+export default function TopUpModal({ onClose, onSuccess }: Props) {
+  const supabase = createClient()
+  const [query, setQuery] = useState('')
+  const [results, setResults] = useState<BochurWithId[]>([])
+  const [searching, setSearching] = useState(false)
+  const [open, setOpen] = useState(false)
+  const [selected, setSelected] = useState<BochurWithId | null>(null)
+  const [amount, setAmount] = useState('')
+  const [method, setMethod] = useState<Method>('cash')
+  const [note, setNote] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+  const debounceRef = useRef<NodeJS.Timeout>()
+
+  const search = useCallback((q: string) => {
+    clearTimeout(debounceRef.current)
+    if (!q.trim()) { setResults([]); setOpen(false); return }
+    debounceRef.current = setTimeout(async () => {
+      setSearching(true)
+      const { data } = await supabase
+        .from('bochurim_with_id')
+        .select('*, account_type:account_types(*)')
+        .or(`name.ilike.%${q}%,bochur_id.ilike.%${q}%`)
+        .eq('archived', false)
+        .limit(6)
+      setResults(data || [])
+      setOpen(true)
+      setSearching(false)
+    }, 220)
+  }, [])
+
+  async function submit() {
+    if (submitting) return
+    if (!selected) { toast.error('Select a bochur first'); return }
+    const amt = parseFloat(amount)
+    if (isNaN(amt) || amt < 0.01) { toast.error('Enter a valid amount'); return }
+
+    setSubmitting(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+
+      const { error: balErr } = await supabase
+        .from('bochurim')
+        .update({ balance: (selected.balance || 0) + amt })
+        .eq('id', selected.id)
+      if (balErr) throw balErr
+
+      const { error: ledgerErr } = await supabase.from('balance_ledger').insert({
+        bochur_id: selected.id,
+        amount: amt,
+        type: 'topup',
+        method,
+        cashier_id: user?.id ?? null,
+        note: note.trim() || null,
+      })
+      if (ledgerErr) throw ledgerErr
+
+      toast.success(`Added ${formatCurrency(amt)} to ${selected.name}'s account`)
+      onSuccess?.()
+      onClose()
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to add funds')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md animate-scale-in max-h-[95vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 shrink-0">
+          <h2 className="font-bold text-slate-900">Top Up Account</h2>
+          <button onClick={onClose} className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-slate-100 rounded-xl">
+            <X className="w-5 h-5 text-slate-400" />
+          </button>
+        </div>
+
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
+          {/* Bochur selection */}
+          {selected ? (
+            <div className="flex items-center gap-2.5 bg-white border border-slate-200 rounded-xl px-3 py-2">
+              <div className="w-7 h-7 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                <User className="w-4 h-4 text-amber-600" />
+              </div>
+              <div className="min-w-0 flex-1">
+                <div className="font-semibold text-slate-900 text-sm truncate">{selected.name}</div>
+                <span className="text-xs text-slate-500">Balance: {formatCurrency(selected.balance)}</span>
+              </div>
+              <button onClick={() => { setSelected(null); setQuery('') }} className="shrink-0 p-1 hover:bg-slate-100 rounded-lg">
+                <X className="w-4 h-4 text-slate-400" />
+              </button>
+            </div>
+          ) : (
+            <div className="relative">
+              <div className="flex items-center gap-2 bg-white border border-slate-200 rounded-xl px-3 py-2 focus-within:ring-2 focus-within:ring-amber-400/40 focus-within:border-amber-400">
+                <Search className="w-4 h-4 text-slate-400 shrink-0" />
+                <input
+                  type="text"
+                  autoFocus
+                  placeholder="Search bochur by name or ID..."
+                  value={query}
+                  onChange={e => { setQuery(e.target.value); search(e.target.value) }}
+                  onFocus={() => results.length > 0 && setOpen(true)}
+                  onBlur={() => setTimeout(() => setOpen(false), 150)}
+                  className="flex-1 text-base text-slate-900 placeholder-slate-400 bg-transparent outline-none"
+                />
+                {searching && <div className="w-4 h-4 border-2 border-amber-400/40 border-t-amber-400 rounded-full animate-spin shrink-0" />}
+              </div>
+              {open && results.length > 0 && (
+                <div className="absolute top-full left-0 right-0 mt-1.5 bg-white border border-slate-100 rounded-xl shadow-xl z-50 overflow-hidden">
+                  {results.map(b => (
+                    <button
+                      key={b.id}
+                      onMouseDown={() => { setSelected(b); setQuery(''); setOpen(false) }}
+                      className="w-full flex items-center gap-3 px-3 py-2.5 hover:bg-slate-50 text-left border-b border-slate-50 last:border-0"
+                    >
+                      <div className="w-8 h-8 rounded-lg bg-amber-100 flex items-center justify-center shrink-0">
+                        <User className="w-4 h-4 text-amber-600" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          <span className="font-semibold text-slate-900 text-sm">{b.name}</span>
+                          <span className="text-slate-400 text-xs">{b.bochur_id}</span>
+                        </div>
+                      </div>
+                      <span className="text-sm font-bold shrink-0 text-emerald-600">{formatCurrency(b.balance)}</span>
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+          )}
+
+          {/* Amount */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Amount</label>
+            <div className="relative">
+              <DollarSign className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="number"
+                inputMode="decimal"
+                min="0.01"
+                step="0.01"
+                placeholder="0.00"
+                value={amount}
+                onChange={e => setAmount(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-base focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+              />
+            </div>
+          </div>
+
+          {/* Method */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Method</label>
+            <div className="grid grid-cols-4 gap-2">
+              {METHODS.map(m => (
+                <button
+                  key={m}
+                  onClick={() => setMethod(m)}
+                  className={`py-2 rounded-xl text-sm font-medium capitalize transition-all ${
+                    method === m
+                      ? 'bg-amber-500 text-white shadow-sm'
+                      : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
+                  }`}
+                >
+                  {m}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          {/* Note */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Notes (optional)</label>
+            <input
+              type="text"
+              placeholder="Reference / note..."
+              value={note}
+              onChange={e => setNote(e.target.value)}
+              className="w-full px-3 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-base focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+            />
+          </div>
+
+          <button
+            onClick={submit}
+            disabled={submitting || !selected || !amount}
+            className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {submitting ? 'Adding...' : selected && amount ? `Add ${formatCurrency(parseFloat(amount) || 0)}` : 'Add Funds'}
+          </button>
+        </div>
+      </div>
+    </div>
+  )
+}

@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, Download, RefreshCw, X, Eye } from 'lucide-react'
+import { Search, Download, RefreshCw, X, Eye, RotateCcw } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -14,6 +14,7 @@ export default function TransactionsPage() {
   const [statusFilter, setStatusFilter] = useState('all')
   const [loading, setLoading] = useState(true)
   const [viewOrder, setViewOrder] = useState<any | null>(null)
+  const [refundOrder, setRefundOrder] = useState<any | null>(null)
 
   useEffect(() => { loadOrders() }, [statusFilter])
 
@@ -135,6 +136,11 @@ export default function TransactionsPage() {
                 <td className="px-5 py-3 text-sm font-bold text-slate-900 text-right">{formatCurrency(o.total)}</td>
                 <td className="px-5 py-3 text-right">
                   <div className="flex items-center justify-end gap-1">
+                    {o.status === 'completed' && (
+                      <button onClick={() => setRefundOrder(o)} className="flex items-center gap-1 px-2 py-1.5 text-xs font-medium text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-100 rounded-lg transition-colors">
+                        <RotateCcw className="w-3.5 h-3.5" /> <span className="hidden sm:inline">Request Refund</span>
+                      </button>
+                    )}
                     <button onClick={() => setViewOrder(o)} className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-lg transition-colors">
                       <Eye className="w-4 h-4" />
                     </button>
@@ -154,6 +160,108 @@ export default function TransactionsPage() {
           onVoid={() => { voidOrder(viewOrder); setViewOrder(null) }}
         />
       )}
+
+      {refundOrder && (
+        <RefundRequestModal
+          order={refundOrder}
+          onClose={() => setRefundOrder(null)}
+        />
+      )}
+    </div>
+  )
+}
+
+function RefundRequestModal({ order, onClose }: { order: any; onClose: () => void }) {
+  const supabase = createClient()
+  const [items, setItems] = useState<any[]>([])
+  const [amount, setAmount] = useState(String(order.total ?? ''))
+  const [reason, setReason] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  useEffect(() => {
+    supabase.from('order_items').select('*').eq('order_id', order.id).then(({ data }) => setItems(data || []))
+  }, [order.id])
+
+  async function submit() {
+    if (submitting) return
+    const amt = parseFloat(amount)
+    if (isNaN(amt) || amt <= 0) { toast.error('Enter a valid refund amount'); return }
+    if (!reason.trim()) { toast.error('Reason is required'); return }
+
+    setSubmitting(true)
+    try {
+      const { data: { user } } = await supabase.auth.getUser()
+      const { error } = await supabase.from('refund_requests').insert({
+        order_id: order.id,
+        amount: amt,
+        reason: reason.trim(),
+        status: 'pending',
+        requested_by: user?.id ?? null,
+      })
+      if (error) throw error
+      toast.success('Refund request submitted')
+      onClose()
+    } catch (err: any) {
+      toast.error(err?.message || 'Failed to submit refund request')
+    } finally {
+      setSubmitting(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/50 backdrop-blur-sm flex items-end sm:items-center justify-center z-50 p-0 sm:p-4">
+      <div className="bg-white rounded-t-2xl sm:rounded-2xl shadow-xl w-full sm:max-w-md animate-scale-in max-h-[95vh] flex flex-col">
+        <div className="flex items-center justify-between p-4 sm:p-5 border-b border-slate-100 shrink-0">
+          <h2 className="font-bold text-slate-900">Request Refund — #{order.order_number}</h2>
+          <button onClick={onClose} className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center hover:bg-slate-100 rounded-xl"><X className="w-5 h-5 text-slate-400" /></button>
+        </div>
+        <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
+          <div className="bg-slate-50 rounded-xl p-3 space-y-1">
+            <div className="flex justify-between text-sm">
+              <span className="text-slate-500">Order total</span>
+              <span className="font-bold text-slate-900">{formatCurrency(order.total)}</span>
+            </div>
+            {items.map(item => (
+              <div key={item.id} className="flex justify-between text-xs text-slate-500">
+                <span>{item.quantity}x {item.product_name}{item.variant_label ? ` (${item.variant_label})` : ''}</span>
+                <span>{formatCurrency(item.total)}</span>
+              </div>
+            ))}
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Amount to refund</label>
+            <input
+              type="number"
+              inputMode="decimal"
+              min="0.01"
+              step="0.01"
+              value={amount}
+              onChange={e => setAmount(e.target.value)}
+              className="input-admin"
+            />
+          </div>
+
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Reason <span className="text-red-500">*</span></label>
+            <textarea
+              value={reason}
+              onChange={e => setReason(e.target.value)}
+              rows={3}
+              placeholder="Why is this refund needed?"
+              className="input-admin resize-none"
+            />
+          </div>
+
+          <button
+            onClick={submit}
+            disabled={submitting || !reason.trim() || !amount}
+            className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
+          >
+            {submitting ? 'Submitting...' : 'Submit Refund Request'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
