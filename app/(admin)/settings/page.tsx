@@ -50,7 +50,7 @@ const PAYMENT_SETTINGS: SettingRow[] = [
 
 const CC_PAYMENT_SETTINGS: SettingRow[] = [
   { key: 'payment_cc_enabled', label: 'Credit Card (Online)', description: 'Show an online credit card top-up option for parents', type: 'toggle' },
-  { key: 'payment_cc_link', label: 'Payment Link', description: 'Your Stripe (or other) payment link parents are sent to', type: 'text' },
+  { key: 'payment_cc_link', label: 'Payment Link', description: 'Your Stripe (or other) payment link parents are sent to. https:// is added automatically if you leave it off', type: 'text' },
   { key: 'payment_cc_prefill_enabled', label: 'Append Amount / Name to Link', description: 'Add query params to the link with the amount and student name entered in the form', type: 'toggle' },
   { key: 'payment_cc_amount_param', label: 'Amount Param Name', description: 'Query param name for the amount, e.g. prefilled_amount', type: 'text' },
   { key: 'payment_cc_name_param', label: 'Name Param Name', description: 'Query param name for the student name, e.g. client_reference_id', type: 'text' },

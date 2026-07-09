@@ -217,9 +217,9 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   }
 
   function confirmCreditCard() {
-    const base = (settings['payment_cc_link'] || '').trim()
-    if (base) {
-      let url = base
+    const rawBase = (settings['payment_cc_link'] || '').trim()
+    if (rawBase) {
+      let url = /^https?:\/\//i.test(rawBase) ? rawBase : `https://${rawBase}`
       if (settings['payment_cc_prefill_enabled'] === 'true') {
         const amountParam = settings['payment_cc_amount_param'] || 'prefilled_amount'
         const nameParam = settings['payment_cc_name_param'] || 'client_reference_id'
