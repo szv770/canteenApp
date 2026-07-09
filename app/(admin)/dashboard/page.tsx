@@ -23,6 +23,7 @@ async function getStats(supabase: any) {
     recentOrders,
     topProducts,
     paymentBreakdown,
+    settingsRows,
   ] = await Promise.all([
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', today.toISOString()),
     supabase.from('orders').select('total').eq('status', 'completed').gte('created_at', weekAgo.toISOString()),
@@ -48,6 +49,8 @@ async function getStats(supabase: any) {
       .from('payments')
       .select('method, amount')
       .gte('created_at', thirtyDaysAgo.toISOString()),
+    // App settings for daily revenue target
+    supabase.from('app_settings').select('key,value'),
   ])
 
   // Aggregate top products
@@ -74,6 +77,10 @@ async function getStats(supabase: any) {
   const thisWeekRevenue = (weekOrders.data || []).reduce((s: number, o: any) => s + Number(o.total), 0)
   const lastWeekRevenue = (lastWeekOrders.data || []).reduce((s: number, o: any) => s + Number(o.total), 0)
 
+  const settingsMap: Record<string, string> = {}
+  for (const s of (settingsRows.data || [])) settingsMap[s.key] = s.value
+  const dailyTarget = parseFloat(settingsMap['daily_revenue_target'] || '0') || 0
+
   return {
     todayRevenue: (todayOrders.data || []).reduce((s: number, o: any) => s + Number(o.total), 0),
     todayCount: todayOrders.data?.length || 0,
@@ -91,6 +98,7 @@ async function getStats(supabase: any) {
     topProducts: topProductsList,
     paymentMap,
     paymentTotal,
+    dailyTarget,
   }
 }
 
@@ -122,13 +130,27 @@ const METHOD_COLORS: Record<string, string> = {
 
 export default async function DashboardPage() {
   const supabase = createClient()
-  const stats = await getStats(supabase)
-  const { data: lowStockProducts } = await supabase
-    .from('products')
-    .select('id,name,stock_quantity,low_stock_threshold,icon')
-    .eq('is_active', true)
-    .order('stock_quantity')
-    .limit(20)
+  const now = new Date()
+  const todayStart = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate())).toISOString()
+
+  const [stats, lowStockRes, failedRes] = await Promise.all([
+    getStats(supabase),
+    supabase
+      .from('products')
+      .select('id,name,stock_quantity,low_stock_threshold,icon')
+      .eq('is_active', true)
+      .order('stock_quantity')
+      .limit(20),
+    supabase
+      .from('failed_checkout_log')
+      .select('id,bochur_name,attempted_amount,balance_at_time,shortfall,created_at')
+      .gte('created_at', todayStart)
+      .order('created_at', { ascending: false })
+      .limit(10),
+  ])
+
+  const lowStockProducts = lowStockRes.data
+  const failedCheckouts = failedRes.data || []
 
   const actualLowStock = (lowStockProducts || []).filter(
     (p: any) => p.stock_quantity !== null && p.stock_quantity <= p.low_stock_threshold
@@ -196,6 +218,34 @@ export default async function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* Daily Revenue Goal */}
+      {stats.dailyTarget > 0 && (() => {
+        const pct = Math.min(100, (stats.todayRevenue / stats.dailyTarget) * 100)
+        const reached = stats.todayRevenue >= stats.dailyTarget
+        return (
+          <div className="bg-white rounded-xl border border-slate-100 shadow-sm p-5">
+            <div className="flex items-center justify-between mb-3">
+              <h2 className="font-semibold text-slate-900">Daily Revenue Goal</h2>
+              {reached ? (
+                <span className="text-sm font-semibold text-emerald-600">Goal reached! 🎉</span>
+              ) : (
+                <span className="text-sm text-slate-400">{pct.toFixed(1)}%</span>
+              )}
+            </div>
+            <div className="w-full bg-slate-100 rounded-full h-3 overflow-hidden">
+              <div
+                className={`h-3 rounded-full transition-all ${reached ? 'bg-emerald-500' : 'bg-amber-500'}`}
+                style={{ width: `${pct}%` }}
+              />
+            </div>
+            <div className="flex items-center justify-between mt-2">
+              <span className="text-sm text-slate-600 font-medium">Today: {formatCurrency(stats.todayRevenue)}</span>
+              <span className="text-sm text-slate-400">Target: {formatCurrency(stats.dailyTarget)}</span>
+            </div>
+          </div>
+        )
+      })()}
 
       {/* Week comparison + Payment breakdown */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
@@ -424,6 +474,44 @@ export default async function DashboardPage() {
           </div>
         </div>
       </div>
+      {/* Low balance alert log */}
+      {failedCheckouts.length > 0 && (
+        <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
+          <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">
+            <div className="w-6 h-6 bg-red-100 rounded-lg flex items-center justify-center">
+              <AlertTriangle className="w-3.5 h-3.5 text-red-500" />
+            </div>
+            <h2 className="font-semibold text-slate-900">Low Balance Alerts</h2>
+            <span className="ml-auto inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold bg-red-50 text-red-600">
+              {failedCheckouts.length} today
+            </span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[400px]">
+              <thead>
+                <tr className="border-b border-slate-50 bg-slate-50/50">
+                  <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Student</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Tried to spend</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Balance</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Shortfall</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Time</th>
+                </tr>
+              </thead>
+              <tbody>
+                {failedCheckouts.map((f: any) => (
+                  <tr key={f.id} className="border-b border-slate-50 last:border-0">
+                    <td className="px-5 py-3 text-sm font-medium text-slate-900">{f.bochur_name || 'Unknown'}</td>
+                    <td className="px-5 py-3 text-sm text-right text-slate-700">{formatCurrency(f.attempted_amount)}</td>
+                    <td className="px-5 py-3 text-sm text-right text-amber-600 font-medium">{formatCurrency(f.balance_at_time)}</td>
+                    <td className="px-5 py-3 text-sm text-right text-red-600 font-semibold">{formatCurrency(f.shortfall)}</td>
+                    <td className="px-5 py-3 text-sm text-right text-slate-400">{format(new Date(f.created_at), 'h:mm a')}</td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

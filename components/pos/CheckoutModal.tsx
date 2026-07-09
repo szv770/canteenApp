@@ -72,6 +72,20 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
   const ccFeePercent = parseFloat(settings['cc_fee_percent'] || '3')
 
   const rawSubtotal = cart.reduce((sum, i) => sum + (i.price + (i.addon_total || 0)) * i.quantity, 0)
+
+  // Estimate account type discount for display (actual calculation is server-side)
+  const atDiscount = (() => {
+    const at = selectedBochur?.account_type
+    if (!at || at.discount_type === 'none' || !at.discount_value) return 0
+    if (at.discount_type === 'percentage') {
+      return Math.round(rawSubtotal * (at.discount_value / 100) * 100) / 100
+    }
+    if (at.discount_type === 'fixed') {
+      return Math.min(rawSubtotal, at.discount_value)
+    }
+    return 0
+  })()
+
   const discountAmount = appliedDiscount?.amount ?? 0
   const subtotalAfterDiscount = Math.max(0, Math.round((rawSubtotal - discountAmount) * 100) / 100)
   const subtotal = coinRounding && method === 'cash' ? roundCash(subtotalAfterDiscount) : subtotalAfterDiscount
@@ -330,15 +344,28 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
             {/* Balance tab */}
             {method === 'balance' && selectedBochur && (
               <div className="space-y-3 mb-4">
-                {selectedBochur.account_type && selectedBochur.account_type.discount_type !== 'none' && (
-                  <div className="px-3 py-2 bg-blue-50 border border-blue-200 rounded-xl flex items-center gap-2">
-                    <span className="text-blue-600 text-xs">🏷️</span>
-                    <span className="text-blue-700 text-xs font-medium">
-                      {selectedBochur.account_type.name} discount applied automatically at checkout
-                    </span>
-                  </div>
-                )}
                 <div className="bg-pos-bg rounded-xl p-4 space-y-2">
+                  <div className="flex justify-between text-sm">
+                    <span className="text-pos-subtext">Subtotal</span>
+                    <span className="font-semibold text-pos-text">{formatCurrency(rawSubtotal)}</span>
+                  </div>
+                  {atDiscount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-blue-600 font-medium">
+                        🏷️ {selectedBochur.account_type!.name}
+                        {selectedBochur.account_type!.discount_type === 'percentage'
+                          ? ` (${selectedBochur.account_type!.discount_value}% off)`
+                          : ''}
+                      </span>
+                      <span className="font-semibold text-blue-600">-{formatCurrency(atDiscount)}</span>
+                    </div>
+                  )}
+                  {discountAmount > 0 && (
+                    <div className="flex justify-between text-sm">
+                      <span className="text-emerald-600 font-medium">🎟️ Coupon ({appliedDiscount?.code})</span>
+                      <span className="font-semibold text-emerald-600">-{formatCurrency(discountAmount)}</span>
+                    </div>
+                  )}
                   <div className="flex justify-between text-sm">
                     <span className="text-pos-subtext">Current balance</span>
                     <span className="font-semibold text-pos-text">{formatCurrency(selectedBochur.balance)}</span>
