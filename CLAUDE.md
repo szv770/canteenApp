@@ -193,6 +193,8 @@ lib/utils.ts         # formatCurrency, cn
 
 11. **`supabase/rls-policies.sql` is stale — don't trust it for the actual deployed policy.** Live policies (checked via Supabase MCP `execute_sql` against `pg_policies`) are simpler than the file: `orders`, `order_items`, and `cashier_profiles` all use a single permissive `auth_all` policy (`auth.role() = 'authenticated'`) — any authenticated cashier can read/write all rows, not just their own. This is why cross-cashier joins (e.g. cashier-dashboard showing "rung by [other cashier]") work without extra policy changes. When in doubt about what's really enforced, query `pg_policies` directly instead of reading the checked-in file.
 
+12. **Admin-entered URLs (e.g. `payment_cc_link`) need a protocol before `window.open`/`<a href>`** — if the admin types `example.com/x` without `http(s)://`, the browser treats it as a relative path off the current origin (`canteen.szvtech.org/example.com/x`) instead of opening the external site. Always normalize with something like `/^https?:\/\//i.test(v) ? v : \`https://${v}\`` before using an admin-entered link as a navigation target.
+
 ---
 
 ## Deployment
@@ -273,3 +275,4 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Infra: added `cashier_notifications.show_on_home_page` column; extended `balance_topups.method` check constraint with `cashapp`/`credit_card`; created `site-assets` Storage bucket (public, 10MB, image/PDF) with RLS |
 | 2026-07-09 | Feat: cashier dashboard "Recent Orders" — tap to expand and see actual item names bought (not just a count); now shows which cashier rang up each order since all cashiers share this view; still no prices/$ shown |
 | 2026-07-09 | Fix: CC top-up warning modal now explicitly tells parents the payment link opens in a new tab and to come back to submit the request — the app already opens Stripe/CC links via `window.open(..., '_blank')` rather than a same-tab redirect, so no dependency on Stripe redirecting back into the site |
+| 2026-07-09 | Fix: `payment_cc_link` opened as a relative path (e.g. `canteen.szvtech.org/randomlink.com/...`) when the admin typed a link without `http(s)://` — now auto-prefixed with `https://` if missing |
