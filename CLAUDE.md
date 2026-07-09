@@ -280,3 +280,6 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-09 | Fix: CC top-up warning modal now explicitly tells parents the payment link opens in a new tab and to come back to submit the request — the app already opens Stripe/CC links via `window.open(..., '_blank')` rather than a same-tab redirect, so no dependency on Stripe redirecting back into the site |
 | 2026-07-09 | Fix: `payment_cc_link` opened as a relative path (e.g. `canteen.szvtech.org/randomlink.com/...`) when the admin typed a link without `http(s)://` — now auto-prefixed with `https://` if missing |
 | 2026-07-09 | Feat: Accounts admin page (/accounts) — date-range payment balance cards (Cash/Zelle/CC/Balance/Total), outstanding student balance liability, withdrawal log with form + delete; new `withdrawal_log` table with RLS |
+| 2026-07-09 | Feat: category filter pills on products admin page — All + one pill per category for client-side filtering; active pill highlighted with category color |
+| 2026-07-09 | Feat: category delete warning now shows product count affected; product count shown on hover in category panel |
+| 2026-07-09 | Chore: removed "Categories" from sidebar nav — categories are managed inline on the Products page |
