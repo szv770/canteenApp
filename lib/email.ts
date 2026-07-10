@@ -1,6 +1,13 @@
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
+// Lazily constructed so importing this module never throws when
+// RESEND_API_KEY is unset (e.g. local dev, or during Next.js's build-time
+// page data collection) — callers already gate email sends behind an env check.
+let resend: Resend | null = null
+function getResend(): Resend {
+  if (!resend) resend = new Resend(process.env.RESEND_API_KEY)
+  return resend
+}
 
 export interface EmailSettings {
   senderName: string
@@ -95,7 +102,7 @@ export async function sendTopupReceived({
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.receivedSubject, fmt(amount), studentName)
 
-  return resend.emails.send({
+  return getResend().emails.send({
     from,
     replyTo: es.replyTo,
     to: parentEmail,
@@ -142,7 +149,7 @@ export async function sendTopupApproved({
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.approvedSubject, fmt(amount), studentName)
 
-  return resend.emails.send({
+  return getResend().emails.send({
     from,
     replyTo: es.replyTo,
     to: parentEmail,
@@ -185,7 +192,7 @@ export async function sendTopupRejected({
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.rejectedSubject, fmt(amount), studentName)
 
-  return resend.emails.send({
+  return getResend().emails.send({
     from,
     replyTo: es.replyTo,
     to: parentEmail,

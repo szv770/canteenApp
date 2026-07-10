@@ -379,9 +379,9 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
             <h2 className="text-xl font-bold text-gray-900">How to add funds</h2>
             <div className="space-y-3">
               {[
-                { n: '1', title: 'Send payment', desc: 'Use one of the payment methods below to send money.' },
-                { n: '2', title: 'Fill out the form', desc: "Submit the form on the right with your son's name and the amount sent." },
-                { n: '3', title: 'Funds added', desc: "We'll confirm and credit your son's account, usually within a few hours." },
+                { n: '1', title: 'Send payment yourself', desc: "Open your own banking or payment app and manually send money using the info below — this page can't send it for you." },
+                { n: '2', title: 'Then fill out the form', desc: "Only after you've actually sent the money, submit the form on the right with your son's name and the amount." },
+                { n: '3', title: 'Funds added', desc: "We'll confirm your payment and credit your son's account, usually within a few hours." },
               ].map(step => (
                 <div key={step.n} className="flex items-start gap-3 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
                   <div className="w-7 h-7 bg-amber-400 rounded-full flex items-center justify-center text-white text-xs font-bold shrink-0 mt-0.5">
@@ -395,9 +395,8 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
               ))}
             </div>
 
-            {/* Payment method cards */}
-            {(enabledMethods.filter(m => m !== 'cash').length > 0 || ccEnabled) && (
-              <div>
+            {/* Payment method cards — always shown since the Credit Card "coming soon" placeholder always renders */}
+            <div>
                 <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Send payment to</h3>
 
                 {hasNoteMethods && (
@@ -450,11 +449,16 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                           </div>
                         </div>
                         <p className="text-sm font-mono break-all mt-2.5 pl-[52px]" style={{ color }}>{info}</p>
+                        {!deepLink && (
+                          <p className="text-xs text-gray-400 mt-1.5 pl-[52px]">
+                            No app link available for {METHOD_LABELS[method]} — open your banking app yourself and send to the info above.
+                          </p>
+                        )}
                       </div>
                     )
                   })}
 
-                  {ccEnabled && (
+                  {ccEnabled ? (
                     <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: METHOD_COLORS.credit_card }}>
@@ -471,6 +475,18 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                       </div>
                       <p className="text-xs text-gray-400 mt-2.5 pl-[52px]">No refunds — processing fees apply</p>
                     </div>
+                  ) : (
+                    <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 bg-gray-200 shrink-0">
+                          <CreditCard className="w-5 h-5" />
+                        </div>
+                        <div className="flex-1 min-w-0">
+                          <p className="font-semibold text-gray-500 text-sm">Credit Card</p>
+                          <p className="text-xs text-gray-400 mt-0.5">Coming soon — not available yet</p>
+                        </div>
+                      </div>
+                    </div>
                   )}
 
                   {settings['payment_cash_enabled'] === 'true' && (
@@ -480,8 +496,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                     </div>
                   )}
                 </div>
-              </div>
-            )}
+            </div>
           </div>
 
           {/* Form */}
@@ -505,7 +520,14 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
               </div>
             ) : (
               <>
-                <h2 className="text-xl font-bold text-gray-900 mb-5">Request a Top-up</h2>
+                <h2 className="text-xl font-bold text-gray-900 mb-1">Request a Top-up</h2>
+                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 rounded-xl px-3 py-2.5 mb-5 mt-4">
+                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                  <p className="text-xs leading-relaxed">
+                    <strong>Only fill this out after you've already sent the payment</strong> using one of the
+                    methods on the left. This form does not send money — it just tells us to expect it.
+                  </p>
+                </div>
                 {formError && (
                   <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
                     {formError}
