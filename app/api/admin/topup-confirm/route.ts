@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendTopupApproved, sendTopupRejected } from '@/lib/email'
+import { sendTopupApproved, sendTopupRejected, buildEmailSettings } from '@/lib/email'
 
 /**
  * POST /api/admin/topup-confirm
@@ -118,13 +118,19 @@ export async function POST(req: NextRequest) {
 
   // Send approval email — fire and forget
   if (process.env.RESEND_API_KEY && topup.parent_email) {
-    sendTopupApproved({
-      parentEmail: topup.parent_email,
-      parentName: topup.sender_name || 'Parent',
-      studentName: topup.student_name || 'your son',
-      amount: topup.amount,
-      newBalance,
-    }).catch(e => console.error('[topup-confirm] Email error:', e))
+    admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
+      const rawSettings: Record<string, string> = {}
+      settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
+      const emailSettings = buildEmailSettings(rawSettings)
+      sendTopupApproved({
+        parentEmail: topup.parent_email!,
+        parentName: topup.sender_name || 'Parent',
+        studentName: topup.student_name || 'your son',
+        amount: topup.amount,
+        newBalance,
+        emailSettings,
+      }).catch(e => console.error('[topup-confirm] Email error:', e))
+    })
   }
 
   return NextResponse.json({ ok: true })
@@ -166,13 +172,19 @@ export async function PATCH(req: NextRequest) {
 
   // Send rejection email — fire and forget
   if (process.env.RESEND_API_KEY && topup.parent_email) {
-    sendTopupRejected({
-      parentEmail: topup.parent_email,
-      parentName: topup.sender_name || 'Parent',
-      studentName: topup.student_name || 'your son',
-      amount: topup.amount,
-      reason: reason || undefined,
-    }).catch(e => console.error('[topup-reject] Email error:', e))
+    admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
+      const rawSettings: Record<string, string> = {}
+      settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
+      const emailSettings = buildEmailSettings(rawSettings)
+      sendTopupRejected({
+        parentEmail: topup.parent_email!,
+        parentName: topup.sender_name || 'Parent',
+        studentName: topup.student_name || 'your son',
+        amount: topup.amount,
+        reason: reason || undefined,
+        emailSettings,
+      }).catch(e => console.error('[topup-reject] Email error:', e))
+    })
   }
 
   return NextResponse.json({ ok: true })

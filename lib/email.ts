@@ -2,9 +2,69 @@ import { Resend } from 'resend'
 
 const resend = new Resend(process.env.RESEND_API_KEY)
 
-// Sender address — must be a verified domain in your Resend account
-const FROM = 'Canteen <canteen@miamimesivta.com>'
-const REPLY_TO = 'canteen@miamimesivta.com'
+export interface EmailSettings {
+  senderName: string
+  senderAddress: string
+  replyTo: string
+  footerNote: string
+  receivedEnabled: boolean
+  receivedSubject: string
+  receivedNote: string
+  approvedEnabled: boolean
+  approvedSubject: string
+  approvedNote: string
+  rejectedEnabled: boolean
+  rejectedSubject: string
+  rejectedNote: string
+}
+
+export const DEFAULT_EMAIL_SETTINGS: EmailSettings = {
+  senderName: 'Canteen',
+  senderAddress: 'canteen@miamimesivta.com',
+  replyTo: 'canteen@miamimesivta.com',
+  footerNote: 'Questions? Reply to this email.',
+  receivedEnabled: true,
+  receivedSubject: 'Top-up request received — {amount} for {student}',
+  receivedNote: '',
+  approvedEnabled: true,
+  approvedSubject: 'Top-up approved — {amount} added for {student}',
+  approvedNote: '',
+  rejectedEnabled: true,
+  rejectedSubject: 'Top-up request not approved — {student}',
+  rejectedNote: '',
+}
+
+export function buildEmailSettings(raw: Record<string, string>): EmailSettings {
+  return {
+    senderName: raw['email_sender_name'] || DEFAULT_EMAIL_SETTINGS.senderName,
+    senderAddress: raw['email_sender_address'] || DEFAULT_EMAIL_SETTINGS.senderAddress,
+    replyTo: raw['email_reply_to'] || DEFAULT_EMAIL_SETTINGS.replyTo,
+    footerNote: raw['email_footer_note'] ?? DEFAULT_EMAIL_SETTINGS.footerNote,
+    receivedEnabled: raw['email_topup_received_enabled'] !== 'false',
+    receivedSubject: raw['email_topup_received_subject'] || DEFAULT_EMAIL_SETTINGS.receivedSubject,
+    receivedNote: raw['email_topup_received_note'] || '',
+    approvedEnabled: raw['email_topup_approved_enabled'] !== 'false',
+    approvedSubject: raw['email_topup_approved_subject'] || DEFAULT_EMAIL_SETTINGS.approvedSubject,
+    approvedNote: raw['email_topup_approved_note'] || '',
+    rejectedEnabled: raw['email_topup_rejected_enabled'] !== 'false',
+    rejectedSubject: raw['email_topup_rejected_subject'] || DEFAULT_EMAIL_SETTINGS.rejectedSubject,
+    rejectedNote: raw['email_topup_rejected_note'] || '',
+  }
+}
+
+function resolveSubject(template: string, amount: string, student: string): string {
+  return template.replace('{amount}', amount).replace('{student}', student)
+}
+
+function footerHtml(note: string): string {
+  if (!note) return ''
+  return `<p style="color:#94a3b8;font-size:12px;margin-top:32px">${note}</p>`
+}
+
+function extraNoteHtml(note: string): string {
+  if (!note) return ''
+  return `<p style="color:#475569;font-size:14px">${note}</p>`
+}
 
 export async function sendTopupReceived({
   parentEmail,
@@ -12,13 +72,17 @@ export async function sendTopupReceived({
   studentName,
   amount,
   method,
+  emailSettings,
 }: {
   parentEmail: string
   parentName: string
   studentName: string
   amount: number
   method: string
+  emailSettings?: EmailSettings
 }) {
+  const es = emailSettings ?? DEFAULT_EMAIL_SETTINGS
+  if (!es.receivedEnabled) return
   const methodLabel: Record<string, string> = {
     zelle: 'Zelle',
     venmo: 'Venmo',
@@ -28,12 +92,14 @@ export async function sendTopupReceived({
     credit_card: 'Credit Card',
   }
   const fmt = (n: number) => `$${n.toFixed(2)}`
+  const from = `${es.senderName} <${es.senderAddress}>`
+  const subject = resolveSubject(es.receivedSubject, fmt(amount), studentName)
 
   return resend.emails.send({
-    from: FROM,
-    reply_to: REPLY_TO,
+    from,
+    replyTo: es.replyTo,
     to: parentEmail,
-    subject: `Top-up request received — ${fmt(amount)} for ${studentName}`,
+    subject,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
         <h2 style="color:#1e293b;margin-bottom:8px">We got your request ✅</h2>
@@ -45,7 +111,8 @@ export async function sendTopupReceived({
           <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Method:</strong> ${methodLabel[method] ?? method}</p>
         </div>
         <p style="color:#475569;font-size:14px">You'll receive another email once the balance has been added to ${studentName}'s account.</p>
-        <p style="color:#94a3b8;font-size:12px;margin-top:32px">Questions? Reply to this email.</p>
+        ${extraNoteHtml(es.receivedNote)}
+        ${footerHtml(es.footerNote)}
       </div>
     `,
   })
@@ -57,23 +124,29 @@ export async function sendTopupApproved({
   studentName,
   amount,
   newBalance,
+  emailSettings,
 }: {
   parentEmail: string
   parentName: string
   studentName: string
   amount: number
   newBalance?: number
+  emailSettings?: EmailSettings
 }) {
+  const es = emailSettings ?? DEFAULT_EMAIL_SETTINGS
+  if (!es.approvedEnabled) return
   const fmt = (n: number) => `$${n.toFixed(2)}`
   const balanceLine = newBalance !== undefined
     ? `<p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">New balance:</strong> ${fmt(newBalance)}</p>`
     : ''
+  const from = `${es.senderName} <${es.senderAddress}>`
+  const subject = resolveSubject(es.approvedSubject, fmt(amount), studentName)
 
   return resend.emails.send({
-    from: FROM,
-    reply_to: REPLY_TO,
+    from,
+    replyTo: es.replyTo,
     to: parentEmail,
-    subject: `Top-up approved — ${fmt(amount)} added for ${studentName}`,
+    subject,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
         <h2 style="color:#15803d;margin-bottom:8px">Top-up approved 🎉</h2>
@@ -84,7 +157,8 @@ export async function sendTopupApproved({
           <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Amount added:</strong> ${fmt(amount)}</p>
           ${balanceLine}
         </div>
-        <p style="color:#94a3b8;font-size:12px;margin-top:32px">Questions? Reply to this email.</p>
+        ${extraNoteHtml(es.approvedNote)}
+        ${footerHtml(es.footerNote)}
       </div>
     `,
   })
@@ -96,28 +170,35 @@ export async function sendTopupRejected({
   studentName,
   amount,
   reason,
+  emailSettings,
 }: {
   parentEmail: string
   parentName: string
   studentName: string
   amount: number
   reason?: string
+  emailSettings?: EmailSettings
 }) {
+  const es = emailSettings ?? DEFAULT_EMAIL_SETTINGS
+  if (!es.rejectedEnabled) return
   const fmt = (n: number) => `$${n.toFixed(2)}`
+  const from = `${es.senderName} <${es.senderAddress}>`
+  const subject = resolveSubject(es.rejectedSubject, fmt(amount), studentName)
 
   return resend.emails.send({
-    from: FROM,
-    reply_to: REPLY_TO,
+    from,
+    replyTo: es.replyTo,
     to: parentEmail,
-    subject: `Top-up request not approved — ${studentName}`,
+    subject,
     html: `
       <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
         <h2 style="color:#dc2626;margin-bottom:8px">Top-up not approved</h2>
         <p style="color:#475569;margin-top:0">Hi ${parentName},</p>
         <p style="color:#475569">We were unable to process your top-up request of ${fmt(amount)} for ${studentName}.</p>
         ${reason ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin:20px 0"><p style="margin:0;color:#991b1b;font-size:14px"><strong>Reason:</strong> ${reason}</p></div>` : ''}
+        ${extraNoteHtml(es.rejectedNote)}
         <p style="color:#475569;font-size:14px">Please reply to this email or contact us directly to resolve this.</p>
-        <p style="color:#94a3b8;font-size:12px;margin-top:32px">Questions? Reply to this email.</p>
+        ${footerHtml(es.footerNote)}
       </div>
     `,
   })

@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendTopupReceived } from '@/lib/email'
+import { sendTopupReceived, buildEmailSettings } from '@/lib/email'
 
 // Public endpoint — parents submit top-up requests (no auth required).
 // All validation is done server-side; the client cannot bypass this.
@@ -141,13 +141,13 @@ export async function POST(req: NextRequest) {
 
   // Send confirmation email — fire and forget (don't block response on email failure)
   if (process.env.RESEND_API_KEY) {
-    sendTopupReceived({
-      parentEmail,
-      parentName,
-      studentName,
-      amount: sanitizedAmount,
-      method,
-    }).catch(e => console.error('[topup] Email error:', e))
+    admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
+      const rawSettings: Record<string, string> = {}
+      settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
+      const emailSettings = buildEmailSettings(rawSettings)
+      sendTopupReceived({ parentEmail, parentName, studentName, amount: sanitizedAmount, method, emailSettings })
+        .catch(e => console.error('[topup] Email error:', e))
+    })
   }
 
   return NextResponse.json({ ok: true }, { status: 201 })
