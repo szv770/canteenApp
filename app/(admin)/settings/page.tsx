@@ -54,6 +54,7 @@ const CC_PAYMENT_SETTINGS: SettingRow[] = [
   { key: 'payment_cc_prefill_enabled', label: 'Append Amount / Name to Link', description: 'Add query params to the link with the amount and student name entered in the form', type: 'toggle' },
   { key: 'payment_cc_amount_param', label: 'Amount Param Name', description: 'Query param name for the amount, e.g. prefilled_amount', type: 'text' },
   { key: 'payment_cc_name_param', label: 'Name Param Name', description: 'Query param name for the student name, e.g. client_reference_id', type: 'text' },
+  { key: 'payment_cc_coming_soon_enabled', label: 'Show "Coming Soon" Announcement', description: 'Only used while Credit Card (Online) above is off and no Payment Link is set — shows a greyed-out "coming soon" card instead of hiding it entirely', type: 'toggle' },
 ]
 
 const TOP_SELLERS_SETTINGS: SettingRow[] = [

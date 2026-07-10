@@ -166,6 +166,8 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   const canteenName = settings['canteen_name'] || 'Yeshiva Canteen'
   const tagline = settings['canteen_tagline'] || 'Easy online top-ups for your son\'s canteen account'
   const ccEnabled = settings['payment_cc_enabled'] === 'true'
+  const ccNotConfigured = !(settings['payment_cc_link'] || '').trim()
+  const ccComingSoon = !ccEnabled && ccNotConfigured && settings['payment_cc_coming_soon_enabled'] === 'true'
   const nineDaysBlurb = settings['nine_days_blurb'] || ''
   const nineDaysFileUrl = settings['nine_days_file_url'] || ''
 
@@ -395,8 +397,9 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
               ))}
             </div>
 
-            {/* Payment method cards — always shown since the Credit Card "coming soon" placeholder always renders */}
-            <div>
+            {/* Payment method cards */}
+            {(enabledMethods.length > 0 || ccEnabled || ccComingSoon) && (
+              <div>
                 <h3 className="text-sm font-semibold text-gray-500 uppercase tracking-wide mb-2">Send payment to</h3>
 
                 {hasNoteMethods && (
@@ -458,7 +461,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                     )
                   })}
 
-                  {ccEnabled ? (
+                  {ccEnabled && (
                     <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: METHOD_COLORS.credit_card }}>
@@ -475,7 +478,9 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                       </div>
                       <p className="text-xs text-gray-400 mt-2.5 pl-[52px]">No refunds — processing fees apply</p>
                     </div>
-                  ) : (
+                  )}
+
+                  {ccComingSoon && (
                     <div className="p-4 bg-gray-50 rounded-2xl border border-dashed border-gray-200">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-gray-400 bg-gray-200 shrink-0">
@@ -496,7 +501,8 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                     </div>
                   )}
                 </div>
-            </div>
+              </div>
+            )}
           </div>
 
           {/* Form */}

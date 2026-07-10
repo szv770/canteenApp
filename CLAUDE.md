@@ -161,13 +161,14 @@ lib/utils.ts         # formatCurrency, cn
 | Accounts page (financial reconciliation) | `app/(admin)/accounts/page.tsx` | Date-range payment balances by method (Cash/Zelle/CC/Balance/Total) + outstanding student balance liability card + withdrawal log with add/delete |
 | Dashboard Net Profit card | `app/(admin)/dashboard/page.tsx` | Today's revenue − COGS − expenses − wastage; green if positive, red if negative |
 | Reports enhanced analytics | `app/(admin)/reports/page.tsx` | Daily Revenue line chart, Day-of-Week bar chart, Category Revenue table, Top 10 Student Spenders ranked list |
+| Discount codes admin page | `app/(admin)/discount-codes/page.tsx` | CRUD for coupon codes (percent/fixed, min order, max uses, expiry, active toggle); the checkout engine (`apply-discount` route, `CheckoutModal.tsx`) already fully supported codes, this was the missing admin UI to create them — added 2026-07-10 |
+| Credit Card "Coming Soon" refinement | `app/LandingClient.tsx`, `app/(admin)/settings/page.tsx` | Fixed 2026-07-10. New `payment_cc_coming_soon_enabled` toggle (Settings → Online Credit Card Top-up). The greyed-out placeholder now only shows when ALL of: CC is disabled, `payment_cc_link` is empty (i.e. genuinely not configured, not just mid-setup), and the admin has explicitly turned the toggle on. If the admin has started configuring a link but hasn't enabled it yet, nothing shows (not treated as "coming soon") — lets an admin test privately without a public announcement. |
 
 ### ❌ Not Yet Built
 
 | Feature | Notes |
 |---|---|
 | Stripe / card reader integration | User still deciding between Stripe Terminal vs manual phone reader |
-| Credit Card "Coming Soon" refinement | Requested 2026-07-10, deferred to a future session. Currently the greyed-out "Coming soon" placeholder in `LandingClient.tsx` shows whenever `payment_cc_enabled` is `false` — full stop. User wants: (1) it should only appear as "coming soon" when CC truly isn't set up yet (e.g. no `payment_cc_link` configured), not just whenever the enabled toggle is off — the admin may want it hidden entirely while still testing, not always shown as "coming soon"; (2) a dedicated admin Settings toggle to control whether the "coming soon" placeholder shows at all, independent of `payment_cc_enabled`, so the admin can turn the announcement itself on/off without that being tied to the feature being enabled. |
 | Enable Supabase Auth leaked-password protection | Flagged 2026-07-10 by `get_advisors`. Not fixable via migration/SQL — it's a Supabase Auth project setting (checks new passwords against HaveIBeenPwned), only togglable from the Supabase dashboard under Authentication → Policies, or the Management API. Low urgency since cashiers/admins are provisioned by the admin, not self-signup, but worth flipping on. |
 
 ---
@@ -309,3 +310,5 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-10 | Security: restored amount/status bounds on the anon `balance_topups` INSERT policy (`WITH CHECK (true)` had crept in at some point, dropping the `status='pending' AND 0 < amount <= 10000` check present in the original design) |
 | 2026-07-10 | Security: removed redundant "public read" RLS policies on `storage.objects` for `product-images`/`site-assets` — both buckets are `public: true` so direct object GET already bypasses RLS; the policy only added anonymous bucket-listing/enumeration capability, which nothing in the app needs |
 | 2026-07-10 | Security: hardened `update_updated_at()` function against search_path hijacking (`SET search_path = public`) |
+| 2026-07-10 | Feat: Discount Codes admin page (/discount-codes) — the checkout engine already fully supported coupon codes but there was no admin UI to create them; new CRUD page follows the account-types page pattern, sidebar link added |
+| 2026-07-10 | Feat: CC "Coming Soon" refinement — new `payment_cc_coming_soon_enabled` admin toggle; placeholder now only shows when CC is disabled AND `payment_cc_link` is empty AND the toggle is on, so an admin mid-configuration (link set, not yet enabled) or not wanting the announcement doesn't show anything instead of an automatic "coming soon"; added the new setting key to the anon RLS allowlist |
