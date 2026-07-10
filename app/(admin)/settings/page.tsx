@@ -68,6 +68,31 @@ const NINE_DAYS_SETTINGS: SettingRow[] = [
   { key: 'nine_days_blurb', label: 'Blurb', description: "Short note about Nine Days alternatives, shown on the home page", type: 'textarea' },
 ]
 
+const EMAIL_IDENTITY_SETTINGS: SettingRow[] = [
+  { key: 'email_sender_name', label: 'Sender Name', description: 'Name parents see in the "From" field, e.g. Miami Mesivta Canteen', type: 'text' },
+  { key: 'email_sender_address', label: 'Sender Address', description: 'Must be a verified domain in your Resend account, e.g. canteen@miamimesivta.com', type: 'text' },
+  { key: 'email_reply_to', label: 'Reply-To Address', description: 'Where replies from parents go', type: 'text' },
+  { key: 'email_footer_note', label: 'Footer Note', description: 'Text shown at the bottom of every email, e.g. "Questions? Call us at 305-555-1234"', type: 'textarea' },
+]
+
+const EMAIL_RECEIVED_SETTINGS: SettingRow[] = [
+  { key: 'email_topup_received_enabled', label: 'Send Confirmation Email', description: 'Email parent when their top-up request is received', type: 'toggle' },
+  { key: 'email_topup_received_subject', label: 'Subject Line', description: 'Use {amount} and {student} as placeholders', type: 'text' },
+  { key: 'email_topup_received_note', label: 'Extra Message', description: 'Optional paragraph appended to the confirmation email body', type: 'textarea' },
+]
+
+const EMAIL_APPROVED_SETTINGS: SettingRow[] = [
+  { key: 'email_topup_approved_enabled', label: 'Send Approval Email', description: 'Email parent when their top-up is confirmed by a cashier', type: 'toggle' },
+  { key: 'email_topup_approved_subject', label: 'Subject Line', description: 'Use {amount} and {student} as placeholders', type: 'text' },
+  { key: 'email_topup_approved_note', label: 'Extra Message', description: 'Optional extra line in the approval email, e.g. "Funds are available immediately"', type: 'textarea' },
+]
+
+const EMAIL_REJECTED_SETTINGS: SettingRow[] = [
+  { key: 'email_topup_rejected_enabled', label: 'Send Rejection Email', description: 'Email parent when their top-up request is rejected', type: 'toggle' },
+  { key: 'email_topup_rejected_subject', label: 'Subject Line', description: 'Use {amount} and {student} as placeholders', type: 'text' },
+  { key: 'email_topup_rejected_note', label: 'Default Rejection Note', description: 'Pre-filled reason shown in rejection emails when no specific reason is given', type: 'textarea' },
+]
+
 function SettingControl({ s, settings, set }: { s: SettingRow; settings: Record<string, string>; set: (k: string, v: string) => void }) {
   const isToggle = s.type === 'toggle'
   const isTextarea = s.type === 'textarea'
@@ -177,7 +202,7 @@ export default function SettingsPage() {
     })
   }, [])
 
-  const ALL_CONFIG = [...SETTINGS_CONFIG, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS]
+  const ALL_CONFIG = [...SETTINGS_CONFIG, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS, ...EMAIL_IDENTITY_SETTINGS, ...EMAIL_RECEIVED_SETTINGS, ...EMAIL_APPROVED_SETTINGS, ...EMAIL_REJECTED_SETTINGS]
 
   function parseSettingValue(key: string, raw: string): unknown {
     const config = ALL_CONFIG.find(s => s.key === key)
@@ -256,6 +281,46 @@ export default function SettingsPage() {
           <div className="space-y-3">
             {NINE_DAYS_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
             <NineDaysFlyerUpload settings={settings} set={set} />
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">✉️ Email — Identity</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            These apply to all emails sent to parents. The sender address must be verified in your Resend account.
+          </p>
+          <div className="space-y-3">
+            {EMAIL_IDENTITY_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">✉️ Email — Request Received</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            Sent automatically when a parent submits a top-up request on the home page.
+          </p>
+          <div className="space-y-3">
+            {EMAIL_RECEIVED_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">✉️ Email — Top-up Approved</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            Sent when a cashier confirms the top-up and credits the student's balance.
+          </p>
+          <div className="space-y-3">
+            {EMAIL_APPROVED_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">✉️ Email — Top-up Rejected</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            Sent when a cashier rejects the request. The cashier can type a specific reason at rejection time which overrides the default note below.
+          </p>
+          <div className="space-y-3">
+            {EMAIL_REJECTED_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
           </div>
         </section>
       </div>
