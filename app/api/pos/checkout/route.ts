@@ -556,10 +556,10 @@ export async function POST(req: NextRequest) {
     } else if (item.variant_id) {
       const variant = variantMap.get(item.variant_id)!
       if (variant.stock_quantity !== null) {
-        await admin.rpc('decrement_variant_stock', {
-          v_id: item.variant_id,
-          qty: item.quantity,
-        })
+        const newVariantStock = Math.max(0, variant.stock_quantity - item.quantity)
+        await admin.from('product_variants')
+          .update({ stock_quantity: newVariantStock })
+          .eq('id', item.variant_id)
       }
     } else {
       const product = productMap.get(item.product_id)
