@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendTopupReceived } from '@/lib/email'
 
 // Public endpoint — parents submit top-up requests (no auth required).
 // All validation is done server-side; the client cannot bypass this.
@@ -52,6 +53,24 @@ export async function POST(req: NextRequest) {
     body = await req.json()
   } catch {
     return NextResponse.json({ error: 'Invalid request body' }, { status: 400 })
+  }
+
+  // --- Cloudflare Turnstile verification ---
+  const turnstileSecret = process.env.CLOUDFLARE_TURNSTILE_SECRET
+  if (turnstileSecret) {
+    const token = typeof body['cf-turnstile-response'] === 'string' ? body['cf-turnstile-response'] : ''
+    if (!token) {
+      return NextResponse.json({ error: 'Please complete the security check.' }, { status: 400 })
+    }
+    const verify = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ secret: turnstileSecret, response: token }),
+    })
+    const vResult = await verify.json() as { success: boolean }
+    if (!vResult.success) {
+      return NextResponse.json({ error: 'Security check failed. Please refresh and try again.' }, { status: 400 })
+    }
   }
 
   // --- Server-side input validation ---
@@ -113,12 +132,22 @@ export async function POST(req: NextRequest) {
   })
 
   if (error) {
-    // Do not leak internal DB error details to the client
     console.error('[topup] Insert error:', error.message)
     return NextResponse.json(
       { error: 'Failed to submit request. Please try again.' },
       { status: 500 }
     )
+  }
+
+  // Send confirmation email — fire and forget (don't block response on email failure)
+  if (process.env.RESEND_API_KEY) {
+    sendTopupReceived({
+      parentEmail,
+      parentName,
+      studentName,
+      amount: sanitizedAmount,
+      method,
+    }).catch(e => console.error('[topup] Email error:', e))
   }
 
   return NextResponse.json({ ok: true }, { status: 201 })

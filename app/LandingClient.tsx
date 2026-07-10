@@ -1,6 +1,7 @@
 'use client'
 
-import { useEffect, useRef, useState } from 'react'
+import { useEffect, useRef, useState, useCallback } from 'react'
+import Script from 'next/script'
 import Link from 'next/link'
 import { ShoppingBag, Send, Check, ChevronRight, Smartphone, Copy, ExternalLink, CreditCard, AlertTriangle, X, Megaphone, Info, FileText, Flame } from 'lucide-react'
 import toast from 'react-hot-toast'
@@ -190,6 +191,23 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   })
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
+  const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  const turnstileRef = useRef<HTMLDivElement>(null)
+  const turnstileWidgetId = useRef<string | null>(null)
+  const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
+
+  const renderTurnstile = useCallback(() => {
+    if (!siteKey || !turnstileRef.current || !(window as any).turnstile) return
+    // Only render once
+    if (turnstileWidgetId.current !== null) return
+    turnstileWidgetId.current = (window as any).turnstile.render(turnstileRef.current, {
+      sitekey: siteKey,
+      callback: (token: string) => setTurnstileToken(token),
+      'expired-callback': () => setTurnstileToken(null),
+      'error-callback': () => setTurnstileToken(null),
+      theme: 'light',
+    })
+  }, [siteKey])
 
   function set(k: keyof typeof form, v: string) {
     setForm(f => ({ ...f, [k]: v }))
@@ -256,6 +274,11 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
 
     const method = form.method || 'cash'
 
+    if (siteKey && !turnstileToken) {
+      err('Please complete the security check below.')
+      return
+    }
+
     setSubmitting(true)
     try {
       const res = await fetch('/api/topup', {
@@ -270,6 +293,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
           student_name: form.studentName.trim(),
           transaction_ref: form.transactionRef.trim() || null,
           notes: form.notes.trim() || null,
+          'cf-turnstile-response': turnstileToken,
         }),
       })
       const json = await res.json()
@@ -278,9 +302,19 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
         return
       }
       setStep('success')
+      // Reset Turnstile for next submission
+      if (siteKey && turnstileWidgetId.current !== null && (window as any).turnstile) {
+        (window as any).turnstile.reset(turnstileWidgetId.current)
+        setTurnstileToken(null)
+      }
     } catch (e) {
       console.error('Topup error:', e)
       err('Failed to submit — please try again or contact us directly.')
+      // Reset Turnstile on error too
+      if (siteKey && turnstileWidgetId.current !== null && (window as any).turnstile) {
+        (window as any).turnstile.reset(turnstileWidgetId.current)
+        setTurnstileToken(null)
+      }
     } finally {
       setSubmitting(false)
     }
@@ -573,9 +607,21 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                     />
                   </div>
 
+                  {/* Cloudflare Turnstile widget */}
+                  {siteKey && (
+                    <>
+                      <Script
+                        src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+                        strategy="afterInteractive"
+                        onLoad={renderTurnstile}
+                      />
+                      <div ref={turnstileRef} className="flex justify-center" />
+                    </>
+                  )}
+
                   <button
                     type="submit"
-                    disabled={submitting}
+                    disabled={submitting || (!!siteKey && !turnstileToken)}
                     className="w-full flex items-center justify-center gap-2 bg-amber-400 hover:bg-amber-500 disabled:opacity-60 text-white font-semibold py-3 min-h-[48px] rounded-xl transition-colors text-sm"
                   >
                     {submitting ? (

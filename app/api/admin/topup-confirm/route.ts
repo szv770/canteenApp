@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendTopupApproved, sendTopupRejected } from '@/lib/email'
 
 /**
  * POST /api/admin/topup-confirm
@@ -49,7 +50,7 @@ export async function POST(req: NextRequest) {
   // Fetch the topup — verify it's pending and has a bochur linked
   const { data: topup, error: topupErr } = await admin
     .from('balance_topups')
-    .select('id, amount, method, sender_name, bochur_id, status')
+    .select('id, amount, method, sender_name, student_name, parent_email, bochur_id, status')
     .eq('id', topupId)
     .single()
 
@@ -115,6 +116,17 @@ export async function POST(req: NextRequest) {
     confirmed_at: new Date().toISOString(),
   }).eq('id', topupId)
 
+  // Send approval email — fire and forget
+  if (process.env.RESEND_API_KEY && topup.parent_email) {
+    sendTopupApproved({
+      parentEmail: topup.parent_email,
+      parentName: topup.sender_name || 'Parent',
+      studentName: topup.student_name || 'your son',
+      amount: topup.amount,
+      newBalance,
+    }).catch(e => console.error('[topup-confirm] Email error:', e))
+  }
+
   return NextResponse.json({ ok: true })
 }
 
@@ -139,7 +151,7 @@ export async function PATCH(req: NextRequest) {
   const admin = createAdminClient()
   const { data: topup } = await admin
     .from('balance_topups')
-    .select('status')
+    .select('status, amount, sender_name, student_name, parent_email')
     .eq('id', topupId)
     .single()
 
@@ -148,7 +160,21 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ error: `Top-up is already ${topup.status}` }, { status: 409 })
   }
 
+  const reason = typeof body.reason === 'string' ? body.reason.trim() : undefined
+
   await admin.from('balance_topups').update({ status: 'rejected' }).eq('id', topupId)
+
+  // Send rejection email — fire and forget
+  if (process.env.RESEND_API_KEY && topup.parent_email) {
+    sendTopupRejected({
+      parentEmail: topup.parent_email,
+      parentName: topup.sender_name || 'Parent',
+      studentName: topup.student_name || 'your son',
+      amount: topup.amount,
+      reason: reason || undefined,
+    }).catch(e => console.error('[topup-reject] Email error:', e))
+  }
+
   return NextResponse.json({ ok: true })
 }
 
