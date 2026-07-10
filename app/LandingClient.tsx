@@ -113,7 +113,7 @@ function AnnouncementBanner({ announcement }: { announcement: HomeAnnouncement }
         <p className="text-sm font-medium flex-1 min-w-0">{announcement.message}</p>
         <button
           onClick={() => { localStorage.setItem(storageKey, 'true'); setDismissed(true) }}
-          className="shrink-0 p-1 rounded-lg hover:bg-black/5 transition-colors"
+          className="shrink-0 p-2 -m-1 rounded-lg hover:bg-black/5 transition-colors"
           aria-label="Dismiss"
         >
           <X className="w-4 h-4" />
@@ -125,8 +125,8 @@ function AnnouncementBanner({ announcement }: { announcement: HomeAnnouncement }
 
 function CreditCardWarningModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4">
-      <div className="bg-white rounded-2xl max-w-sm w-full p-6 shadow-xl">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
+      <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-xl max-h-full overflow-y-auto">
         <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <AlertTriangle className="w-6 h-6 text-amber-600" />
         </div>
@@ -171,7 +171,16 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   const enabledMethods = ['zelle', 'venmo', 'paypal', 'cashapp', 'cash'].filter(
     m => settings[`payment_${m}_enabled`] === 'true'
   )
-  const hasNoteMethods = enabledMethods.some(m => ['zelle', 'venmo', 'paypal', 'cashapp'].includes(m))
+  const noteMethodNames = enabledMethods
+    .filter(m => ['zelle', 'venmo', 'paypal', 'cashapp'].includes(m))
+    .map(m => METHOD_LABELS[m])
+  const noteMethodsText =
+    noteMethodNames.length <= 1
+      ? noteMethodNames.join('')
+      : noteMethodNames.length === 2
+      ? noteMethodNames.join(' or ')
+      : `${noteMethodNames.slice(0, -1).join(', ')}, or ${noteMethodNames[noteMethodNames.length - 1]}`
+  const hasNoteMethods = noteMethodNames.length > 0
 
   const formSectionRef = useRef<HTMLDivElement>(null)
   const previousMethodRef = useRef(enabledMethods[0] || 'zelle')
@@ -293,23 +302,23 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
       {/* Nav */}
       <nav className="bg-white/80 backdrop-blur-md border-b border-gray-100 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5">
-            <div className="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center">
+          <div className="flex items-center gap-2.5 min-w-0">
+            <div className="w-8 h-8 bg-amber-400 rounded-lg flex items-center justify-center shrink-0">
               <ShoppingBag className="w-4 h-4 text-white" />
             </div>
-            <span className="font-bold text-gray-900">{canteenName}</span>
+            <span className="font-bold text-gray-900 truncate">{canteenName}</span>
           </div>
           {loggedIn ? (
             <Link
               href="/pos"
-              className="flex items-center gap-1.5 bg-amber-400 hover:bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors"
+              className="flex items-center gap-1.5 bg-amber-400 hover:bg-amber-500 text-white px-4 py-2 rounded-xl text-sm font-semibold transition-colors shrink-0 ml-3"
             >
               Go to POS <ChevronRight className="w-4 h-4" />
             </Link>
           ) : (
             <Link
               href="/login"
-              className="text-sm text-gray-500 hover:text-gray-800 font-medium transition-colors"
+              className="text-sm text-gray-500 hover:text-gray-800 font-medium transition-colors shrink-0 ml-3"
             >
               Staff Login
             </Link>
@@ -324,10 +333,10 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
           <div className="inline-flex items-center gap-2 bg-amber-100 text-amber-700 px-3 py-1 rounded-full text-xs font-semibold mb-4">
             <Smartphone className="w-3.5 h-3.5" /> Parent Portal
           </div>
-          <h1 className="text-balance text-4xl sm:text-5xl font-extrabold text-gray-900 mb-3 leading-tight max-w-2xl mx-auto">
+          <h1 className="text-balance break-words text-3xl sm:text-4xl md:text-5xl font-extrabold text-gray-900 mb-3 leading-tight max-w-2xl mx-auto px-2">
             {canteenName}
           </h1>
-          <p className="text-balance text-gray-500 text-lg max-w-md mx-auto">{tagline}</p>
+          <p className="text-balance break-words text-gray-500 text-base sm:text-lg max-w-md mx-auto px-2">{tagline}</p>
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6 lg:gap-10 items-start">
@@ -361,7 +370,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                   <div className="flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-800 rounded-xl px-3 py-2.5 mb-3">
                     <Info className="w-4 h-4 shrink-0 mt-0.5" />
                     <p className="text-xs leading-relaxed">
-                      When sending Zelle, Venmo, Cash App, or PayPal, please include in the payment notes:{' '}
+                      When sending {noteMethodsText}, please include in the payment notes:{' '}
                       <span className="font-mono font-semibold">CANTEEN - [your son's name]</span>
                     </p>
                   </div>
@@ -375,58 +384,58 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                     const color = METHOD_COLORS[method] || '#F59E0B'
                     const logo = METHOD_LOGOS[method]
                     return (
-                      <div key={method} className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0" style={{ background: color }}>
-                          {logo}
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-gray-900 text-sm">{METHOD_LABELS[method]}</p>
-                          <p className="text-sm font-mono truncate" style={{ color }}>{info}</p>
-                        </div>
-                        <div className="flex items-center gap-1.5 shrink-0">
-                          <button
-                            onClick={async () => {
-                              const ok = await copyToClipboard(info)
-                              if (ok) toast.success(`${METHOD_LABELS[method]} handle copied!`, { duration: 2000 })
-                              else toast.error('Could not copy — please copy manually')
-                            }}
-                            className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-medium text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 rounded-lg transition-colors"
-                            title="Copy to clipboard"
-                          >
-                            <Copy className="w-3.5 h-3.5" /> Copy
-                          </button>
-                          {deepLink && (
-                            <a
-                              href={deepLink}
-                              target="_blank"
-                              rel="noopener noreferrer"
-                              className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white rounded-lg transition-opacity hover:opacity-90"
-                              style={{ background: color }}
+                      <div key={method} className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                        <div className="flex items-center gap-3">
+                          <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white font-bold text-lg shrink-0" style={{ background: color }}>
+                            {logo}
+                          </div>
+                          <p className="flex-1 min-w-0 font-semibold text-gray-900 text-sm truncate">{METHOD_LABELS[method]}</p>
+                          <div className="flex items-center gap-1.5 shrink-0">
+                            <button
+                              onClick={async () => {
+                                const ok = await copyToClipboard(info)
+                                if (ok) toast.success(`${METHOD_LABELS[method]} handle copied!`, { duration: 2000 })
+                                else toast.error('Could not copy — please copy manually')
+                              }}
+                              className="flex items-center gap-1 px-3 py-2 text-xs font-medium text-gray-500 hover:text-gray-800 border border-gray-200 hover:border-gray-300 rounded-lg transition-colors active:scale-95"
+                              title="Copy to clipboard"
                             >
-                              <ExternalLink className="w-3.5 h-3.5" /> Open
-                            </a>
-                          )}
+                              <Copy className="w-3.5 h-3.5" /> Copy
+                            </button>
+                            {deepLink && (
+                              <a
+                                href={deepLink}
+                                target="_blank"
+                                rel="noopener noreferrer"
+                                className="flex items-center gap-1 px-3 py-2 text-xs font-semibold text-white rounded-lg transition-opacity hover:opacity-90 active:scale-95"
+                                style={{ background: color }}
+                              >
+                                <ExternalLink className="w-3.5 h-3.5" /> Open
+                              </a>
+                            )}
+                          </div>
                         </div>
+                        <p className="text-sm font-mono break-all mt-2.5 pl-[52px]" style={{ color }}>{info}</p>
                       </div>
                     )
                   })}
 
                   {ccEnabled && (
-                    <div className="flex items-center gap-3 p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
-                      <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: METHOD_COLORS.credit_card }}>
-                        <CreditCard className="w-5 h-5" />
+                    <div className="p-4 bg-white rounded-2xl border border-gray-100 shadow-sm">
+                      <div className="flex items-center gap-3">
+                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-white shrink-0" style={{ background: METHOD_COLORS.credit_card }}>
+                          <CreditCard className="w-5 h-5" />
+                        </div>
+                        <p className="flex-1 min-w-0 font-semibold text-gray-900 text-sm truncate">Credit Card</p>
+                        <button
+                          onClick={() => onMethodChange('credit_card')}
+                          className="flex items-center gap-1 px-3 py-2 text-xs font-semibold text-white rounded-lg transition-opacity hover:opacity-90 active:scale-95 shrink-0"
+                          style={{ background: METHOD_COLORS.credit_card }}
+                        >
+                          <ExternalLink className="w-3.5 h-3.5" /> Pay Online
+                        </button>
                       </div>
-                      <div className="flex-1 min-w-0">
-                        <p className="font-semibold text-gray-900 text-sm">Credit Card (Online)</p>
-                        <p className="text-xs text-gray-400 mt-0.5">No refunds — processing fees apply</p>
-                      </div>
-                      <button
-                        onClick={() => onMethodChange('credit_card')}
-                        className="flex items-center gap-1 px-2.5 py-1.5 text-xs font-semibold text-white rounded-lg transition-opacity hover:opacity-90 shrink-0"
-                        style={{ background: METHOD_COLORS.credit_card }}
-                      >
-                        <ExternalLink className="w-3.5 h-3.5" /> Pay Online
-                      </button>
+                      <p className="text-xs text-gray-400 mt-2.5 pl-[52px]">No refunds — processing fees apply</p>
                     </div>
                   )}
 
@@ -504,7 +513,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                     <div>
                       <label className="block text-sm font-medium text-gray-700 mb-1">Your Email *</label>
                       <input
-                        type="text"
+                        type="email"
                         inputMode="email"
                         autoComplete="email"
                         className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
