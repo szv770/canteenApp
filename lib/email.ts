@@ -31,7 +31,7 @@ export async function sendTopupReceived({
 
   return resend.emails.send({
     from: FROM,
-    reply_to: REPLY_TO,
+    replyTo: REPLY_TO,
     to: parentEmail,
     subject: `Top-up request received — ${fmt(amount)} for ${studentName}`,
     html: `
@@ -71,7 +71,7 @@ export async function sendTopupApproved({
 
   return resend.emails.send({
     from: FROM,
-    reply_to: REPLY_TO,
+    replyTo: REPLY_TO,
     to: parentEmail,
     subject: `Top-up approved — ${fmt(amount)} added for ${studentName}`,
     html: `
@@ -107,7 +107,7 @@ export async function sendTopupRejected({
 
   return resend.emails.send({
     from: FROM,
-    reply_to: REPLY_TO,
+    replyTo: REPLY_TO,
     to: parentEmail,
     subject: `Top-up request not approved — ${studentName}`,
     html: `
