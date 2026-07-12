@@ -41,10 +41,16 @@ export default function BochurimPage() {
     setLoading(true)
     setSelectedIds(new Set())
     const [bRes, atRes] = await Promise.all([
-      supabase.from('bochurim_with_id').select('*, account_type:account_types(*)').eq('archived', showArchived).order('name'),
+      // No join — views don't reliably expose FK relationships to PostgREST
+      // (same class of bug as gotcha #1). Merge account_type client-side instead.
+      supabase.from('bochurim_with_id').select('*').eq('archived', showArchived).order('name'),
       supabase.from('account_types').select('*').order('name'),
     ])
-    setBochurim(bRes.data || [])
+    if (bRes.error) toast.error('Failed to load bochurim: ' + bRes.error.message)
+    if (atRes.error) toast.error('Failed to load account types: ' + atRes.error.message)
+    const atMap = Object.fromEntries((atRes.data || []).map((at: AccountType) => [at.id, at]))
+    const merged = (bRes.data || []).map((b: any) => ({ ...b, account_type: atMap[b.account_type_id] || null }))
+    setBochurim(merged as BochurWithId[])
     setAccountTypes(atRes.data || [])
     setLoading(false)
   }
