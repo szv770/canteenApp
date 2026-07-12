@@ -29,7 +29,7 @@ export default function TopupsPage() {
     const [tRes, bRes] = await Promise.all([
       supabase
         .from('balance_topups')
-        .select('*, bochurim(name)')
+        .select('*, bochurim(name), cashier_profiles!created_by(name)')
         .order('created_at', { ascending: false })
         .limit(100),
       supabase.from('bochurim').select('id,name').eq('archived', false).order('name'),
@@ -135,7 +135,7 @@ export default function TopupsPage() {
           <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Balance Top-ups</h1>
           <p className="text-slate-500 text-sm mt-1">
             {pending.length > 0 && <span className="text-amber-600 font-semibold">{pending.length} pending · </span>}
-            Parent payment requests
+            Payment requests from parents and cashiers
           </p>
         </div>
         <button onClick={loadAll} className="btn-secondary text-sm">
@@ -166,8 +166,21 @@ export default function TopupsPage() {
               ) : [...pending, ...rest].map(t => (
                 <tr key={t.id} className="table-row">
                   <td className="px-5 py-3">
-                    <p className="text-sm font-semibold text-slate-900">{t.student_name || '—'}</p>
-                    <p className="text-xs text-slate-400">from {t.sender_name || '—'}</p>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <p className="text-sm font-semibold text-slate-900">{t.student_name || '—'}</p>
+                      {t.created_by ? (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-violet-50 text-violet-700 border border-violet-100">
+                          Cashier
+                        </span>
+                      ) : (
+                        <span className="inline-flex items-center px-1.5 py-0.5 rounded-md text-[10px] font-semibold bg-sky-50 text-sky-700 border border-sky-100">
+                          Parent
+                        </span>
+                      )}
+                    </div>
+                    <p className="text-xs text-slate-400">
+                      from {t.created_by ? ((t.cashier_profiles as any)?.name || t.sender_name || 'Cashier') : (t.sender_name || '—')}
+                    </p>
                     {t.parent_phone && <p className="text-xs text-slate-400">{t.parent_phone}</p>}
                     {t.parent_email && <p className="text-xs text-slate-400">{t.parent_email}</p>}
                     {t.transaction_ref && <p className="text-xs text-slate-400 font-mono">ref: {t.transaction_ref}</p>}
