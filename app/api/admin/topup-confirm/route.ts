@@ -75,6 +75,30 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Top-up has invalid amount' }, { status: 400 })
   }
 
+  // --- Atomic status claim (TOCTOU guard) ---
+  // Update status to 'confirmed' only if it is still 'pending'.
+  // If two requests race here, exactly one will update a row; the other
+  // gets 0 rows back and returns 409 — preventing double-credit.
+  const { data: claimed, error: claimErr } = await admin
+    .from('balance_topups')
+    .update({
+      status: 'confirmed',
+      confirmed_by: auth.user.id,
+      confirmed_at: new Date().toISOString(),
+    })
+    .eq('id', topupId)
+    .eq('status', 'pending')  // atomic guard — only succeeds once
+    .select('id')
+
+  if (claimErr) {
+    console.error('[topup-confirm] Status claim error:', claimErr.message)
+    return NextResponse.json({ error: 'Failed to confirm top-up' }, { status: 500 })
+  }
+  if (!claimed || claimed.length === 0) {
+    // Another request already confirmed (or rejected) this top-up
+    return NextResponse.json({ error: 'Top-up already processed' }, { status: 409 })
+  }
+
   // Fetch current balance
   const { data: bochur, error: bochurErr } = await admin
     .from('bochurim')
@@ -108,13 +132,6 @@ export async function POST(req: NextRequest) {
     note: `${topup.method} top-up${topup.sender_name ? ` from ${topup.sender_name}` : ''}`,
     cashier_id: auth.user.id,
   })
-
-  // Mark topup confirmed
-  await admin.from('balance_topups').update({
-    status: 'confirmed',
-    confirmed_by: auth.user.id,
-    confirmed_at: new Date().toISOString(),
-  }).eq('id', topupId)
 
   // Send approval email — fire and forget
   if (process.env.RESEND_API_KEY && topup.parent_email) {

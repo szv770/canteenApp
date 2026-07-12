@@ -531,12 +531,10 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // Increment discount code uses_count
+  // Increment discount code uses_count atomically via DB function
+  // (avoids read-then-write race when two checkouts use the same code simultaneously)
   if (discountCodeId) {
-    const { data: dcRow } = await admin.from('discount_codes').select('uses_count').eq('id', discountCodeId).single()
-    if (dcRow) {
-      await admin.from('discount_codes').update({ uses_count: dcRow.uses_count + 1 }).eq('id', discountCodeId)
-    }
+    await admin.rpc('increment_discount_uses', { code_id: discountCodeId })
   }
 
   // Stock updates (skip if stock_quantity is null = untracked)

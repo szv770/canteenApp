@@ -36,8 +36,8 @@ app/
   (pos)/
     page.tsx         # Main POS terminal
   api/pos/
-    checkout/        # POST: validate cart, write order, deduct balance, block frozen accounts
-    apply-discount/  # POST: validate coupon (does NOT increment uses_count)
+    checkout/        # POST: validate cart, write order, deduct balance, block frozen accounts; atomically increments discount uses_count via DB RPC
+    apply-discount/  # POST: validate coupon (preview only — does NOT write to DB)
 
 components/
   admin/
@@ -203,7 +203,11 @@ lib/utils.ts         # formatCurrency, cn
 
 11. **`supabase/rls-policies.sql` is stale — don't trust it for the actual deployed policy.** Live policies (checked via Supabase MCP `execute_sql` against `pg_policies`) are simpler than the file: `orders`, `order_items`, and `cashier_profiles` all use a single permissive `auth_all` policy (`auth.role() = 'authenticated'`) — any authenticated cashier can read/write all rows, not just their own. This is why cross-cashier joins (e.g. cashier-dashboard showing "rung by [other cashier]") work without extra policy changes. When in doubt about what's really enforced, query `pg_policies` directly instead of reading the checked-in file.
 
-12. **Admin-entered URLs (e.g. `payment_cc_link`) need a protocol before `window.open`/`<a href>`** — if the admin types `example.com/x` without `http(s)://`, the browser treats it as a relative path off the current origin (`canteen.szvtech.org/example.com/x`) instead of opening the external site. Always normalize with something like `/^https?:\/\//i.test(v) ? v : \`https://${v}\`` before using an admin-entered link as a navigation target.
+12. **Discount code `uses_count` IS incremented at checkout** — `apply-discount` is a preview-only route (no DB writes). The actual increment happens in `checkout/route.ts` after the order is committed, via the atomic `increment_discount_uses(code_id)` Postgres RPC (avoids read-then-write race when two checkouts use the same code simultaneously). The old CLAUDE.md note saying "does NOT increment" was stale.
+
+13. **Topup double-credit prevention** — `topup-confirm` POST now updates `balance_topups.status = 'confirmed' WHERE id=X AND status='pending'` BEFORE touching `bochurim.balance`. If two requests race, exactly one will claim the row; the other gets 0 rows back and receives a 409. This prevents the same top-up from being double-credited if two cashiers tap Confirm simultaneously.
+
+14. **Admin-entered URLs (e.g. `payment_cc_link`) need a protocol before `window.open`/`<a href>`** — if the admin types `example.com/x` without `http(s)://`, the browser treats it as a relative path off the current origin (`canteen.szvtech.org/example.com/x`) instead of opening the external site. Always normalize with something like `/^https?:\/\//i.test(v) ? v : \`https://${v}\`` before using an admin-entered link as a navigation target.
 
 13. **New public-facing `settings` keys must be added to the anon RLS allowlist or they silently read as empty.** The `settings` table's anon SELECT policy (`anon can read public settings` in `pg_policies`) only exposes an explicit list of keys to unauthenticated visitors (the home page). Adding a new `payment_*`/`nine_days_*`/`top_sellers_*` setting and wiring it into `LandingClient.tsx`/`lib/home.ts` is not enough — if the key isn't also added to that policy's allowlist, real parents get `undefined`/empty for it even though it works fine when you (as an authenticated admin) test it. This bit us once already: `payment_cc_prefill_enabled`, `payment_cc_amount_param`, `payment_cc_name_param` were missed when the policy was tightened. Check `pg_policies` directly (see gotcha #11) rather than assuming a new setting is automatically public-readable.
 
@@ -227,6 +231,10 @@ lib/utils.ts         # formatCurrency, cn
 
 | Date | Change |
 |---|---|
+| 2026-07-12 | Security: fix TOCTOU race in topup-confirm — atomic status claim with `.eq('status','pending')` guard before balance update prevents double-credit |
+| 2026-07-12 | Security: discount uses_count increment made atomic via `increment_discount_uses` Postgres RPC (avoids read-then-write race with concurrent checkouts) |
+| 2026-07-12 | Security audit: all API routes verified — admin routes guarded by requireCashier()/requireAdmin(), public routes (/api/topup, /api/home/top-sellers) intentionally unauthenticated with rate limiting / tight data scoping |
+| 2026-07-12 | RLS audit: bundle_items has anon SELECT (qual=true) — non-sensitive product bundle composition data, noted in Known Issues |
 | 2026-06-26 | Initial full build: core POS, admin, dashboard, variants |
 | 2026-06-26 | Fix: transactions PostgREST join error (FK hints for cashier_profiles, bochurim) |
 | 2026-06-26 | Feat: clear cart, type-in quantity, emoji icon picker, name-first POS cards |
