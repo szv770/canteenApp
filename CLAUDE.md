@@ -169,6 +169,7 @@ lib/utils.ts         # formatCurrency, cn
 | Feature | Notes |
 |---|---|
 | Stripe / card reader integration | User still deciding between Stripe Terminal vs manual phone reader |
+| "Approve without crediting" security hardening | Plan only (not built): admin-only role gate, mandatory reason field, visual "No credit" badge on row, `skip_credit_reason` audit column to flag the action. Real risk is cashier pocketing payment by claiming "already added manually" — admin-only restriction closes this. |
 | Enable Supabase Auth leaked-password protection | Flagged 2026-07-10 by `get_advisors`. Not fixable via migration/SQL — it's a Supabase Auth project setting (checks new passwords against HaveIBeenPwned), only togglable from the Supabase dashboard under Authentication → Policies, or the Management API. Low urgency since cashiers/admins are provisioned by the admin, not self-signup, but worth flipping on. |
 | Discount display mode toggle | Admin setting to choose between "show normal price + discount line" vs "show reduced price per item" in checkout |
 | "Lost revenue from discounts" report view | Show total revenue given away in discounts per period |
@@ -335,6 +336,8 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-12 | Feat: top-ups admin — "Approve without crediting" button (double-checkmark icon) on pending rows; passes `skip_credit: true` to POST /api/admin/topup-confirm which marks status confirmed + sends email but skips balance update and ledger entry; intended for cases where admin already manually credited balance |
 | 2026-07-12 | Feat: top-ups admin — hide processed rows by default; "Show All" / "Hide Processed" toggle in header; subtitle shows count of hidden processed rows; empty-state inline link to reveal them |
 | 2026-07-13 | Redesign: Reports page fully rebuilt — 4 tabs (Overview/Products/Profit & COGS/Students), smart date presets incl. "☀️ This Summer" (default), period nav arrows (prev/next), chart↔table toggle on every card, student name click opens BochurProfileModal inline, wastage inline edit (notes) + delete, enhanced CSV export (adds Items column), print button with print-CSS |
+| 2026-07-13 | UX: inventory restock modal — "Batch cost per unit (this restock only)" label + blue summary box; default cost_price unchanged unless checkbox explicitly checked |
+| 2026-07-13 | Feat: Purchase History tab on COGS page — shows stock_entries batch restock costs (date/product/units/cost-per-unit/total); monthly summary card + all-time total footer |
 | 2026-07-12 | Fix: creating new account types now works — `account_types.type` (NOT NULL, no default) was never included in the insert payload; now set to `baseSlug` derived from the type name |
 | 2026-07-12 | UX: products admin Cost Price field now shows helper text "Used for 'At cost' account type discounts" |
 | 2026-07-12 | Fix: transactions page walk-in orders now visible — replaced unreliable PostgREST LEFT JOIN with two-query pattern (fetch orders, then fetch bochur names separately, merge client-side) so null bochur_id orders always appear |

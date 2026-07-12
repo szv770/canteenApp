@@ -408,16 +408,28 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
         <div className="p-4 sm:p-5 space-y-4 overflow-y-auto">
           <div className="p-3 bg-gray-50 rounded-xl flex justify-between">
             <span className="text-sm text-gray-600">Current stock</span>
-            <span className="font-bold text-gray-900">{product.stock_quantity}</span>
+            <span className="font-bold text-gray-900">{product.stock_quantity ?? '∞'}</span>
           </div>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Quantity to add *</label>
             <input type="number" className="input-admin text-lg" value={qty || ''} onChange={e => setQty(parseInt(e.target.value) || 0)} min={1} />
           </div>
+
           <div className="grid grid-cols-2 gap-3">
             <div>
-              <label className="block text-sm font-medium text-gray-700 mb-1">Cost per unit</label>
-              <input type="number" className="input-admin" value={costPerUnit} onChange={e => setCostPerUnit(parseFloat(e.target.value) || 0)} step={0.01} min={0} />
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Batch cost per unit
+                <span className="ml-1 text-xs text-gray-400 font-normal">(this restock only)</span>
+              </label>
+              <input
+                type="number"
+                className="input-admin"
+                value={costPerUnit ?? ''}
+                onChange={e => setCostPerUnit(parseFloat(e.target.value) || 0)}
+                step={0.01} min={0}
+                placeholder="0.00"
+              />
             </div>
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">Supplier</label>
@@ -427,26 +439,47 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
               </select>
             </div>
           </div>
+
           {!supplierId && (
             <div>
               <label className="block text-sm font-medium text-gray-700 mb-1">New supplier name</label>
               <input className="input-admin" value={newSupplier} onChange={e => setNewSupplier(e.target.value)} placeholder="Optional" />
             </div>
           )}
-          <label className="flex items-center gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer">
-            <input type="checkbox" checked={updatePrice} onChange={e => setUpdatePrice(e.target.checked)} className="rounded" />
-            <span className="text-sm text-amber-800">Update product cost price to {formatCurrency(costPerUnit)}</span>
+
+          {/* Batch cost summary — always record, optionally update default */}
+          {qty > 0 && costPerUnit > 0 && (
+            <div className="p-3 bg-blue-50 border border-blue-100 rounded-xl space-y-1.5">
+              <div className="flex justify-between text-sm">
+                <span className="text-blue-700">Total batch cost</span>
+                <span className="font-bold text-blue-800">{formatCurrency(qty * costPerUnit)}</span>
+              </div>
+              <p className="text-xs text-blue-500">
+                This will be recorded in Purchase History for COGS analytics. Your default cost price ({formatCurrency(product.cost_price ?? 0)}) stays unchanged unless you check the box below.
+              </p>
+            </div>
+          )}
+
+          <label className="flex items-start gap-3 p-3 bg-amber-50 border border-amber-200 rounded-xl cursor-pointer">
+            <input type="checkbox" checked={updatePrice} onChange={e => setUpdatePrice(e.target.checked)} className="rounded mt-0.5 shrink-0" />
+            <span className="text-sm text-amber-800">
+              Also update default cost price to {formatCurrency(costPerUnit)}
+              <span className="block text-xs text-amber-600 mt-0.5 font-normal">Only check this if this batch price is your new standard cost</span>
+            </span>
           </label>
+
           <div>
             <label className="block text-sm font-medium text-gray-700 mb-1">Notes</label>
-            <input className="input-admin" value={notes} onChange={e => setNotes(e.target.value)} placeholder="Optional" />
+            <input className="input-admin" value={notes} onChange={e => setNotes(e.target.value)} placeholder="e.g. Costco deal, bulk order..." />
           </div>
+
           {qty > 0 && (
             <div className="p-3 bg-emerald-50 rounded-xl flex justify-between">
               <span className="text-sm text-emerald-700">New stock level</span>
               <span className="font-bold text-emerald-700">{(product.stock_quantity ?? 0) + qty}</span>
             </div>
           )}
+
           <div className="flex gap-2 pt-2">
             <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
             <button onClick={save} disabled={saving} className="btn-primary flex-1">{saving ? 'Saving...' : 'Restock'}</button>
