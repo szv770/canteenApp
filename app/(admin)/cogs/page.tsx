@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import { Plus, AlertTriangle, DollarSign, Trash2 } from 'lucide-react'
+import { Plus, AlertTriangle, DollarSign, Trash2, ShoppingCart } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface WastageEntry {
@@ -18,6 +18,16 @@ interface WastageEntry {
   cashier_id: string | null
   created_at: string
   cashier_profiles?: { name: string } | null
+}
+
+interface StockEntry {
+  id: string
+  product_id: string | null
+  quantity_added: number
+  cost_per_unit: number | null
+  notes: string | null
+  created_at: string
+  products?: { name: string } | null
 }
 
 interface ExpenseEntry {
@@ -40,9 +50,10 @@ const TYPE_BADGE: Record<string, string> = {
 
 export default function CogsPage() {
   const supabase = createClient()
-  const [tab, setTab] = useState<'wastage' | 'expenses'>('wastage')
+  const [tab, setTab] = useState<'wastage' | 'expenses' | 'purchases'>('wastage')
   const [wastage, setWastage] = useState<WastageEntry[]>([])
   const [expenses, setExpenses] = useState<ExpenseEntry[]>([])
+  const [purchases, setPurchases] = useState<StockEntry[]>([])
   const [loading, setLoading] = useState(true)
 
   // Expense form
@@ -58,7 +69,7 @@ export default function CogsPage() {
 
   async function loadData() {
     setLoading(true)
-    const [wRes, eRes] = await Promise.all([
+    const [wRes, eRes, pRes] = await Promise.all([
       supabase
         .from('wastage_log')
         .select('*, cashier_profiles!cashier_id(name)')
@@ -69,11 +80,18 @@ export default function CogsPage() {
         .select('*')
         .order('date', { ascending: false })
         .limit(300),
+      supabase
+        .from('stock_entries')
+        .select('*, products!product_id(name)')
+        .order('created_at', { ascending: false })
+        .limit(500),
     ])
     if (wRes.error) toast.error(wRes.error.message)
     if (eRes.error) toast.error(eRes.error.message)
+    if (pRes.error) toast.error(pRes.error.message)
     setWastage(wRes.data || [])
     setExpenses(eRes.data || [])
+    setPurchases(pRes.data || [])
     setLoading(false)
   }
 
@@ -87,6 +105,11 @@ export default function CogsPage() {
 
   const expensesThisMonth = expenses.filter(e => e.date >= monthStartDate)
   const expensesTotal = expensesThisMonth.reduce((sum, e) => sum + e.amount, 0)
+
+  const purchasesThisMonth = purchases.filter(p => p.created_at >= monthStart)
+  const purchasesTotal = purchasesThisMonth.reduce((sum, p) => {
+    return sum + (p.cost_per_unit ?? 0) * p.quantity_added
+  }, 0)
 
   async function deleteWastage(id: string) {
     if (!confirm('Delete this wastage entry?')) return
@@ -137,7 +160,11 @@ export default function CogsPage() {
 
       {/* Tab bar */}
       <div className="flex gap-1 bg-slate-100 p-1 rounded-xl w-fit mb-6">
-        {(['wastage', 'expenses'] as const).map(t => (
+        {([
+          ['wastage', 'Wastage Log'],
+          ['expenses', 'Expenses'],
+          ['purchases', 'Purchase History'],
+        ] as const).map(([t, label]) => (
           <button
             key={t}
             onClick={() => setTab(t)}
@@ -145,7 +172,7 @@ export default function CogsPage() {
               tab === t ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500 hover:text-slate-700'
             }`}
           >
-            {t === 'wastage' ? 'Wastage Log' : 'Expenses'}
+            {label}
           </button>
         ))}
       </div>
@@ -229,6 +256,97 @@ export default function CogsPage() {
                     </tr>
                   ))}
                 </tbody>
+              </table>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* PURCHASE HISTORY TAB */}
+      {tab === 'purchases' && (
+        <div className="space-y-4">
+          {/* Summary */}
+          <div className="bg-white rounded-2xl border border-slate-100 p-4 flex items-center gap-4 shadow-sm">
+            <div className="w-10 h-10 bg-emerald-50 rounded-xl flex items-center justify-center shrink-0">
+              <ShoppingCart className="w-5 h-5 text-emerald-600" />
+            </div>
+            <div>
+              <p className="text-sm text-slate-500">Inventory Spend &mdash; This Month</p>
+              <p className="text-2xl font-bold text-emerald-700">{formatCurrency(purchasesTotal)}</p>
+            </div>
+            <div className="ml-auto text-right">
+              <p className="text-sm text-slate-500">Restocks this month</p>
+              <p className="text-xl font-bold text-slate-700">{purchasesThisMonth.length}</p>
+            </div>
+          </div>
+
+          <div className="bg-white rounded-2xl border border-slate-100 shadow-sm overflow-hidden">
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50">
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Date</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Product</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600">Units</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600">Batch Cost/Unit</th>
+                    <th className="px-4 py-3 text-right font-semibold text-slate-600">Total</th>
+                    <th className="px-4 py-3 text-left font-semibold text-slate-600">Notes</th>
+                  </tr>
+                </thead>
+                <tbody className="divide-y divide-slate-50">
+                  {loading ? (
+                    Array.from({ length: 5 }).map((_, i) => (
+                      <tr key={i}>
+                        {Array.from({ length: 6 }).map((_, j) => (
+                          <td key={j} className="px-4 py-3">
+                            <div className="h-4 bg-slate-100 rounded animate-pulse" />
+                          </td>
+                        ))}
+                      </tr>
+                    ))
+                  ) : purchases.length === 0 ? (
+                    <tr>
+                      <td colSpan={6} className="px-4 py-12 text-center text-slate-400">
+                        No restocks recorded yet. Restock products from the Inventory page.
+                      </td>
+                    </tr>
+                  ) : purchases.map(p => {
+                    const total = (p.cost_per_unit ?? 0) * p.quantity_added
+                    return (
+                      <tr key={p.id} className="hover:bg-slate-50/50">
+                        <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
+                          {new Date(p.created_at).toLocaleDateString()}
+                        </td>
+                        <td className="px-4 py-3 font-medium text-slate-800">
+                          {(p.products as any)?.name ?? <span className="text-slate-400 italic">Unknown product</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right text-slate-700">{p.quantity_added}</td>
+                        <td className="px-4 py-3 text-right text-slate-600">
+                          {p.cost_per_unit != null ? formatCurrency(p.cost_per_unit) : <span className="text-slate-300">&mdash;</span>}
+                        </td>
+                        <td className="px-4 py-3 text-right font-semibold text-emerald-700">
+                          {p.cost_per_unit != null ? formatCurrency(total) : <span className="text-slate-300">&mdash;</span>}
+                        </td>
+                        <td className="px-4 py-3 text-slate-500 text-xs">
+                          {p.notes || <span className="text-slate-300">&mdash;</span>}
+                        </td>
+                      </tr>
+                    )
+                  })}
+                </tbody>
+                {purchases.length > 0 && (
+                  <tfoot>
+                    <tr className="border-t-2 border-slate-200 bg-slate-50">
+                      <td colSpan={4} className="px-4 py-3 text-sm font-semibold text-slate-600 text-right">
+                        All time total spend
+                      </td>
+                      <td className="px-4 py-3 text-right font-bold text-emerald-800">
+                        {formatCurrency(purchases.reduce((s, p) => s + (p.cost_per_unit ?? 0) * p.quantity_added, 0))}
+                      </td>
+                      <td />
+                    </tr>
+                  </tfoot>
+                )}
               </table>
             </div>
           </div>
