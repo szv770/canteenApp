@@ -4,28 +4,17 @@ import { usePathname, useRouter } from 'next/navigation'
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import {
-  LayoutDashboard, Users, Package, Warehouse,
-  Receipt, Settings, CreditCard, ShoppingBag, LogOut, UserCog, Menu, X, BarChart2, Gift,
-  RotateCcw, BookOpen, TrendingDown, Bell, Wallet, Tag
+  LayoutDashboard, Users, Package,
+  Receipt, Settings, ShoppingBag, LogOut, Menu, X, Wallet,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
 const NAV = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/accounts', icon: Wallet, label: 'Accounts' },
-  { href: '/bochurim', icon: Users, label: 'Bochurim' },
-  { href: '/products', icon: Package, label: 'Products' },
-  { href: '/bundles', icon: Gift, label: 'Bundles' },
-  { href: '/discount-codes', icon: Tag, label: 'Discount Codes' },
-  { href: '/inventory', icon: Warehouse, label: 'Inventory' },
   { href: '/transactions', icon: Receipt, label: 'Transactions' },
-  { href: '/refund-requests', icon: RotateCcw, label: 'Refund Requests' },
-  { href: '/reports', icon: BarChart2, label: 'Reports' },
-  { href: '/menu', icon: BookOpen, label: 'Menu' },
-  { href: '/cogs', icon: TrendingDown, label: 'COGS' },
-  { href: '/notifications', icon: Bell, label: 'Notifications' },
-  { href: '/topups', icon: CreditCard, label: 'Top-ups' },
-  { href: '/cashiers', icon: UserCog, label: 'Cashiers' },
+  { href: '/bochurim', icon: Users, label: 'Students' },
+  { href: '/products', icon: Package, label: 'Products' },
+  { href: '/finance', icon: Wallet, label: 'Finance' },
   { href: '/settings', icon: Settings, label: 'Settings' },
 ]
 
@@ -103,7 +92,7 @@ export default function AdminSidebar() {
             >
               <item.icon className={cn('w-4 h-4 shrink-0', active ? 'text-amber-400' : '')} />
               <span className={active ? 'text-white font-semibold' : ''}>{item.label}</span>
-              {item.href === '/refund-requests' && pendingRefunds > 0 && (
+              {item.href === '/transactions' && pendingRefunds > 0 && (
                 <span className="ml-auto min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full">
                   {pendingRefunds > 9 ? '9+' : pendingRefunds}
                 </span>
@@ -115,13 +104,15 @@ export default function AdminSidebar() {
 
       {/* Bottom actions */}
       <div className="p-2.5 border-t border-white/10 space-y-0.5 shrink-0">
-        <button
-          onClick={() => navigate('/pos')}
+        <a
+          href="/pos"
+          target="_blank"
+          rel="noopener noreferrer"
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:bg-white/8 hover:text-slate-200 transition-all min-h-[44px]"
         >
           <ShoppingBag className="w-4 h-4" />
-          Go to POS
-        </button>
+          POS Terminal
+        </a>
         <button
           onClick={signOut}
           className="w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium text-slate-400 hover:bg-red-500/15 hover:text-red-400 transition-all min-h-[44px]"

@@ -183,7 +183,8 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
     parentName: '',
     parentPhone: '',
     parentEmail: '',
-    studentName: '',
+    studentFirstName: '',
+    studentLastName: '',
     amount: '',
     method: enabledMethods[0] || 'zelle',
     transactionRef: '',
@@ -243,7 +244,8 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
         const nameParam = settings['payment_cc_name_param'] || 'client_reference_id'
         const params = new URLSearchParams()
         if (form.amount) params.set(amountParam, form.amount)
-        if (form.studentName) params.set(nameParam, form.studentName)
+        const fullStudentName = [form.studentFirstName, form.studentLastName].filter(Boolean).join(' ')
+        if (fullStudentName) params.set(nameParam, fullStudentName)
         const qs = params.toString()
         if (qs) url += (url.includes('?') ? '&' : '?') + qs
       }
@@ -258,7 +260,8 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
     setFormError('')
 
     if (!form.parentName.trim()) { err('Please enter your name'); return }
-    if (!form.studentName.trim()) { err("Please enter your son's name"); return }
+    if (!form.studentFirstName.trim()) { err("Please enter your son's first name"); return }
+    if (!form.studentLastName.trim()) { err("Please enter your son's last name"); return }
 
     const phoneDigits = form.parentPhone.replace(/\D/g, '')
     if (!form.parentPhone.trim()) { err('Please enter your phone number'); return }
@@ -290,7 +293,7 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
           sender_name: form.parentName.trim(),
           parent_phone: form.parentPhone.trim(),
           parent_email: form.parentEmail.trim(),
-          student_name: form.studentName.trim(),
+          student_name: `${form.studentFirstName.trim()} ${form.studentLastName.trim()}`,
           transaction_ref: form.transactionRef.trim() || null,
           notes: form.notes.trim() || null,
           'cf-turnstile-response': turnstileToken,
@@ -330,11 +333,11 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
           </div>
           <h3 className="text-xl font-bold text-gray-900 mb-2">Request Submitted!</h3>
           <p className="text-gray-500 text-sm max-w-xs mx-auto">
-            We received your top-up request for <strong>{form.studentName}</strong>.
+            We received your top-up request for <strong>{form.studentFirstName} {form.studentLastName}</strong>.
             Funds will be added to their account shortly.
           </p>
           <button
-            onClick={() => { setStep('form'); setForm(f => ({ ...f, parentName: '', studentName: '', amount: '', transactionRef: '', notes: '' })) }}
+            onClick={() => { setStep('form'); setForm(f => ({ ...f, parentName: '', studentFirstName: '', studentLastName: '', amount: '', transactionRef: '', notes: '' })) }}
             className="mt-6 text-sm text-amber-600 font-medium hover:underline"
           >
             Submit another request
@@ -367,17 +370,26 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
                 />
               </div>
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Son's Name *</label>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Son's First Name *</label>
                 <input
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
-                  placeholder="Student's name"
-                  value={form.studentName}
-                  onChange={e => set('studentName', e.target.value)}
+                  placeholder="e.g. Moshe"
+                  value={form.studentFirstName}
+                  onChange={e => set('studentFirstName', e.target.value)}
                 />
               </div>
             </div>
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Son's Last Name *</label>
+                <input
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
+                  placeholder="e.g. Cohen"
+                  value={form.studentLastName}
+                  onChange={e => set('studentLastName', e.target.value)}
+                />
+              </div>
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Your Phone *</label>
                 <input
@@ -388,6 +400,9 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
                   onChange={e => set('parentPhone', e.target.value)}
                 />
               </div>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Your Email *</label>
                 <input

@@ -6,8 +6,43 @@ import { Search, Download, RefreshCw, X, Eye, RotateCcw } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import RefundRequestsPage from '../refund-requests/page'
+
+type TxTab = 'orders' | 'refunds'
+
+function TransactionsHub() {
+  const [tab, setTab] = useState<TxTab>('orders')
+  return (
+    <div>
+      <div className="flex gap-1 px-4 sm:px-6 pt-4 sm:pt-6 border-b border-slate-200">
+        {([
+          { key: 'orders', label: 'Orders' },
+          { key: 'refunds', label: 'Refund Requests' },
+        ] as { key: TxTab; label: string }[]).map(t => (
+          <button
+            key={t.key}
+            onClick={() => setTab(t.key)}
+            className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+              tab === t.key
+                ? 'border-amber-500 text-amber-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {tab === 'orders' && <OrdersContent />}
+      {tab === 'refunds' && <RefundRequestsPage />}
+    </div>
+  )
+}
 
 export default function TransactionsPage() {
+  return <TransactionsHub />
+}
+
+function OrdersContent() {
   const supabase = createClient()
   const [orders, setOrders] = useState<any[]>([])
   const [search, setSearch] = useState('')

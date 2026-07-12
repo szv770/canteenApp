@@ -4,6 +4,18 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Save, Upload, FileText } from 'lucide-react'
 import toast from 'react-hot-toast'
+import CashiersPage from '../cashiers/page'
+import NotificationsPage from '../notifications/page'
+import MenuPage from '../menu/page'
+
+type SettingsTab = 'general' | 'cashiers' | 'notifications' | 'menu'
+
+const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
+  { key: 'general', label: 'General' },
+  { key: 'cashiers', label: 'Cashiers' },
+  { key: 'notifications', label: 'Notifications' },
+  { key: 'menu', label: 'Menu' },
+]
 
 interface SettingRow {
   key: string
@@ -185,6 +197,33 @@ function NineDaysFlyerUpload({ settings, set }: { settings: Record<string, strin
 }
 
 export default function SettingsPage() {
+  const [settingsTab, setSettingsTab] = useState<SettingsTab>('general')
+  return (
+    <div>
+      <div className="flex gap-1 px-4 sm:px-6 pt-4 sm:pt-6 border-b border-slate-200">
+        {SETTINGS_TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setSettingsTab(t.key)}
+            className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+              settingsTab === t.key
+                ? 'border-amber-500 text-amber-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {settingsTab === 'general' && <GeneralSettingsContent />}
+      {settingsTab === 'cashiers' && <CashiersPage />}
+      {settingsTab === 'notifications' && <NotificationsPage />}
+      {settingsTab === 'menu' && <MenuPage />}
+    </div>
+  )
+}
+
+function GeneralSettingsContent() {
   const supabase = createClient()
   const [settings, setSettings] = useState<Record<string, string>>({})
   const [loading, setLoading] = useState(true)

@@ -40,6 +40,11 @@ export default function TopupsPage() {
   const [dateReceivedMap, setDateReceivedMap] = useState<Record<string, string>>({})
   // Hide confirmed/rejected rows by default to reduce clutter
   const [showArchived, setShowArchived] = useState(false)
+  // Smart name-match suggestions: topupId → best matching bochur
+  const [suggestionsMap, setSuggestionsMap] = useState<Record<string, { bochurId: string; bochurName: string; score: number }>>({})
+  // Reject modal state
+  const [rejectingTopup, setRejectingTopup] = useState<{ id: string; studentName: string } | null>(null)
+  const [rejectReason, setRejectReason] = useState('')
 
   useEffect(() => { loadAll() }, [])
 
@@ -64,7 +69,27 @@ export default function TopupsPage() {
       setDateReceivedMap(prev => ({ ...initialDates, ...prev }))
     }
     setTopups(rows)
-    setBochurim(bRes.data || [])
+    const bList = bRes.data || []
+    setBochurim(bList)
+
+    // Compute name-match suggestions for unlinked pending rows
+    const newSuggestions: Record<string, { bochurId: string; bochurName: string; score: number }> = {}
+    for (const t of rows) {
+      if (t.bochur_id || t.status !== 'pending' || !t.student_name) continue
+      const queryWords = t.student_name.toLowerCase().trim().split(/\s+/)
+      let best: { bochurId: string; bochurName: string; score: number } | null = null
+      for (const b of bList) {
+        const bWords = (b.name as string).toLowerCase().trim().split(/\s+/)
+        const matchCount = queryWords.filter((w: string) => bWords.some((bw: string) => bw.includes(w) || w.includes(bw))).length
+        const score = matchCount / Math.max(queryWords.length, bWords.length)
+        if (score >= 0.5 && (!best || score > best.score)) {
+          best = { bochurId: b.id, bochurName: b.name, score }
+        }
+      }
+      if (best) newSuggestions[t.id] = best
+    }
+    setSuggestionsMap(newSuggestions)
+
     setLoading(false)
   }
 
@@ -106,19 +131,20 @@ export default function TopupsPage() {
     }
   }
 
-  async function reject(id: string) {
-    if (!confirm('Reject this top-up request?')) return
+  async function reject(id: string, reason?: string) {
     if (rejectingId === id) return
     setRejectingId(id)
     try {
       const res = await fetch('/api/admin/topup-confirm', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topup_id: id }),
+        body: JSON.stringify({ topup_id: id, ...(reason ? { reason } : {}) }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error || 'Failed to reject'); return }
       toast.success('Top-up rejected')
+      setRejectingTopup(null)
+      setRejectReason('')
       loadAll()
     } catch (err: any) {
       toast.error(err?.message || 'Failed to reject')
@@ -127,12 +153,13 @@ export default function TopupsPage() {
     }
   }
 
-  async function saveLink(topupId: string) {
-    if (!linkBochurId) { toast.error('Select a bochur'); return }
+  async function saveLink(topupId: string, overrideBochurId?: string) {
+    const bochurId = overrideBochurId ?? linkBochurId
+    if (!bochurId) { toast.error('Select a bochur'); return }
     const res = await fetch('/api/admin/topup-confirm', {
       method: 'PUT',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ topup_id: topupId, bochur_id: linkBochurId }),
+      body: JSON.stringify({ topup_id: topupId, bochur_id: bochurId }),
     })
     const json = await res.json()
     if (!res.ok) { toast.error(json.error || 'Failed to link'); return }
@@ -242,13 +269,26 @@ export default function TopupsPage() {
                         <button onClick={() => setLinkingId(null)} className="text-xs text-slate-400 hover:text-slate-600 p-1">✕</button>
                       </div>
                     ) : (
-                      <button
-                        onClick={() => { setLinkingId(t.id); setLinkBochurId(t.bochur_id || '') }}
-                        className={`flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 transition-colors font-medium ${t.bochurim?.name ? 'text-slate-700 hover:bg-slate-100' : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-100'}`}
-                      >
-                        <LinkIcon className="w-3 h-3" />
-                        {t.bochurim?.name || 'Link bochur'}
-                      </button>
+                      <div className="flex flex-col items-start gap-1">
+                        <button
+                          onClick={() => { setLinkingId(t.id); setLinkBochurId(t.bochur_id || '') }}
+                          className={`flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 transition-colors font-medium ${t.bochurim?.name ? 'text-slate-700 hover:bg-slate-100' : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-100'}`}
+                        >
+                          <LinkIcon className="w-3 h-3" />
+                          {t.bochurim?.name || 'Link bochur'}
+                        </button>
+                        {!t.bochur_id && suggestionsMap[t.id] && (
+                          <div className={`flex items-center gap-1.5 text-[10px] rounded-lg px-2 py-1 border ${suggestionsMap[t.id].score >= 0.85 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>
+                            <span>💡 {suggestionsMap[t.id].bochurName}?</span>
+                            <button
+                              onClick={() => saveLink(t.id, suggestionsMap[t.id].bochurId)}
+                              className="font-semibold underline hover:no-underline"
+                            >
+                              Yes ✓
+                            </button>
+                          </div>
+                        )}
+                      </div>
                     )}
                   </td>
                   <td className="px-5 py-3 text-sm font-bold text-emerald-600">{formatCurrency(t.amount)}</td>
@@ -312,7 +352,7 @@ export default function TopupsPage() {
                           <CheckCheck className="w-4 h-4" />
                         </button>
                         <button
-                          onClick={() => reject(t.id)}
+                          onClick={() => setRejectingTopup({ id: t.id, studentName: t.student_name || 'this top-up' })}
                           disabled={confirmingId === t.id || rejectingId === t.id}
                           className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
                           title="Reject"
@@ -328,6 +368,54 @@ export default function TopupsPage() {
           </table>
         </div>
       </div>
+
+      {/* Reject modal */}
+      {rejectingTopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+            <h3 className="text-base font-semibold text-slate-900 mb-1">
+              Reject top-up for <span className="text-red-600">{rejectingTopup.studentName}</span>?
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">The reason will be included in the rejection email if one was provided.</p>
+
+            <div className="flex flex-wrap gap-1.5 mb-3">
+              {['Payment not received', 'Duplicate request', 'Wrong amount'].map(preset => (
+                <button
+                  key={preset}
+                  onClick={() => setRejectReason(preset)}
+                  className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg px-2.5 py-1 transition-colors"
+                >
+                  {preset}
+                </button>
+              ))}
+            </div>
+
+            <textarea
+              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-400 resize-none"
+              rows={3}
+              placeholder="e.g. Payment not received, wrong amount, duplicate request..."
+              value={rejectReason}
+              onChange={e => setRejectReason(e.target.value)}
+            />
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => { setRejectingTopup(null); setRejectReason('') }}
+                className="btn-secondary text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => reject(rejectingTopup.id, rejectReason.trim() || undefined)}
+                disabled={rejectingId === rejectingTopup.id}
+                className="bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+              >
+                {rejectingId === rejectingTopup.id ? 'Rejecting…' : 'Reject →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }

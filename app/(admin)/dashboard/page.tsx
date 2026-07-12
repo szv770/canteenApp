@@ -1,6 +1,6 @@
 import { createClient } from '@/lib/supabase/server'
 import { formatCurrency } from '@/lib/utils'
-import { TrendingUp, Users, ShoppingCart, AlertTriangle, Package, CreditCard, ArrowUpRight, ArrowDownRight } from 'lucide-react'
+import { TrendingUp, Users, ShoppingCart, AlertTriangle, Package, CreditCard, ArrowUpRight, ArrowDownRight, BarChart2 } from 'lucide-react'
 import { format } from 'date-fns'
 
 export const revalidate = 60
@@ -243,6 +243,20 @@ export default async function DashboardPage() {
           </div>
         ))}
       </div>
+
+      {/* Analytics link */}
+      <a
+        href="/reports"
+        className="flex items-center justify-between gap-3 px-5 py-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-amber-200 transition-all group"
+      >
+        <div className="flex items-center gap-3">
+          <div className="w-8 h-8 bg-amber-50 rounded-lg flex items-center justify-center group-hover:bg-amber-100 transition-colors">
+            <BarChart2 className="w-4 h-4 text-amber-600" />
+          </div>
+          <span className="text-sm font-semibold text-slate-700 group-hover:text-amber-700 transition-colors">View Full Analytics</span>
+        </div>
+        <ArrowUpRight className="w-4 h-4 text-slate-400 group-hover:text-amber-500 transition-colors" />
+      </a>
 
       {/* Today's Net Profit card */}
       <div className="bg-white rounded-2xl border border-slate-100 shadow-sm p-5 hover:shadow-md transition-shadow duration-200">

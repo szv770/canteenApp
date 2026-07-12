@@ -7,11 +7,50 @@ import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, Category, ProductVariant, ProductAddon } from '@/types/database'
 import TableSkeleton from '@/components/admin/TableSkeleton'
+import BundlesPage from '../bundles/page'
+import InventoryPage from '../inventory/page'
+import DiscountCodesPage from '../discount-codes/page'
 
 const EMOJIS = ['🍕','🌮','🌯','🥗','🍔','🍟','🍦','🧡','🍰','🍩','🍪','🥤','☕','🧣','🍫','🍬','🍭','🧇','🥞','🌽','🍿','🧀','🥨','🪰','🍓','🍎','🍌','🍉','🍑','🍒']
 const CAT_COLORS = ['#EF4444','#F97316','#F59E0B','#10B981','#06B6D4','#3B82F6','#8B5CF6','#EC4899','#6B7280','#1E293B']
 
+type ProductTab = 'products' | 'bundles' | 'inventory' | 'discounts'
+
+const PRODUCT_TABS: { key: ProductTab; label: string }[] = [
+  { key: 'products', label: 'Products' },
+  { key: 'bundles', label: 'Bundles' },
+  { key: 'inventory', label: 'Inventory' },
+  { key: 'discounts', label: 'Discount Codes' },
+]
+
 export default function ProductsPage() {
+  const [activeSection, setActiveSection] = useState<ProductTab>('products')
+  return (
+    <div>
+      <div className="flex gap-1 px-4 sm:px-6 pt-4 sm:pt-6 border-b border-slate-200">
+        {PRODUCT_TABS.map(t => (
+          <button
+            key={t.key}
+            onClick={() => setActiveSection(t.key)}
+            className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+              activeSection === t.key
+                ? 'border-amber-500 text-amber-600'
+                : 'border-transparent text-slate-500 hover:text-slate-700'
+            }`}
+          >
+            {t.label}
+          </button>
+        ))}
+      </div>
+      {activeSection === 'products' && <ProductsContent />}
+      {activeSection === 'bundles' && <BundlesPage />}
+      {activeSection === 'inventory' && <InventoryPage />}
+      {activeSection === 'discounts' && <DiscountCodesPage />}
+    </div>
+  )
+}
+
+function ProductsContent() {
   const supabase = createClient()
   const [products, setProducts] = useState<Product[]>([])
   const [categories, setCategories] = useState<Category[]>([])
