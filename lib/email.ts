@@ -204,7 +204,7 @@ export async function sendTopupRejected({
         <h2 style="color:#dc2626;margin-bottom:8px">Top-up not approved</h2>
         <p style="color:#475569;margin-top:0">Hi ${parentName},</p>
         <p style="color:#475569">We were unable to process your top-up request of ${fmt(amount)} for ${studentName}.</p>
-        ${reason ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin:20px 0"><p style="margin:0;color:#991b1b;font-size:14px"><strong>Reason:</strong> ${reason}</p></div>` : ''}
+        ${reason ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin:20px 0"><p style="margin:0 0 6px;color:#991b1b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Message from us</p><p style="margin:0;color:#7f1d1d;font-size:14px;white-space:pre-line">${reason}</p></div>` : ''}
         ${extraNoteHtml(es.rejectedNote)}
         <p style="color:#475569;font-size:14px">Please reply to this email or contact us directly to resolve this.</p>
         ${footerHtml(es.footerNote)}
