@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { RefreshCw, Check, X, Link as LinkIcon, Calendar, Mail, MailCheck, MailX } from 'lucide-react'
+import { RefreshCw, Check, X, Link as LinkIcon, Calendar, Mail, MailCheck, MailX, CheckCheck } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -38,6 +38,8 @@ export default function TopupsPage() {
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   // Per-row "Date Received" for the confirm flow — defaults to today
   const [dateReceivedMap, setDateReceivedMap] = useState<Record<string, string>>({})
+  // Hide confirmed/rejected rows by default to reduce clutter
+  const [showArchived, setShowArchived] = useState(false)
 
   useEffect(() => { loadAll() }, [])
 
@@ -66,7 +68,7 @@ export default function TopupsPage() {
     setLoading(false)
   }
 
-  async function confirmTopup(topup: any) {
+  async function confirmTopup(topup: any, skipCredit = false) {
     if (!topup.bochur_id) {
       toast.error('Link to a bochur first before confirming')
       return
@@ -81,12 +83,16 @@ export default function TopupsPage() {
       const res = await fetch('/api/admin/topup-confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topup_id: topup.id, payment_received_date: paymentReceivedDate }),
+        body: JSON.stringify({
+          topup_id: topup.id,
+          payment_received_date: paymentReceivedDate,
+          ...(skipCredit ? { skip_credit: true } : {}),
+        }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to confirm top-up')
 
-      toast.success('Top-up confirmed and credited!')
+      toast.success(skipCredit ? 'Marked as approved — balance unchanged' : 'Top-up confirmed and credited!')
       loadAll()
     } catch (err: any) {
       const msg = err?.message || ''
@@ -144,6 +150,7 @@ export default function TopupsPage() {
 
   const pending = topups.filter(t => t.status === 'pending')
   const rest = topups.filter(t => t.status !== 'pending')
+  const displayedTopups = showArchived ? [...pending, ...rest] : pending
 
   return (
     <div className="p-4 sm:p-6 max-w-7xl mx-auto">
@@ -153,11 +160,22 @@ export default function TopupsPage() {
           <p className="text-slate-500 text-sm mt-1">
             {pending.length > 0 && <span className="text-amber-600 font-semibold">{pending.length} pending · </span>}
             Payment requests from parents and cashiers
+            {!showArchived && rest.length > 0 && (
+              <span className="text-slate-400"> · {rest.length} processed hidden</span>
+            )}
           </p>
         </div>
-        <button onClick={loadAll} className="btn-secondary text-sm">
-          <RefreshCw className="w-4 h-4" /> Refresh
-        </button>
+        <div className="flex items-center gap-2">
+          <button
+            onClick={() => setShowArchived(v => !v)}
+            className="btn-secondary text-sm"
+          >
+            {showArchived ? 'Hide Processed' : 'Show All'}
+          </button>
+          <button onClick={loadAll} className="btn-secondary text-sm">
+            <RefreshCw className="w-4 h-4" /> Refresh
+          </button>
+        </div>
       </div>
 
       <div className="admin-card overflow-hidden">
@@ -181,7 +199,12 @@ export default function TopupsPage() {
                 <TableSkeleton cols={9} />
               ) : topups.length === 0 ? (
                 <tr><td colSpan={9} className="px-5 py-12 text-center text-slate-400 text-sm">No top-up requests yet</td></tr>
-              ) : [...pending, ...rest].map(t => (
+              ) : displayedTopups.length === 0 ? (
+                <tr><td colSpan={9} className="px-5 py-12 text-center text-slate-400 text-sm">
+                  No pending requests
+                  {rest.length > 0 && <> · <button onClick={() => setShowArchived(true)} className="underline hover:text-slate-600">{rest.length} processed row{rest.length !== 1 ? 's' : ''} hidden — click Show All</button></>}
+                </td></tr>
+              ) : displayedTopups.map(t => (
                 <tr key={t.id} className="table-row">
                   <td className="px-5 py-3">
                     <div className="flex items-center gap-1.5 mb-0.5">
@@ -272,9 +295,21 @@ export default function TopupsPage() {
                           onClick={() => confirmTopup(t)}
                           disabled={confirmingId === t.id || rejectingId === t.id}
                           className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Confirm & credit"
+                          title="Confirm & credit balance"
                         >
                           <Check className="w-4 h-4" />
+                        </button>
+                        <button
+                          onClick={() => {
+                            if (confirm('Mark as approved without crediting balance?\n\nUse this when you already added the balance manually.')) {
+                              confirmTopup(t, true)
+                            }
+                          }}
+                          disabled={confirmingId === t.id || rejectingId === t.id}
+                          className="p-1.5 text-slate-400 hover:bg-slate-100 hover:text-slate-600 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                          title="Mark approved — already credited (no balance change)"
+                        >
+                          <CheckCheck className="w-4 h-4" />
                         </button>
                         <button
                           onClick={() => reject(t.id)}
