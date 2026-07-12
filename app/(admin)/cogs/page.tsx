@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import { Plus, AlertTriangle, DollarSign, Trash2, ShoppingCart } from 'lucide-react'
+import { Plus, AlertTriangle, DollarSign, Trash2, ShoppingCart, Pencil, X } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface WastageEntry {
@@ -64,6 +64,13 @@ export default function CogsPage() {
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
+
+  // Edit purchase modal
+  const [editingPurchase, setEditingPurchase] = useState<StockEntry | null>(null)
+  const [editQty, setEditQty] = useState('')
+  const [editCost, setEditCost] = useState('')
+  const [editNotes, setEditNotes] = useState('')
+  const [savingPurchase, setSavingPurchase] = useState(false)
 
   useEffect(() => { loadData() }, [])
 
@@ -127,6 +134,39 @@ export default function CogsPage() {
     if (error) toast.error(error.message)
     else { toast.success('Expense deleted'); loadData() }
     setDeleting(null)
+  }
+
+  async function deletePurchase(id: string) {
+    if (!confirm('Delete this restock entry? This cannot be undone.')) return
+    setDeleting(id)
+    const { error } = await supabase.from('stock_entries').delete().eq('id', id)
+    if (error) toast.error(error.message)
+    else { toast.success('Restock entry deleted'); loadData() }
+    setDeleting(null)
+  }
+
+  function openEditPurchase(p: StockEntry) {
+    setEditingPurchase(p)
+    setEditQty(String(p.quantity_added))
+    setEditCost(p.cost_per_unit != null ? String(p.cost_per_unit) : '')
+    setEditNotes(p.notes ?? '')
+  }
+
+  async function saveEditPurchase() {
+    if (!editingPurchase) return
+    const qty = parseInt(editQty)
+    if (!qty || qty < 1) { toast.error('Quantity must be at least 1'); return }
+    setSavingPurchase(true)
+    const { error } = await supabase.from('stock_entries').update({
+      quantity_added: qty,
+      cost_per_unit: editCost ? parseFloat(editCost) : null,
+      notes: editNotes.trim() || null,
+    }).eq('id', editingPurchase.id)
+    if (error) { toast.error(error.message); setSavingPurchase(false); return }
+    toast.success('Restock entry updated')
+    setSavingPurchase(false)
+    setEditingPurchase(null)
+    loadData()
   }
 
   async function handleAddExpense(e: React.FormEvent) {
@@ -291,13 +331,14 @@ export default function CogsPage() {
                     <th className="px-4 py-3 text-right font-semibold text-slate-600">Batch Cost/Unit</th>
                     <th className="px-4 py-3 text-right font-semibold text-slate-600">Total</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-600">Notes</th>
+                    <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}>
-                        {Array.from({ length: 6 }).map((_, j) => (
+                        {Array.from({ length: 7 }).map((_, j) => (
                           <td key={j} className="px-4 py-3">
                             <div className="h-4 bg-slate-100 rounded animate-pulse" />
                           </td>
@@ -306,14 +347,14 @@ export default function CogsPage() {
                     ))
                   ) : purchases.length === 0 ? (
                     <tr>
-                      <td colSpan={6} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
                         No restocks recorded yet. Restock products from the Inventory page.
                       </td>
                     </tr>
                   ) : purchases.map(p => {
                     const total = (p.cost_per_unit ?? 0) * p.quantity_added
                     return (
-                      <tr key={p.id} className="hover:bg-slate-50/50">
+                      <tr key={p.id} className="hover:bg-slate-50/50 group">
                         <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                           {new Date(p.created_at).toLocaleDateString()}
                         </td>
@@ -330,6 +371,25 @@ export default function CogsPage() {
                         <td className="px-4 py-3 text-slate-500 text-xs">
                           {p.notes || <span className="text-slate-300">&mdash;</span>}
                         </td>
+                        <td className="px-4 py-3">
+                          <div className="flex items-center gap-1 opacity-0 group-hover:opacity-100 transition-all justify-end">
+                            <button
+                              onClick={() => openEditPurchase(p)}
+                              className="p-1.5 text-slate-400 hover:text-blue-600 hover:bg-blue-50 rounded-lg transition-colors"
+                              title="Edit"
+                            >
+                              <Pencil className="w-3.5 h-3.5" />
+                            </button>
+                            <button
+                              onClick={() => deletePurchase(p.id)}
+                              disabled={deleting === p.id}
+                              className="p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-colors disabled:opacity-50"
+                              title="Delete"
+                            >
+                              <Trash2 className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        </td>
                       </tr>
                     )
                   })}
@@ -343,7 +403,7 @@ export default function CogsPage() {
                       <td className="px-4 py-3 text-right font-bold text-emerald-800">
                         {formatCurrency(purchases.reduce((s, p) => s + (p.cost_per_unit ?? 0) * p.quantity_added, 0))}
                       </td>
-                      <td />
+                      <td colSpan={2} />
                     </tr>
                   </tfoot>
                 )}
@@ -507,6 +567,78 @@ export default function CogsPage() {
                   ))}
                 </tbody>
               </table>
+            </div>
+          </div>
+        </div>
+      )}
+      {/* Edit Purchase Modal */}
+      {editingPurchase && (
+        <div className="fixed inset-0 bg-black/40 z-50 flex items-center justify-center p-4" onClick={() => setEditingPurchase(null)}>
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6 space-y-4" onClick={e => e.stopPropagation()}>
+            <div className="flex items-center justify-between">
+              <h2 className="font-bold text-slate-900">Edit Restock Entry</h2>
+              <button onClick={() => setEditingPurchase(null)} className="p-1.5 text-slate-400 hover:text-slate-600 rounded-lg">
+                <X className="w-4 h-4" />
+              </button>
+            </div>
+            <p className="text-sm text-slate-500">
+              {(editingPurchase.products as any)?.name ?? 'Unknown product'} &mdash;{' '}
+              {new Date(editingPurchase.created_at).toLocaleDateString()}
+            </p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Units added *</label>
+                <input
+                  type="number"
+                  min="1"
+                  step="1"
+                  value={editQty}
+                  onChange={e => setEditQty(e.target.value)}
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400"
+                />
+              </div>
+              <div>
+                <label className="block text-xs font-semibold text-slate-600 mb-1">Batch cost/unit ($)</label>
+                <input
+                  type="number"
+                  min="0"
+                  step="0.01"
+                  value={editCost}
+                  onChange={e => setEditCost(e.target.value)}
+                  placeholder="0.00"
+                  className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400"
+                />
+              </div>
+            </div>
+            <div>
+              <label className="block text-xs font-semibold text-slate-600 mb-1">Notes</label>
+              <input
+                type="text"
+                value={editNotes}
+                onChange={e => setEditNotes(e.target.value)}
+                placeholder="e.g. Costco deal, bulk order..."
+                className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm focus:outline-none focus:ring-2 focus:ring-blue-400/30 focus:border-blue-400"
+              />
+            </div>
+            {editQty && editCost && (
+              <p className="text-xs text-blue-600 bg-blue-50 rounded-xl px-3 py-2">
+                Total batch cost: <strong>{formatCurrency(parseInt(editQty || '0') * parseFloat(editCost || '0'))}</strong>
+              </p>
+            )}
+            <div className="flex gap-2 justify-end pt-1">
+              <button
+                onClick={() => setEditingPurchase(null)}
+                className="px-4 py-2 text-sm font-medium text-slate-600 hover:bg-slate-100 rounded-xl transition-colors"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={saveEditPurchase}
+                disabled={savingPurchase}
+                className="px-5 py-2 bg-blue-600 hover:bg-blue-700 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold rounded-xl text-sm transition-colors"
+              >
+                {savingPurchase ? 'Saving...' : 'Save'}
+              </button>
             </div>
           </div>
         </div>

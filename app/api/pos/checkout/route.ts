@@ -58,6 +58,10 @@ export async function POST(req: NextRequest) {
     method === 'cash' && typeof body.cash_tendered === 'number'
       ? body.cash_tendered
       : null
+  const changeToBalance =
+    method === 'cash' && bochurId && typeof body.change_to_balance === 'number' && body.change_to_balance > 0
+      ? Math.round(body.change_to_balance * 100) / 100
+      : null
 
   const rawItems = Array.isArray(body.items) ? body.items : []
   if (rawItems.length === 0) {
@@ -565,6 +569,21 @@ export async function POST(req: NextRequest) {
         const newStock = Math.max(0, product.stock_quantity - item.quantity)
         await admin.from('products').update({ stock_quantity: newStock }).eq('id', item.product_id)
       }
+    }
+  }
+
+  // Credit change to student balance if requested
+  if (changeToBalance && bochurId) {
+    const { data: bRow } = await admin.from('bochurim').select('balance, name').eq('id', bochurId).single()
+    if (bRow) {
+      const newBal = Math.round((Number(bRow.balance) + changeToBalance) * 100) / 100
+      await admin.from('bochurim').update({ balance: newBal }).eq('id', bochurId)
+      await admin.from('balance_ledger').insert({
+        bochur_id: bochurId,
+        amount: changeToBalance,
+        type: 'topup',
+        note: `Cash change credited to balance (Order #${order.id.slice(-6)})`,
+      })
     }
   }
 
