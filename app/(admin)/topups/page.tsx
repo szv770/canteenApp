@@ -372,30 +372,42 @@ export default function TopupsPage() {
       {/* Reject modal */}
       {rejectingTopup && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-6">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
             <h3 className="text-base font-semibold text-slate-900 mb-1">
               Reject top-up for <span className="text-red-600">{rejectingTopup.studentName}</span>?
             </h3>
-            <p className="text-xs text-slate-500 mb-4">The reason will be included in the rejection email if one was provided.</p>
+            <p className="text-xs text-slate-500 mb-4">
+              Write a message to the parent — it will appear in their rejection email. Leave blank to send no message.
+            </p>
 
-            <div className="flex flex-wrap gap-1.5 mb-3">
-              {['Payment not received', 'Duplicate request', 'Wrong amount'].map(preset => (
+            <label className="block text-xs font-semibold text-slate-600 mb-2">
+              Message to parent <span className="font-normal text-slate-400">(optional)</span>
+            </label>
+
+            <div className="flex flex-wrap gap-1.5 mb-2">
+              <span className="text-xs text-slate-400 self-center">Quick fill:</span>
+              {[
+                'We haven\'t received your payment yet — please send the funds and resubmit.',
+                'This appears to be a duplicate request.',
+                'The amount sent doesn\'t match the request.',
+              ].map(preset => (
                 <button
                   key={preset}
                   onClick={() => setRejectReason(preset)}
                   className="text-xs bg-slate-100 hover:bg-slate-200 text-slate-600 rounded-lg px-2.5 py-1 transition-colors"
                 >
-                  {preset}
+                  {preset.length > 35 ? preset.slice(0, 35) + '…' : preset}
                 </button>
               ))}
             </div>
 
             <textarea
-              className="w-full border border-slate-200 rounded-xl px-3 py-2 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-400 resize-none"
-              rows={3}
-              placeholder="e.g. Payment not received, wrong amount, duplicate request..."
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-red-300 focus:border-red-400 resize-y min-h-[80px]"
+              rows={4}
+              placeholder="Write anything you want here — e.g. &quot;Hi, we haven't received your Zelle payment yet. Please send $X to [handle] and resubmit the form, or contact us directly.&quot;"
               value={rejectReason}
               onChange={e => setRejectReason(e.target.value)}
+              autoFocus
             />
 
             <div className="flex justify-end gap-2 mt-4">
