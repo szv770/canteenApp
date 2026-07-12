@@ -36,8 +36,8 @@ app/
   (pos)/
     page.tsx         # Main POS terminal
   api/pos/
-    checkout/        # POST: validate cart, write order, deduct balance, block frozen accounts
-    apply-discount/  # POST: validate coupon (does NOT increment uses_count)
+    checkout/        # POST: validate cart, write order, deduct balance, block frozen accounts; atomically increments discount uses_count via DB RPC
+    apply-discount/  # POST: validate coupon (preview only — does NOT write to DB)
 
 components/
   admin/
@@ -203,7 +203,11 @@ lib/utils.ts         # formatCurrency, cn
 
 11. **`supabase/rls-policies.sql` is stale — don't trust it for the actual deployed policy.** Live policies (checked via Supabase MCP `execute_sql` against `pg_policies`) are simpler than the file: `orders`, `order_items`, and `cashier_profiles` all use a single permissive `auth_all` policy (`auth.role() = 'authenticated'`) — any authenticated cashier can read/write all rows, not just their own. This is why cross-cashier joins (e.g. cashier-dashboard showing "rung by [other cashier]") work without extra policy changes. When in doubt about what's really enforced, query `pg_policies` directly instead of reading the checked-in file.
 
-12. **Admin-entered URLs (e.g. `payment_cc_link`) need a protocol before `window.open`/`<a href>`** — if the admin types `example.com/x` without `http(s)://`, the browser treats it as a relative path off the current origin (`canteen.szvtech.org/example.com/x`) instead of opening the external site. Always normalize with something like `/^https?:\/\//i.test(v) ? v : \`https://${v}\`` before using an admin-entered link as a navigation target.
+12. **Discount code `uses_count` IS incremented at checkout** — `apply-discount` is a preview-only route (no DB writes). The actual increment happens in `checkout/route.ts` after the order is committed, via the atomic `increment_discount_uses(code_id)` Postgres RPC (avoids read-then-write race when two checkouts use the same code simultaneously). The old CLAUDE.md note saying "does NOT increment" was stale.
+
+13. **Topup double-credit prevention** — `topup-confirm` POST now updates `balance_topups.status = 'confirmed' WHERE id=X AND status='pending'` BEFORE touching `bochurim.balance`. If two requests race, exactly one will claim the row; the other gets 0 rows back and receives a 409. This prevents the same top-up from being double-credited if two cashiers tap Confirm simultaneously.
+
+14. **Admin-entered URLs (e.g. `payment_cc_link`) need a protocol before `window.open`/`<a href>`** — if the admin types `example.com/x` without `http(s)://`, the browser treats it as a relative path off the current origin (`canteen.szvtech.org/example.com/x`) instead of opening the external site. Always normalize with something like `/^https?:\/\//i.test(v) ? v : \`https://${v}\`` before using an admin-entered link as a navigation target.
 
 13. **New public-facing `settings` keys must be added to the anon RLS allowlist or they silently read as empty.** The `settings` table's anon SELECT policy (`anon can read public settings` in `pg_policies`) only exposes an explicit list of keys to unauthenticated visitors (the home page). Adding a new `payment_*`/`nine_days_*`/`top_sellers_*` setting and wiring it into `LandingClient.tsx`/`lib/home.ts` is not enough — if the key isn't also added to that policy's allowlist, real parents get `undefined`/empty for it even though it works fine when you (as an authenticated admin) test it. This bit us once already: `payment_cc_prefill_enabled`, `payment_cc_amount_param`, `payment_cc_name_param` were missed when the policy was tightened. Check `pg_policies` directly (see gotcha #11) rather than assuming a new setting is automatically public-readable.
 
@@ -212,6 +216,8 @@ lib/utils.ts         # formatCurrency, cn
 15. **A stale/older session's branch can silently revert already-merged work when it's squash-merged later.** This happened on 2026-07-10: a session that added Turnstile/Resend/SpeedInsights had forked its branch *before* the home-page mobile-polish PR had merged. Squash-merge has no real ancestry — when that older branch's PR was merged into `main` afterward, git's 3-way merge used a stale common ancestor, and the parts of `LandingClient.tsx` that older branch never touched still showed as "changed" relative to that ancestor in a way that produced merge conflicts against the newer mobile-polish text (not a silent revert exactly, but it required manually reconciling file-by-file rather than trusting the auto-merge). **To avoid this:** before starting real work in *any* session/branch — especially if it's been open a while or if you know other sessions might be working on the same repo — run `git fetch origin main` and reset/rebase your branch onto the current `main` tip first (`git checkout -B <branch> origin/main`, or rebase if you have unmerged work to preserve). When merging a branch that's been open for a while, don't trust a clean `git merge` result blindly — run `git diff --name-only HEAD origin/main` afterward and spot-check that every file matches what you expect, since squash-merge conflicts can resolve "cleanly" in the wrong direction.
 
 16. **Run `mcp__Supabase__get_advisors` (security + performance) periodically — it caught a live, actively-exploitable data breach on 2026-07-10.** The `bochurim_with_id` view (used everywhere student data is read — bochurim page, dashboard, checkout, top-up modal, etc.) was `SECURITY DEFINER` *and* had `anon` granted SELECT/INSERT/UPDATE/DELETE on it. Since SECURITY DEFINER views run with the view creator's privileges rather than the querying user's, this completely bypassed the underlying `bochurim` table's RLS (`auth.role() = 'authenticated'`) — meaning anyone on the internet, with no login at all, could read (and possibly write) every student's name, phone number, balance, and notes via the plain PostgREST API using nothing but the public anon key. Nobody noticed because the app itself always queries it as an authenticated cashier, so it "worked fine" from inside the app the whole time. Fixed via `ALTER VIEW public.bochurim_with_id SET (security_invoker = true)` plus revoking all anon grants and trimming authenticated to SELECT-only. **Any time a new view is added, check `information_schema.role_table_grants` for that view and confirm it isn't `SECURITY DEFINER` with anon access** — `pg_get_viewdef` + the security advisor won't always make the anon-grant part obvious at a glance; check grants explicitly. Also found and fixed in the same pass: 5 unused tables (`pre_order_items`, `topup_requests`, `purchase_orders`, `pre_orders`, `purchase_order_items` — all empty, zero code references, likely abandoned scaffolding from an earlier iteration) had RLS disabled entirely; the anon `balance_topups` INSERT policy had lost its amount/status bounds check (`WITH CHECK (true)`) at some point and was restored; and the `product-images`/`site-assets` Storage buckets had a redundant "public read" RLS policy on `storage.objects` that additionally permitted anonymous bucket-listing/enumeration (removed — both buckets are `public: true`, so direct object GET already bypasses RLS without that policy; only the listing capability was lost, which nothing in the app uses).
+
+17. **`account_types.type` is NOT NULL with no default** — when inserting a new account type, the `type` column must be provided or the DB will reject the row. In `AccountTypesPanel.tsx`, `type` is set to `baseSlug` (the name-derived slug without the timestamp suffix). UPDATE statements don't need to provide it, only INSERTs.
 
 ---
 
@@ -227,6 +233,10 @@ lib/utils.ts         # formatCurrency, cn
 
 | Date | Change |
 |---|---|
+| 2026-07-12 | Security: fix TOCTOU race in topup-confirm — atomic status claim with `.eq('status','pending')` guard before balance update prevents double-credit |
+| 2026-07-12 | Security: discount uses_count increment made atomic via `increment_discount_uses` Postgres RPC (avoids read-then-write race with concurrent checkouts) |
+| 2026-07-12 | Security audit: all API routes verified — admin routes guarded by requireCashier()/requireAdmin(), public routes (/api/topup, /api/home/top-sellers) intentionally unauthenticated with rate limiting / tight data scoping |
+| 2026-07-12 | RLS audit: bundle_items has anon SELECT (qual=true) — non-sensitive product bundle composition data, noted in Known Issues |
 | 2026-06-26 | Initial full build: core POS, admin, dashboard, variants |
 | 2026-06-26 | Fix: transactions PostgREST join error (FK hints for cashier_profiles, bochurim) |
 | 2026-06-26 | Feat: clear cart, type-in quantity, emoji icon picker, name-first POS cards |
@@ -312,3 +322,12 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-10 | Security: hardened `update_updated_at()` function against search_path hijacking (`SET search_path = public`) |
 | 2026-07-10 | Feat: Discount Codes admin page (/discount-codes) — the checkout engine already fully supported coupon codes but there was no admin UI to create them; new CRUD page follows the account-types page pattern, sidebar link added |
 | 2026-07-10 | Feat: CC "Coming Soon" refinement — new `payment_cc_coming_soon_enabled` admin toggle; placeholder now only shows when CC is disabled AND `payment_cc_link` is empty AND the toggle is on, so an admin mid-configuration (link set, not yet enabled) or not wanting the announcement doesn't show anything instead of an automatic "coming soon"; added the new setting key to the anon RLS allowlist |
+| 2026-07-12 | Fix: creating new account types now works — `account_types.type` (NOT NULL, no default) was never included in the insert payload; now set to `baseSlug` derived from the type name |
+| 2026-07-12 | UX: products admin Cost Price field now shows helper text "Used for 'At cost' account type discounts" |
+| 2026-07-12 | Fix: transactions page walk-in orders now visible — replaced unreliable PostgREST LEFT JOIN with two-query pattern (fetch orders, then fetch bochur names separately, merge client-side) so null bochur_id orders always appear |
+| 2026-07-12 | Fix: tip amount now displayed in transaction detail modal (shown as informational line in payments section) |
+| 2026-07-12 | Infra: added `balance_topups.payment_received_date date` column via migration |
+| 2026-07-12 | Feat: topups admin page — Date Received date picker for pending rows (defaults to today); date sent to confirm API and stored; non-pending rows show payment_received_date (or confirmed_at fallback) |
+| 2026-07-12 | Feat: accounts page — new "Top-up Deposits Received" section showing confirmed top-ups grouped by method, filtered by payment_received_date (fallback to confirmed_at), within the selected date range |
+| 2026-07-12 | Feat: reports page — COGS breakdown table showing product name, units sold, cost/unit, and total cost contribution for all products with cost_price set; appears below the financial strip |
+| 2026-07-12 | Feat: cashier tip payout now credits linked bochur balance — new `payout_tips` API action in PATCH /api/admin/cashier; credits tip_balance to bochurim.balance, logs to balance_ledger, zeros tip_balance; if no bochur linked, shows informative message and falls back to cash payout (just zeros tip_balance) |

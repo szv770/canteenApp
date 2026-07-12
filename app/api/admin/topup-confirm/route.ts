@@ -45,6 +45,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'topup_id is required' }, { status: 400 })
   }
 
+  // Optional: date the payment actually arrived (e.g. Zelle transfer date)
+  const paymentReceivedDate = typeof body.payment_received_date === 'string' && body.payment_received_date.match(/^\d{4}-\d{2}-\d{2}$/)
+    ? body.payment_received_date
+    : null
+
   const admin = createAdminClient()
 
   // Fetch the topup — verify it's pending and has a bochur linked
@@ -73,6 +78,31 @@ export async function POST(req: NextRequest) {
   // Validate the amount stored in DB (defensive check)
   if (!Number.isFinite(topup.amount) || topup.amount <= 0 || topup.amount > 100_000) {
     return NextResponse.json({ error: 'Top-up has invalid amount' }, { status: 400 })
+  }
+
+  // --- Atomic status claim (TOCTOU guard) ---
+  // Update status to 'confirmed' only if it is still 'pending'.
+  // If two requests race here, exactly one will update a row; the other
+  // gets 0 rows back and returns 409 — preventing double-credit.
+  const { data: claimed, error: claimErr } = await admin
+    .from('balance_topups')
+    .update({
+      status: 'confirmed',
+      confirmed_by: auth.user.id,
+      confirmed_at: new Date().toISOString(),
+      ...(paymentReceivedDate ? { payment_received_date: paymentReceivedDate } : {}),
+    })
+    .eq('id', topupId)
+    .eq('status', 'pending')  // atomic guard — only succeeds once
+    .select('id')
+
+  if (claimErr) {
+    console.error('[topup-confirm] Status claim error:', claimErr.message)
+    return NextResponse.json({ error: 'Failed to confirm top-up' }, { status: 500 })
+  }
+  if (!claimed || claimed.length === 0) {
+    // Another request already confirmed (or rejected) this top-up
+    return NextResponse.json({ error: 'Top-up already processed' }, { status: 409 })
   }
 
   // Fetch current balance
@@ -108,13 +138,6 @@ export async function POST(req: NextRequest) {
     note: `${topup.method} top-up${topup.sender_name ? ` from ${topup.sender_name}` : ''}`,
     cashier_id: auth.user.id,
   })
-
-  // Mark topup confirmed
-  await admin.from('balance_topups').update({
-    status: 'confirmed',
-    confirmed_by: auth.user.id,
-    confirmed_at: new Date().toISOString(),
-  }).eq('id', topupId)
 
   // Send approval email — fire and forget
   if (process.env.RESEND_API_KEY && topup.parent_email) {

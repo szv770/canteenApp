@@ -263,7 +263,8 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
 
     setSaving(true)
     const trimmedName = name.trim()
-    const slug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '') + '-' + Date.now()
+    const baseSlug = trimmedName.toLowerCase().replace(/[^a-z0-9]+/g, '-').replace(/(^-|-$)/g, '')
+    const slug = baseSlug + '-' + Date.now()
     const payload = {
       name: trimmedName,
       color,
@@ -278,7 +279,7 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
 
     const { error } = isEdit
       ? await supabase.from('account_types').update(payload).eq('id', accountType!.id)
-      : await supabase.from('account_types').insert({ ...payload, slug })
+      : await supabase.from('account_types').insert({ ...payload, slug, type: baseSlug })
 
     if (error) { toast.error(error.message); setSaving(false); return }
     toast.success(isEdit ? 'Account type updated' : 'Account type created')

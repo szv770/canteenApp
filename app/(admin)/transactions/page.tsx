@@ -20,17 +20,37 @@ export default function TransactionsPage() {
 
   async function loadOrders() {
     setLoading(true)
+    // Fetch orders without bochurim join so walk-in orders (null bochur_id) are never filtered out
     let q = supabase
       .from('orders')
-      .select('*, cashier_profiles!cashier_id(name), bochurim!bochur_id!left(name,bochur_number)')
+      .select('*, cashier_profiles!cashier_id(name)')
       .order('created_at', { ascending: false })
       .limit(200)
 
     if (statusFilter !== 'all') q = q.eq('status', statusFilter)
 
-    const { data, error } = await q
+    const { data: ordersData, error } = await q
     if (error) toast.error('Failed to load transactions: ' + error.message)
-    setOrders(data || [])
+
+    // Separately look up bochur names for orders that have a bochur_id
+    const bochurIds = Array.from(new Set((ordersData || []).filter((o: any) => o.bochur_id).map((o: any) => o.bochur_id))) as string[]
+    let bochurMap: Record<string, { name: string; bochur_number: string | null }> = {}
+    if (bochurIds.length > 0) {
+      const { data: bochurimData } = await supabase
+        .from('bochurim')
+        .select('id, name, bochur_number')
+        .in('id', bochurIds)
+      if (bochurimData) {
+        bochurMap = Object.fromEntries(bochurimData.map((b: any) => [b.id, { name: b.name, bochur_number: b.bochur_number }]))
+      }
+    }
+
+    const merged = (ordersData || []).map((o: any) => ({
+      ...o,
+      bochurim: o.bochur_id ? (bochurMap[o.bochur_id] ?? null) : null,
+    }))
+
+    setOrders(merged)
     setLoading(false)
   }
 
@@ -301,8 +321,14 @@ function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () 
                 <span className="font-medium">{formatCurrency(p.amount)}</span>
               </div>
             ))}
+            {order.tip_amount > 0 && (
+              <div className="flex justify-between text-sm text-emerald-600">
+                <span>Tip (included above)</span>
+                <span className="font-medium">{formatCurrency(order.tip_amount)}</span>
+              </div>
+            )}
             <div className="flex justify-between font-bold text-slate-900 pt-1">
-              <span>Total</span>
+              <span>Order Total</span>
               <span>{formatCurrency(order.total)}</span>
             </div>
           </div>

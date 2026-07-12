@@ -241,6 +241,7 @@ export default function ReportsPage() {
   const [dayOfWeekRevenue, setDayOfWeekRevenue] = useState<{ day: string; revenue: number; count: number; avg: number }[]>([])
   const [categoriesDetail, setCategoriesDetail] = useState<{ name: string; revenue: number; quantity: number }[]>([])
   const [topSpenders, setTopSpenders] = useState<{ name: string; total: number }[]>([])
+  const [cogsBreakdown, setCogsBreakdown] = useState<{ name: string; units: number; costPerUnit: number; total: number }[]>([])
 
   function resolveRange(): { fromISO: string; toISO: string } {
     if (range === 'custom') {
@@ -411,10 +412,23 @@ export default function ReportsPage() {
 
     const gross = completedOrders.reduce((s: number, o: any) => s + Number(o.total), 0)
     let cogs = 0
+    // Build COGS breakdown by product (using products.cost_price JOIN)
+    const cogsMap: Record<string, { name: string; units: number; costPerUnit: number; total: number }> = {}
     for (const item of (orderItemsRes.data || []) as any[]) {
       const cost = Number((item.products as any)?.cost_price || 0)
       cogs += cost * item.quantity
+      if (cost > 0) {
+        const displayName = item.variant_label
+          ? `${item.product_name} (${item.variant_label})`
+          : item.product_name
+        const key = `${item.product_id || item.product_name}|${item.variant_label || ''}`
+        if (!cogsMap[key]) cogsMap[key] = { name: displayName, units: 0, costPerUnit: cost, total: 0 }
+        cogsMap[key].units += item.quantity
+        cogsMap[key].total += cost * item.quantity
+      }
     }
+    const cogsBreakdownData = Object.values(cogsMap).sort((a, b) => b.total - a.total)
+    setCogsBreakdown(cogsBreakdownData)
     const expenses = (expensesRes.data || []).reduce((s: number, e: any) => s + Number(e.amount), 0)
     const wastage = (wastageRes.data || []).reduce((s: number, w: any) => s + Number(w.unit_cost || 0) * Number(w.quantity), 0)
     const net = gross - cogs - expenses - wastage
@@ -881,6 +895,42 @@ export default function ReportsPage() {
           </>
         ) : null}
       </div>
+
+      {/* ── COGS Breakdown Table ──────────────────────────────────────────────── */}
+      {!loading && cogsBreakdown.length > 0 && (
+        <SectionCard title="Product COGS Breakdown" subtitle="Cost per unit × units sold for products with cost prices set">
+          <div className="overflow-x-auto">
+            <table className="w-full min-w-[400px] text-sm">
+              <thead>
+                <tr className="border-b border-slate-100">
+                  <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide pb-2">Product</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide pb-2">Units Sold</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide pb-2">Cost / Unit</th>
+                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide pb-2">Total Cost</th>
+                </tr>
+              </thead>
+              <tbody className="divide-y divide-slate-50">
+                {cogsBreakdown.map((row, i) => (
+                  <tr key={i} className={i % 2 === 0 ? '' : 'bg-slate-50/50'}>
+                    <td className="py-2.5 pr-4 text-slate-700 font-medium">{row.name}</td>
+                    <td className="py-2.5 text-right text-slate-600">{row.units}</td>
+                    <td className="py-2.5 text-right text-slate-600">{formatCurrency(row.costPerUnit)}</td>
+                    <td className="py-2.5 text-right font-semibold text-orange-600">{formatCurrency(row.total)}</td>
+                  </tr>
+                ))}
+              </tbody>
+              <tfoot>
+                <tr className="border-t border-slate-200">
+                  <td colSpan={3} className="pt-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Total Product COGS</td>
+                  <td className="pt-3 text-right font-bold text-orange-600">
+                    {formatCurrency(cogsBreakdown.reduce((s, r) => s + r.total, 0))}
+                  </td>
+                </tr>
+              </tfoot>
+            </table>
+          </div>
+        </SectionCard>
+      )}
 
       {/* ── NEW: Average Order Value Trend ───────────────────────────────────── */}
       <SectionCard title="Average Order Value Trend" subtitle="Daily avg order value over the selected range">

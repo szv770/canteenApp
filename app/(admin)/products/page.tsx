@@ -731,6 +731,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
             <div>
               <label className="block text-sm font-medium text-slate-700 mb-1">Cost Price</label>
               <input type="number" className="input-admin" placeholder="0.00" value={form.cost_price} onChange={e => setForm(f => ({ ...f, cost_price: e.target.value }))} step={0.25} min={0} />
+              <p className="text-xs text-slate-400 mt-1">Used for &ldquo;At cost&rdquo; account type discounts</p>
             </div>
           </div>
 
