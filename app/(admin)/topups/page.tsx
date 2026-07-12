@@ -2,13 +2,30 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { RefreshCw, Check, X, Link as LinkIcon, Calendar } from 'lucide-react'
+import { RefreshCw, Check, X, Link as LinkIcon, Calendar, Mail, MailCheck, MailX } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import TableSkeleton from '@/components/admin/TableSkeleton'
 
 const todayDateStr = () => new Date().toISOString().slice(0, 10)
+
+function EmailDot({ label, sent }: { label: string; sent: string | null }) {
+  if (sent) {
+    return (
+      <span title={`${label} email sent ${format(new Date(sent), 'MM/dd h:mm a')}`}
+        className="flex items-center gap-1 text-[10px] text-emerald-600 font-medium">
+        <MailCheck className="w-3 h-3" /> {label}
+      </span>
+    )
+  }
+  return (
+    <span title={`${label} email not sent`}
+      className="flex items-center gap-1 text-[10px] text-slate-300 font-medium">
+      <MailX className="w-3 h-3" /> {label}
+    </span>
+  )
+}
 
 export default function TopupsPage() {
   const supabase = createClient()
@@ -29,7 +46,7 @@ export default function TopupsPage() {
     const [tRes, bRes] = await Promise.all([
       supabase
         .from('balance_topups')
-        .select('*, bochurim(name)')
+        .select('*, bochurim(name), received_email_sent_at, approved_email_sent_at, rejected_email_sent_at')
         .order('created_at', { ascending: false })
         .limit(100),
       supabase.from('bochurim').select('id,name').eq('archived', false).order('name'),
@@ -155,14 +172,15 @@ export default function TopupsPage() {
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Submitted</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Date Received</th>
                 <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Status</th>
+                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Emails</th>
                 <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <TableSkeleton cols={8} />
+                <TableSkeleton cols={9} />
               ) : topups.length === 0 ? (
-                <tr><td colSpan={8} className="px-5 py-12 text-center text-slate-400 text-sm">No top-up requests yet</td></tr>
+                <tr><td colSpan={9} className="px-5 py-12 text-center text-slate-400 text-sm">No top-up requests yet</td></tr>
               ) : [...pending, ...rest].map(t => (
                 <tr key={t.id} className="table-row">
                   <td className="px-5 py-3">
@@ -235,6 +253,17 @@ export default function TopupsPage() {
                   </td>
                   <td className="px-5 py-3 text-center">
                     <span className={`badge ${statusBadge[t.status] || 'bg-slate-100 text-slate-500'}`}>{t.status}</span>
+                  </td>
+                  <td className="px-5 py-3">
+                    {t.parent_email ? (
+                      <div className="flex flex-col items-center gap-1">
+                        <EmailDot label="Received" sent={t.received_email_sent_at} />
+                        {t.status === 'confirmed' && <EmailDot label="Approved" sent={t.approved_email_sent_at} />}
+                        {t.status === 'rejected' && <EmailDot label="Rejected" sent={t.rejected_email_sent_at} />}
+                      </div>
+                    ) : (
+                      <span className="text-xs text-slate-300 block text-center">—</span>
+                    )}
                   </td>
                   <td className="px-5 py-3 text-right">
                     {t.status === 'pending' && (

@@ -52,7 +52,7 @@ export async function POST(req: NextRequest) {
     .single()
   if (!bochur) return NextResponse.json({ error: 'Bochur not found' }, { status: 404 })
 
-  const { error } = await admin.from('balance_topups').insert({
+  const { data: inserted, error } = await admin.from('balance_topups').insert({
     bochur_id: bochurId,
     student_name: studentName || bochur.name,
     sender_name: profile.name || 'Cashier',
@@ -62,14 +62,14 @@ export async function POST(req: NextRequest) {
     notes: note ? `Cashier top-up: ${note}` : 'Cashier top-up',
     status: 'pending',
     created_by: user.id,
-  })
+  }).select('id').single()
 
-  if (error) {
-    console.error('[cashier-topup]', error.message)
+  if (error || !inserted) {
+    console.error('[cashier-topup]', error?.message)
     return NextResponse.json({ error: 'Failed to submit top-up request' }, { status: 500 })
   }
 
-  // Send "received" confirmation email if parent email provided
+  // Send "received" confirmation email if parent email provided; stamp timestamp on success
   if (process.env.RESEND_API_KEY && parentEmail) {
     admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
       const rawSettings: Record<string, string> = {}
@@ -82,7 +82,11 @@ export async function POST(req: NextRequest) {
         amount: sanitizedAmount,
         method: method!,
         emailSettings,
-      }).catch(e => console.error('[cashier-topup] Email error:', e))
+      })
+        .then(sent => {
+          if (sent) admin.from('balance_topups').update({ received_email_sent_at: new Date().toISOString() }).eq('id', inserted.id).then()
+        })
+        .catch(e => console.error('[cashier-topup] Email error:', e))
     })
   }
 

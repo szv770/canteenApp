@@ -87,9 +87,9 @@ export async function sendTopupReceived({
   amount: number
   method: string
   emailSettings?: EmailSettings
-}) {
+}): Promise<boolean> {
   const es = emailSettings ?? DEFAULT_EMAIL_SETTINGS
-  if (!es.receivedEnabled) return
+  if (!es.receivedEnabled) return false
   const methodLabel: Record<string, string> = {
     zelle: 'Zelle',
     venmo: 'Venmo',
@@ -102,7 +102,7 @@ export async function sendTopupReceived({
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.receivedSubject, fmt(amount), studentName)
 
-  return getResend().emails.send({
+  await getResend().emails.send({
     from,
     replyTo: es.replyTo,
     to: parentEmail,
@@ -123,6 +123,7 @@ export async function sendTopupReceived({
       </div>
     `,
   })
+  return true
 }
 
 export async function sendTopupApproved({
@@ -139,9 +140,9 @@ export async function sendTopupApproved({
   amount: number
   newBalance?: number
   emailSettings?: EmailSettings
-}) {
+}): Promise<boolean> {
   const es = emailSettings ?? DEFAULT_EMAIL_SETTINGS
-  if (!es.approvedEnabled) return
+  if (!es.approvedEnabled) return false
   const fmt = (n: number) => `$${n.toFixed(2)}`
   const balanceLine = newBalance !== undefined
     ? `<p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">New balance:</strong> ${fmt(newBalance)}</p>`
@@ -149,7 +150,7 @@ export async function sendTopupApproved({
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.approvedSubject, fmt(amount), studentName)
 
-  return getResend().emails.send({
+  await getResend().emails.send({
     from,
     replyTo: es.replyTo,
     to: parentEmail,
@@ -169,6 +170,7 @@ export async function sendTopupApproved({
       </div>
     `,
   })
+  return true
 }
 
 export async function sendTopupRejected({
@@ -185,14 +187,14 @@ export async function sendTopupRejected({
   amount: number
   reason?: string
   emailSettings?: EmailSettings
-}) {
+}): Promise<boolean> {
   const es = emailSettings ?? DEFAULT_EMAIL_SETTINGS
-  if (!es.rejectedEnabled) return
+  if (!es.rejectedEnabled) return false
   const fmt = (n: number) => `$${n.toFixed(2)}`
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.rejectedSubject, fmt(amount), studentName)
 
-  return getResend().emails.send({
+  await getResend().emails.send({
     from,
     replyTo: es.replyTo,
     to: parentEmail,
@@ -209,4 +211,5 @@ export async function sendTopupRejected({
       </div>
     `,
   })
+  return true
 }
