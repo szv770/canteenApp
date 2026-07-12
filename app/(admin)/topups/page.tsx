@@ -29,7 +29,7 @@ export default function TopupsPage() {
     const [tRes, bRes] = await Promise.all([
       supabase
         .from('balance_topups')
-        .select('*, bochurim(name), cashier_profiles!created_by(name)')
+        .select('*, bochurim(name)')
         .order('created_at', { ascending: false })
         .limit(100),
       supabase.from('bochurim').select('id,name').eq('archived', false).order('name'),

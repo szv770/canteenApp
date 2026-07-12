@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
+import { sendTopupReceived, buildEmailSettings } from '@/lib/email'
 
 const ALLOWED_METHODS = ['cash', 'zelle', 'venmo', 'paypal', 'cashapp', 'credit_card', 'manual'] as const
 
@@ -28,6 +29,8 @@ export async function POST(req: NextRequest) {
   const methodRaw = typeof body.method === 'string' ? body.method.trim() : ''
   const method = ALLOWED_METHODS.includes(methodRaw as any) ? methodRaw : null
   const note = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : null
+  const emailRaw = typeof body.parent_email === 'string' ? body.parent_email.trim().slice(0, 200) : ''
+  const parentEmail = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailRaw) ? emailRaw : null
 
   if (!bochurId) return NextResponse.json({ error: 'bochur_id is required' }, { status: 400 })
   if (!method) return NextResponse.json({ error: 'Invalid payment method' }, { status: 400 })
@@ -53,9 +56,10 @@ export async function POST(req: NextRequest) {
     bochur_id: bochurId,
     student_name: studentName || bochur.name,
     sender_name: profile.name || 'Cashier',
+    parent_email: parentEmail,
     amount: sanitizedAmount,
     method,
-    notes: note ? `Cashier top-up${note ? ': ' + note : ''}` : 'Cashier top-up',
+    notes: note ? `Cashier top-up: ${note}` : 'Cashier top-up',
     status: 'pending',
     created_by: user.id,
   })
@@ -63,6 +67,23 @@ export async function POST(req: NextRequest) {
   if (error) {
     console.error('[cashier-topup]', error.message)
     return NextResponse.json({ error: 'Failed to submit top-up request' }, { status: 500 })
+  }
+
+  // Send "received" confirmation email if parent email provided
+  if (process.env.RESEND_API_KEY && parentEmail) {
+    admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
+      const rawSettings: Record<string, string> = {}
+      settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
+      const emailSettings = buildEmailSettings(rawSettings)
+      sendTopupReceived({
+        parentEmail,
+        parentName: studentName || bochur.name,
+        studentName: studentName || bochur.name,
+        amount: sanitizedAmount,
+        method: method!,
+        emailSettings,
+      }).catch(e => console.error('[cashier-topup] Email error:', e))
+    })
   }
 
   return NextResponse.json({ ok: true }, { status: 201 })

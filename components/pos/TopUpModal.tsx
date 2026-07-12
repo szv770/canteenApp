@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, X, User, DollarSign, Clock } from 'lucide-react'
+import { Search, X, User, DollarSign, Clock, Mail } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { BochurWithId } from '@/types/database'
 import toast from 'react-hot-toast'
@@ -35,6 +35,7 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
   const [amount, setAmount] = useState('')
   const [method, setMethod] = useState<Method>('cash')
   const [note, setNote] = useState('')
+  const [parentEmail, setParentEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
   const debounceRef = useRef<NodeJS.Timeout>()
 
@@ -72,6 +73,7 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
           amount: amt,
           method,
           note: note.trim() || null,
+          parent_email: parentEmail.trim() || null,
         }),
       })
       const json = await res.json()
@@ -188,6 +190,21 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
                   {METHOD_LABELS[m]}
                 </button>
               ))}
+            </div>
+          </div>
+
+          {/* Parent email — optional, enables email notifications for this top-up */}
+          <div>
+            <label className="block text-xs font-semibold text-slate-500 uppercase tracking-wide mb-1.5">Parent Email (optional)</label>
+            <div className="relative">
+              <Mail className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
+              <input
+                type="email"
+                placeholder="parent@email.com — sends confirmation emails"
+                value={parentEmail}
+                onChange={e => setParentEmail(e.target.value)}
+                className="w-full pl-9 pr-3 py-2.5 bg-white border border-slate-200 rounded-xl text-slate-900 text-base focus:outline-none focus:ring-2 focus:ring-amber-400/30 focus:border-amber-400"
+              />
             </div>
           </div>
 
