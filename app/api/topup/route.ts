@@ -119,7 +119,7 @@ export async function POST(req: NextRequest) {
   // for anon (parents don't log in), but we still want server-side validation.
   const admin = createAdminClient()
 
-  const { error } = await admin.from('balance_topups').insert({
+  const { data: inserted, error } = await admin.from('balance_topups').insert({
     amount: sanitizedAmount,
     method,
     sender_name: parentName,
@@ -129,23 +129,26 @@ export async function POST(req: NextRequest) {
     transaction_ref: transactionRef,
     notes,
     status: 'pending',
-  })
+  }).select('id').single()
 
-  if (error) {
-    console.error('[topup] Insert error:', error.message)
+  if (error || !inserted) {
+    console.error('[topup] Insert error:', error?.message)
     return NextResponse.json(
       { error: 'Failed to submit request. Please try again.' },
       { status: 500 }
     )
   }
 
-  // Send confirmation email — fire and forget (don't block response on email failure)
+  // Send confirmation email — fire and forget; stamp received_email_sent_at on success
   if (process.env.RESEND_API_KEY) {
     admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
       const rawSettings: Record<string, string> = {}
       settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
       const emailSettings = buildEmailSettings(rawSettings)
       sendTopupReceived({ parentEmail, parentName, studentName, amount: sanitizedAmount, method, emailSettings })
+        .then(sent => {
+          if (sent) admin.from('balance_topups').update({ received_email_sent_at: new Date().toISOString() }).eq('id', inserted.id).then()
+        })
         .catch(e => console.error('[topup] Email error:', e))
     })
   }

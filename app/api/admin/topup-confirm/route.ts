@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
     cashier_id: auth.user.id,
   })
 
-  // Send approval email — fire and forget
+  // Send approval email — fire and forget; stamp approved_email_sent_at on success
   if (process.env.RESEND_API_KEY && topup.parent_email) {
     admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
       const rawSettings: Record<string, string> = {}
@@ -152,7 +152,11 @@ export async function POST(req: NextRequest) {
         amount: topup.amount,
         newBalance,
         emailSettings,
-      }).catch(e => console.error('[topup-confirm] Email error:', e))
+      })
+        .then(sent => {
+          if (sent) admin.from('balance_topups').update({ approved_email_sent_at: new Date().toISOString() }).eq('id', topupId).then()
+        })
+        .catch(e => console.error('[topup-confirm] Email error:', e))
     })
   }
 
@@ -193,7 +197,7 @@ export async function PATCH(req: NextRequest) {
 
   await admin.from('balance_topups').update({ status: 'rejected' }).eq('id', topupId)
 
-  // Send rejection email — fire and forget
+  // Send rejection email — fire and forget; stamp rejected_email_sent_at on success
   if (process.env.RESEND_API_KEY && topup.parent_email) {
     admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
       const rawSettings: Record<string, string> = {}
@@ -206,7 +210,11 @@ export async function PATCH(req: NextRequest) {
         amount: topup.amount,
         reason: reason || undefined,
         emailSettings,
-      }).catch(e => console.error('[topup-reject] Email error:', e))
+      })
+        .then(sent => {
+          if (sent) admin.from('balance_topups').update({ rejected_email_sent_at: new Date().toISOString() }).eq('id', topupId).then()
+        })
+        .catch(e => console.error('[topup-reject] Email error:', e))
     })
   }
 

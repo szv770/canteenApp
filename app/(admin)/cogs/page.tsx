@@ -3,7 +3,7 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import { Plus, AlertTriangle, DollarSign } from 'lucide-react'
+import { Plus, AlertTriangle, DollarSign, Trash2 } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 interface WastageEntry {
@@ -52,6 +52,7 @@ export default function CogsPage() {
   const [date, setDate] = useState(new Date().toISOString().split('T')[0])
   const [notes, setNotes] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [deleting, setDeleting] = useState<string | null>(null)
 
   useEffect(() => { loadData() }, [])
 
@@ -86,6 +87,24 @@ export default function CogsPage() {
 
   const expensesThisMonth = expenses.filter(e => e.date >= monthStartDate)
   const expensesTotal = expensesThisMonth.reduce((sum, e) => sum + e.amount, 0)
+
+  async function deleteWastage(id: string) {
+    if (!confirm('Delete this wastage entry?')) return
+    setDeleting(id)
+    const { error } = await supabase.from('wastage_log').delete().eq('id', id)
+    if (error) toast.error(error.message)
+    else { toast.success('Wastage entry deleted'); loadData() }
+    setDeleting(null)
+  }
+
+  async function deleteExpense(id: string) {
+    if (!confirm('Delete this expense entry?')) return
+    setDeleting(id)
+    const { error } = await supabase.from('expense_entries').delete().eq('id', id)
+    if (error) toast.error(error.message)
+    else { toast.success('Expense deleted'); loadData() }
+    setDeleting(null)
+  }
 
   async function handleAddExpense(e: React.FormEvent) {
     e.preventDefault()
@@ -131,7 +150,7 @@ export default function CogsPage() {
         ))}
       </div>
 
-      {/* ── WASTAGE TAB ── */}
+      {/* WASTAGE TAB */}
       {tab === 'wastage' && (
         <div className="space-y-4">
           {/* Summary */}
@@ -140,7 +159,7 @@ export default function CogsPage() {
               <AlertTriangle className="w-5 h-5 text-red-500" />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Wastage Cost — This Month</p>
+              <p className="text-sm text-slate-500">Wastage Cost &mdash; This Month</p>
               <p className="text-2xl font-bold text-red-600">{formatCurrency(wastageTotal)}</p>
             </div>
             <div className="ml-auto text-right">
@@ -162,13 +181,14 @@ export default function CogsPage() {
                     <th className="px-4 py-3 text-right font-semibold text-slate-600">Unit Cost</th>
                     <th className="px-4 py-3 text-right font-semibold text-slate-600">Total Loss</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-600">Reason</th>
+                    <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
                     Array.from({ length: 5 }).map((_, i) => (
                       <tr key={i}>
-                        {Array.from({ length: 7 }).map((_, j) => (
+                        {Array.from({ length: 8 }).map((_, j) => (
                           <td key={j} className="px-4 py-3">
                             <div className="h-4 bg-slate-100 rounded animate-pulse" />
                           </td>
@@ -177,17 +197,17 @@ export default function CogsPage() {
                     ))
                   ) : wastage.length === 0 ? (
                     <tr>
-                      <td colSpan={7} className="px-4 py-12 text-center text-slate-400">
-                        No wastage entries yet. Use the POS “Log Waste” button to record spoilage.
+                      <td colSpan={8} className="px-4 py-12 text-center text-slate-400">
+                        No wastage entries yet. Use the POS &ldquo;Log Waste&rdquo; button to record spoilage.
                       </td>
                     </tr>
                   ) : wastage.map(w => (
-                    <tr key={w.id} className="hover:bg-slate-50/50">
+                    <tr key={w.id} className="hover:bg-slate-50/50 group">
                       <td className="px-4 py-3 text-slate-500 whitespace-nowrap">
                         {new Date(w.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        {(w.cashier_profiles as any)?.name || <span className="text-slate-300">—</span>}
+                        {(w.cashier_profiles as any)?.name || <span className="text-slate-300">&mdash;</span>}
                       </td>
                       <td className="px-4 py-3 font-medium text-slate-800">{w.product_name}</td>
                       <td className="px-4 py-3 text-right text-slate-700">{w.quantity}</td>
@@ -196,6 +216,16 @@ export default function CogsPage() {
                         {formatCurrency(w.unit_cost * w.quantity)}
                       </td>
                       <td className="px-4 py-3 text-slate-600">{w.reason}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => deleteWastage(w.id)}
+                          disabled={deleting === w.id}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
+                      </td>
                     </tr>
                   ))}
                 </tbody>
@@ -205,7 +235,7 @@ export default function CogsPage() {
         </div>
       )}
 
-      {/* ── EXPENSES TAB ── */}
+      {/* EXPENSES TAB */}
       {tab === 'expenses' && (
         <div className="space-y-6">
           {/* Summary */}
@@ -214,7 +244,7 @@ export default function CogsPage() {
               <DollarSign className="w-5 h-5 text-violet-500" />
             </div>
             <div>
-              <p className="text-sm text-slate-500">Expenses — This Month</p>
+              <p className="text-sm text-slate-500">Expenses &mdash; This Month</p>
               <p className="text-2xl font-bold text-violet-700">{formatCurrency(expensesTotal)}</p>
             </div>
             <div className="ml-auto text-right">
@@ -308,13 +338,14 @@ export default function CogsPage() {
                     <th className="px-4 py-3 text-left font-semibold text-slate-600">Type</th>
                     <th className="px-4 py-3 text-left font-semibold text-slate-600">Description</th>
                     <th className="px-4 py-3 text-right font-semibold text-slate-600">Amount</th>
+                    <th className="px-4 py-3" />
                   </tr>
                 </thead>
                 <tbody className="divide-y divide-slate-50">
                   {loading ? (
                     Array.from({ length: 4 }).map((_, i) => (
                       <tr key={i}>
-                        {Array.from({ length: 4 }).map((_, j) => (
+                        {Array.from({ length: 5 }).map((_, j) => (
                           <td key={j} className="px-4 py-3">
                             <div className="h-4 bg-slate-100 rounded animate-pulse" />
                           </td>
@@ -323,12 +354,12 @@ export default function CogsPage() {
                     ))
                   ) : expenses.length === 0 ? (
                     <tr>
-                      <td colSpan={4} className="px-4 py-12 text-center text-slate-400">
+                      <td colSpan={5} className="px-4 py-12 text-center text-slate-400">
                         No expenses logged yet.
                       </td>
                     </tr>
                   ) : expenses.map(e => (
-                    <tr key={e.id} className="hover:bg-slate-50/50">
+                    <tr key={e.id} className="hover:bg-slate-50/50 group">
                       <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{e.date}</td>
                       <td className="px-4 py-3">
                         <span className={`px-2 py-0.5 rounded-lg text-xs font-semibold border capitalize ${
@@ -343,6 +374,16 @@ export default function CogsPage() {
                       </td>
                       <td className="px-4 py-3 text-right font-semibold text-slate-700">
                         {formatCurrency(e.amount)}
+                      </td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => deleteExpense(e.id)}
+                          disabled={deleting === e.id}
+                          className="opacity-0 group-hover:opacity-100 p-1.5 text-red-400 hover:bg-red-50 rounded-lg transition-all disabled:opacity-50"
+                          title="Delete"
+                        >
+                          <Trash2 className="w-3.5 h-3.5" />
+                        </button>
                       </td>
                     </tr>
                   ))}
