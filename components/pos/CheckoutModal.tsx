@@ -58,6 +58,7 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
     setLinkOpen(false)
   }
   const [cashTendered, setCashTendered] = useState('')
+  const [changeToBalance, setChangeToBalance] = useState(false)
   const [processing, setProcessing] = useState(false)
   const [discountCodeInput, setDiscountCodeInput] = useState('')
   const [appliedDiscount, setAppliedDiscount] = useState<{ code: string; amount: number; description: string } | null>(null)
@@ -145,6 +146,7 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
           method,
           bochur_id: selectedBochur?.id ?? null,
           cash_tendered: method === 'cash' ? tendered : null,
+          change_to_balance: method === 'cash' && changeToBalance && change > 0 && selectedBochur ? change : undefined,
           discount_code: appliedDiscount?.code ?? null,
           tip_amount: tipAmount > 0 ? tipAmount : undefined,
           items: cart.map(item => ({
@@ -432,9 +434,31 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
                   ))}
                 </div>
                 {tendered >= displayTotal && (
-                  <div className="flex justify-between items-center p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
-                    <span className="text-emerald-700 font-medium text-sm">Change due</span>
-                    <span className="text-emerald-700 font-bold text-xl">{formatCurrency(change)}</span>
+                  <div className="space-y-2">
+                    <div className="flex justify-between items-center p-3 bg-emerald-50 border border-emerald-200 rounded-xl">
+                      <span className="text-emerald-700 font-medium text-sm">Change due</span>
+                      <span className="text-emerald-700 font-bold text-xl">{formatCurrency(change)}</span>
+                    </div>
+                    {change > 0 && selectedBochur && (
+                      <button
+                        onClick={() => setChangeToBalance(v => !v)}
+                        className={`w-full flex items-center gap-3 px-4 py-3 rounded-xl border text-sm font-medium transition-all ${
+                          changeToBalance
+                            ? 'bg-blue-50 border-blue-300 text-blue-800'
+                            : 'bg-pos-bg border-pos-border text-pos-subtext hover:text-pos-text'
+                        }`}
+                      >
+                        <span className={`w-5 h-5 rounded-full border-2 flex items-center justify-center shrink-0 transition-all ${
+                          changeToBalance ? 'border-blue-500 bg-blue-500' : 'border-slate-300'
+                        }`}>
+                          {changeToBalance && <span className="text-white text-xs font-bold">✓</span>}
+                        </span>
+                        <span>
+                          Add <span className="font-bold">{formatCurrency(change)}</span> change to{' '}
+                          <span className="font-bold">{selectedBochur.name.split(' ')[0]}</span>&apos;s balance
+                        </span>
+                      </button>
+                    )}
                   </div>
                 )}
               </div>
