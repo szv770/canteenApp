@@ -2,11 +2,13 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { RefreshCw, Check, X, Link as LinkIcon } from 'lucide-react'
+import { RefreshCw, Check, X, Link as LinkIcon, Calendar } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import TableSkeleton from '@/components/admin/TableSkeleton'
+
+const todayDateStr = () => new Date().toISOString().slice(0, 10)
 
 export default function TopupsPage() {
   const supabase = createClient()
@@ -17,6 +19,8 @@ export default function TopupsPage() {
   const [linkBochurId, setLinkBochurId] = useState('')
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
   const [rejectingId, setRejectingId] = useState<string | null>(null)
+  // Per-row "Date Received" for the confirm flow — defaults to today
+  const [dateReceivedMap, setDateReceivedMap] = useState<Record<string, string>>({})
 
   useEffect(() => { loadAll() }, [])
 
@@ -30,7 +34,17 @@ export default function TopupsPage() {
         .limit(100),
       supabase.from('bochurim').select('id,name').eq('archived', false).order('name'),
     ])
-    setTopups(tRes.data || [])
+    const rows = tRes.data || []
+    // Initialize date received map for pending rows that don't have one yet
+    const today = todayDateStr()
+    const initialDates: Record<string, string> = {}
+    rows.filter((t: any) => t.status === 'pending').forEach((t: any) => {
+      if (!dateReceivedMap[t.id]) initialDates[t.id] = today
+    })
+    if (Object.keys(initialDates).length > 0) {
+      setDateReceivedMap(prev => ({ ...initialDates, ...prev }))
+    }
+    setTopups(rows)
     setBochurim(bRes.data || [])
     setLoading(false)
   }
@@ -44,11 +58,13 @@ export default function TopupsPage() {
     if (confirmingId === topup.id) return
     setConfirmingId(topup.id)
 
+    const paymentReceivedDate = dateReceivedMap[topup.id] || todayDateStr()
+
     try {
       const res = await fetch('/api/admin/topup-confirm', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ topup_id: topup.id }),
+        body: JSON.stringify({ topup_id: topup.id, payment_received_date: paymentReceivedDate }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to confirm top-up')
@@ -129,23 +145,24 @@ export default function TopupsPage() {
 
       <div className="admin-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[700px]">
+          <table className="w-full min-w-[800px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Parent / Student</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Bochur Account</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Amount</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Method</th>
-                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Date</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Submitted</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Date Received</th>
                 <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Status</th>
                 <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Actions</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <TableSkeleton cols={7} />
+                <TableSkeleton cols={8} />
               ) : topups.length === 0 ? (
-                <tr><td colSpan={7} className="px-5 py-12 text-center text-slate-400 text-sm">No top-up requests yet</td></tr>
+                <tr><td colSpan={8} className="px-5 py-12 text-center text-slate-400 text-sm">No top-up requests yet</td></tr>
               ) : [...pending, ...rest].map(t => (
                 <tr key={t.id} className="table-row">
                   <td className="px-5 py-3">
@@ -183,6 +200,26 @@ export default function TopupsPage() {
                   <td className="px-5 py-3 text-sm font-bold text-emerald-600">{formatCurrency(t.amount)}</td>
                   <td className="px-5 py-3 text-sm text-slate-500 capitalize">{t.method}</td>
                   <td className="px-5 py-3 text-xs text-slate-400">{format(new Date(t.created_at), 'MM/dd h:mm a')}</td>
+                  <td className="px-5 py-3">
+                    {t.status === 'pending' ? (
+                      // Editable date picker for pending rows — cashier sets the actual date money arrived
+                      <div className="flex items-center gap-1">
+                        <Calendar className="w-3.5 h-3.5 text-slate-400 shrink-0" />
+                        <input
+                          type="date"
+                          value={dateReceivedMap[t.id] || todayDateStr()}
+                          onChange={e => setDateReceivedMap(prev => ({ ...prev, [t.id]: e.target.value }))}
+                          className="text-xs border border-slate-200 rounded-lg px-2 py-1 focus:outline-none focus:ring-1 focus:ring-emerald-400 focus:border-emerald-400 bg-white"
+                        />
+                      </div>
+                    ) : t.payment_received_date ? (
+                      <span className="text-xs text-slate-600">{format(new Date(t.payment_received_date + 'T12:00:00'), 'MM/dd/yyyy')}</span>
+                    ) : t.confirmed_at ? (
+                      <span className="text-xs text-slate-400">{format(new Date(t.confirmed_at), 'MM/dd/yyyy')}</span>
+                    ) : (
+                      <span className="text-xs text-slate-300">—</span>
+                    )}
+                  </td>
                   <td className="px-5 py-3 text-center">
                     <span className={`badge ${statusBadge[t.status] || 'bg-slate-100 text-slate-500'}`}>{t.status}</span>
                   </td>

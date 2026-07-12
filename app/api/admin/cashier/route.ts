@@ -98,6 +98,53 @@ export async function PATCH(req: NextRequest) {
 
   const admin = createAdminClient()
 
+  // Special action: payout_tips — credit tip balance to linked bochur account and zero tip_balance
+  if (body.action === 'payout_tips') {
+    const { data: cashierRow, error: cashierFetchErr } = await admin
+      .from('cashier_profiles')
+      .select('tip_balance, bochur_id')
+      .eq('id', id)
+      .single()
+    if (cashierFetchErr || !cashierRow) {
+      return NextResponse.json({ error: 'Cashier not found' }, { status: 404 })
+    }
+    const tipAmount = Number(cashierRow.tip_balance || 0)
+    if (tipAmount <= 0) {
+      return NextResponse.json({ error: 'No tips to pay out' }, { status: 400 })
+    }
+    if (!cashierRow.bochur_id) {
+      return NextResponse.json({ error: 'no_bochur_linked' }, { status: 400 })
+    }
+    // Credit the tip amount to the linked bochur balance
+    const { data: bochurRow, error: bochurFetchErr } = await admin
+      .from('bochurim')
+      .select('balance')
+      .eq('id', cashierRow.bochur_id)
+      .single()
+    if (bochurFetchErr || !bochurRow) {
+      return NextResponse.json({ error: 'Linked bochur account not found' }, { status: 404 })
+    }
+    const newBalance = Math.round((Number(bochurRow.balance) + tipAmount) * 100) / 100
+    const { error: balErr } = await admin
+      .from('bochurim')
+      .update({ balance: newBalance })
+      .eq('id', cashierRow.bochur_id)
+    if (balErr) return NextResponse.json({ error: balErr.message }, { status: 500 })
+
+    await admin.from('balance_ledger').insert({
+      bochur_id: cashierRow.bochur_id,
+      amount: tipAmount,
+      type: 'topup',
+      note: 'Tip payout from cashier tip balance',
+      cashier_id: id,
+    })
+
+    // Zero out the cashier tip_balance
+    await admin.from('cashier_profiles').update({ tip_balance: 0 }).eq('id', id)
+
+    return NextResponse.json({ ok: true, amount: tipAmount })
+  }
+
   const profileUpdate: Record<string, unknown> = {}
   if (name !== undefined && typeof name === 'string') profileUpdate.name = name.trim()
   if (role !== undefined) profileUpdate.role = role
@@ -106,7 +153,7 @@ export async function PATCH(req: NextRequest) {
   if ('bochur_id' in body) {
     profileUpdate.bochur_id = body.bochur_id ?? null
   }
-  // tip_balance: allow resetting to 0 (mark tips paid out)
+  // tip_balance: allow resetting to 0 (mark tips paid out as cash — no bochur credit)
   if ('tip_balance' in body && typeof body.tip_balance === 'number') {
     profileUpdate.tip_balance = body.tip_balance
   }

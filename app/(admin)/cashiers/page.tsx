@@ -68,15 +68,41 @@ export default function CashiersPage() {
   async function markTipsPaid(cashier: CashierRow) {
     const amount = cashier.tip_balance || 0
     if (!amount) return
-    if (!confirm(`Mark ${formatCurrency(amount)} in tips as paid out (cash) for ${cashier.name}?`)) return
-    const res = await fetch('/api/admin/cashier', {
-      method: 'PATCH',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ id: cashier.id, tip_balance: 0 }),
-    })
-    const json = await res.json()
-    if (!res.ok) { toast.error(json.error); return }
-    toast.success(`Marked ${formatCurrency(amount)} tips as paid out`)
+
+    if (cashier.bochur_id) {
+      // Cashier has a linked bochur account — transfer to their canteen balance
+      if (!confirm(`Transfer ${formatCurrency(amount)} in tips to ${cashier.linked_bochur_name || 'linked student account'}'s canteen balance?`)) return
+      const res = await fetch('/api/admin/cashier', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: cashier.id, action: 'payout_tips' }),
+      })
+      const json = await res.json()
+      if (!res.ok) {
+        if (json.error === 'no_bochur_linked') {
+          toast.error('Link this cashier to a student account first to transfer tips.')
+        } else {
+          toast.error(json.error || 'Failed to transfer tips')
+        }
+        return
+      }
+      toast.success(`${formatCurrency(amount)} transferred to ${cashier.linked_bochur_name || 'student'}'s canteen balance`)
+    } else {
+      // No linked account — mark as cash payout only
+      if (!confirm(
+        `No student account is linked for ${cashier.name}.\n\n` +
+        `Mark ${formatCurrency(amount)} as paid out in cash (balance will be zeroed)?\n\n` +
+        `To transfer to a canteen balance instead, link a student account first via Edit.`
+      )) return
+      const res = await fetch('/api/admin/cashier', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ id: cashier.id, tip_balance: 0 }),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast.error(json.error); return }
+      toast.success(`Marked ${formatCurrency(amount)} tips as paid out (cash)`)
+    }
     loadCashiers()
   }
 

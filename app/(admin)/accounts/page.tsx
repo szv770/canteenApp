@@ -36,6 +36,9 @@ export default function AccountsPage() {
   const [bochurBalance, setBochurBalance] = useState<number>(0)
   const [loadingPayments, setLoadingPayments] = useState(false)
 
+  // ── Top-up deposit totals ─────────────────────────────────────────────────
+  const [topupByMethod, setTopupByMethod] = useState<Record<string, number>>({})
+
   // ── Withdrawal log ───────────────────────────────────────────────────────
   const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([])
   const [loadingLog, setLoadingLog] = useState(false)
@@ -55,9 +58,14 @@ export default function AccountsPage() {
     const fromISO = from + 'T00:00:00.000Z'
     const toISO = to + 'T23:59:59.999Z'
 
-    const [{ data: payments }, { data: bochurim }] = await Promise.all([
+    const [{ data: payments }, { data: bochurim }, { data: allTopups }] = await Promise.all([
       supabase.from('payments').select('method, amount').gte('created_at', fromISO).lte('created_at', toISO),
       supabase.from('bochurim').select('balance').eq('archived', false),
+      // Fetch all confirmed topups to filter client-side using payment_received_date (fallback: confirmed_at)
+      supabase
+        .from('balance_topups')
+        .select('method, amount, payment_received_date, confirmed_at')
+        .eq('status', 'confirmed'),
     ])
 
     const map: Record<string, number> = {}
@@ -68,6 +76,17 @@ export default function AccountsPage() {
 
     const total = (bochurim || []).reduce((s: number, b: any) => s + Number(b.balance || 0), 0)
     setBochurBalance(total)
+
+    // Group top-up deposits by method, filtering by payment_received_date (fallback: confirmed_at date)
+    const topupMap: Record<string, number> = {}
+    for (const t of (allTopups || []) as any[]) {
+      const dateToUse: string = t.payment_received_date || (t.confirmed_at ? t.confirmed_at.slice(0, 10) : null)
+      if (!dateToUse || dateToUse < from || dateToUse > to) continue
+      const method = t.method || 'unknown'
+      topupMap[method] = (topupMap[method] || 0) + Number(t.amount)
+    }
+    setTopupByMethod(topupMap)
+
     setLoadingPayments(false)
   }
 
@@ -233,6 +252,55 @@ export default function AccountsPage() {
             Sum of all active student account balances — represents money the canteen holds on behalf of students.
           </p>
         </div>
+      </section>
+
+      {/* ── Section 1b: Top-up Deposits Received ── */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-700">Top-up Deposits Received</h2>
+          <p className="text-sm text-slate-400 mt-0.5">
+            Parent payments confirmed in the selected date range, grouped by method.
+            Uses the &ldquo;Date Received&rdquo; field set at confirmation (falls back to confirmation date if not set).
+          </p>
+        </div>
+
+        {loadingPayments ? (
+          <div className="text-sm text-slate-400">Loading…</div>
+        ) : Object.keys(topupByMethod).length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 text-sm text-slate-400 text-center">
+            No confirmed top-ups in this date range.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {Object.entries(topupByMethod)
+              .sort(([, a], [, b]) => b - a)
+              .map(([method, amount]) => {
+                const label = method.charAt(0).toUpperCase() + method.slice(1).replace(/_/g, ' ')
+                return (
+                  <div key={method} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex items-center gap-4">
+                    <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 bg-indigo-100">
+                      <Smartphone className="w-5 h-5 text-indigo-600" />
+                    </div>
+                    <div>
+                      <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{label}</p>
+                      <p className="text-xl font-bold text-slate-800 mt-0.5">{formatCurrency(amount)}</p>
+                    </div>
+                  </div>
+                )
+              })}
+            <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 flex items-center gap-4">
+              <div className="w-11 h-11 rounded-xl flex items-center justify-center shrink-0 bg-slate-700">
+                <Wallet className="w-5 h-5 text-white" />
+              </div>
+              <div>
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">Total Deposits</p>
+                <p className="text-xl font-bold text-slate-800 mt-0.5">
+                  {formatCurrency(Object.values(topupByMethod).reduce((s, v) => s + v, 0))}
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
       </section>
 
       {/* ── Section 2: Withdrawal Log ── */}

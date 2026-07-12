@@ -45,6 +45,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'topup_id is required' }, { status: 400 })
   }
 
+  // Optional: date the payment actually arrived (e.g. Zelle transfer date)
+  const paymentReceivedDate = typeof body.payment_received_date === 'string' && body.payment_received_date.match(/^\d{4}-\d{2}-\d{2}$/)
+    ? body.payment_received_date
+    : null
+
   const admin = createAdminClient()
 
   // Fetch the topup — verify it's pending and has a bochur linked
@@ -85,6 +90,7 @@ export async function POST(req: NextRequest) {
       status: 'confirmed',
       confirmed_by: auth.user.id,
       confirmed_at: new Date().toISOString(),
+      ...(paymentReceivedDate ? { payment_received_date: paymentReceivedDate } : {}),
     })
     .eq('id', topupId)
     .eq('status', 'pending')  // atomic guard — only succeeds once
