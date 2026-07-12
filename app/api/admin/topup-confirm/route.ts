@@ -45,6 +45,10 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'topup_id is required' }, { status: 400 })
   }
 
+  // When true: mark as confirmed but skip balance update + ledger entry.
+  // Use when the admin already manually added balance before the request came in.
+  const skipCredit = body.skip_credit === true
+
   // Optional: date the payment actually arrived (e.g. Zelle transfer date)
   const paymentReceivedDate = typeof body.payment_received_date === 'string' && body.payment_received_date.match(/^\d{4}-\d{2}-\d{2}$/)
     ? body.payment_received_date
@@ -105,39 +109,53 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Top-up already processed' }, { status: 409 })
   }
 
-  // Fetch current balance
-  const { data: bochur, error: bochurErr } = await admin
-    .from('bochurim')
-    .select('balance')
-    .eq('id', topup.bochur_id)
-    .eq('archived', false)
-    .single()
+  let newBalance: number
 
-  if (bochurErr || !bochur) {
-    return NextResponse.json({ error: 'Bochur not found' }, { status: 404 })
+  if (skipCredit) {
+    // Admin already manually credited the balance — just mark as approved, no balance/ledger change.
+    // We still need current balance for the approval email.
+    const { data: bochur } = await admin
+      .from('bochurim')
+      .select('balance')
+      .eq('id', topup.bochur_id)
+      .eq('archived', false)
+      .single()
+    newBalance = bochur?.balance ?? 0
+  } else {
+    // Normal confirm: credit balance and write ledger entry.
+    const { data: bochur, error: bochurErr } = await admin
+      .from('bochurim')
+      .select('balance')
+      .eq('id', topup.bochur_id)
+      .eq('archived', false)
+      .single()
+
+    if (bochurErr || !bochur) {
+      return NextResponse.json({ error: 'Bochur not found' }, { status: 404 })
+    }
+
+    newBalance = Math.round((bochur.balance + topup.amount) * 100) / 100
+
+    // Apply balance update
+    const { error: balanceErr } = await admin
+      .from('bochurim')
+      .update({ balance: newBalance })
+      .eq('id', topup.bochur_id)
+
+    if (balanceErr) {
+      console.error('[topup-confirm] Balance update error:', balanceErr.message)
+      return NextResponse.json({ error: 'Failed to update balance' }, { status: 500 })
+    }
+
+    // Ledger entry
+    await admin.from('balance_ledger').insert({
+      bochur_id: topup.bochur_id,
+      amount: topup.amount,
+      type: 'topup',
+      note: `${topup.method} top-up${topup.sender_name ? ` from ${topup.sender_name}` : ''}`,
+      cashier_id: auth.user.id,
+    })
   }
-
-  const newBalance = Math.round((bochur.balance + topup.amount) * 100) / 100
-
-  // Apply balance update
-  const { error: balanceErr } = await admin
-    .from('bochurim')
-    .update({ balance: newBalance })
-    .eq('id', topup.bochur_id)
-
-  if (balanceErr) {
-    console.error('[topup-confirm] Balance update error:', balanceErr.message)
-    return NextResponse.json({ error: 'Failed to update balance' }, { status: 500 })
-  }
-
-  // Ledger entry
-  await admin.from('balance_ledger').insert({
-    bochur_id: topup.bochur_id,
-    amount: topup.amount,
-    type: 'topup',
-    note: `${topup.method} top-up${topup.sender_name ? ` from ${topup.sender_name}` : ''}`,
-    cashier_id: auth.user.id,
-  })
 
   // Send approval email — fire and forget; stamp approved_email_sent_at on success
   if (process.env.RESEND_API_KEY && topup.parent_email) {
@@ -160,7 +178,7 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  return NextResponse.json({ ok: true })
+  return NextResponse.json({ ok: true, skipped_credit: skipCredit })
 }
 
 /**
