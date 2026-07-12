@@ -162,29 +162,18 @@ function CreditCardWarningModal({ onCancel, onConfirm }: { onCancel: () => void;
   )
 }
 
-export default function LandingClient({ loggedIn, settings, announcement, topSellers }: Props) {
-  const canteenName = settings['canteen_name'] || 'Yeshiva Canteen'
-  const tagline = settings['canteen_tagline'] || 'Easy online top-ups for your son\'s canteen account'
-  const ccEnabled = settings['payment_cc_enabled'] === 'true'
-  const ccNotConfigured = !(settings['payment_cc_link'] || '').trim()
-  const ccComingSoon = !ccEnabled && ccNotConfigured && settings['payment_cc_coming_soon_enabled'] === 'true'
-  const nineDaysBlurb = settings['nine_days_blurb'] || ''
-  const nineDaysFileUrl = settings['nine_days_file_url'] || ''
+// TopUpFormSection is defined at module level (not inside LandingClient) so that React
+// preserves the component identity across re-renders. Defining it inside LandingClient
+// would cause it to remount on every state change, which makes controlled inputs lose
+// focus and auto-select their text on each keystroke — the same issue documented in
+// CLAUDE.md for the Settings page's SettingControl component.
+interface TopUpFormSectionProps {
+  settings: Record<string, string>
+  enabledMethods: string[]
+  ccEnabled: boolean
+}
 
-  const enabledMethods = ['zelle', 'venmo', 'paypal', 'cashapp', 'cash'].filter(
-    m => settings[`payment_${m}_enabled`] === 'true'
-  )
-  const noteMethodNames = enabledMethods
-    .filter(m => ['zelle', 'venmo', 'paypal', 'cashapp'].includes(m))
-    .map(m => METHOD_LABELS[m])
-  const noteMethodsText =
-    noteMethodNames.length <= 1
-      ? noteMethodNames.join('')
-      : noteMethodNames.length === 2
-      ? noteMethodNames.join(' or ')
-      : `${noteMethodNames.slice(0, -1).join(', ')}, or ${noteMethodNames[noteMethodNames.length - 1]}`
-  const hasNoteMethods = noteMethodNames.length > 0
-
+function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSectionProps) {
   const formSectionRef = useRef<HTMLDivElement>(null)
   const previousMethodRef = useRef(enabledMethods[0] || 'zelle')
   const [ccModalOpen, setCcModalOpen] = useState(false)
@@ -332,9 +321,205 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   }
 
   return (
-    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50">
+    <div ref={formSectionRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6 scroll-mt-20">
       {ccModalOpen && <CreditCardWarningModal onCancel={cancelCreditCard} onConfirm={confirmCreditCard} />}
+      {step === 'success' ? (
+        <div className="text-center py-8">
+          <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
+            <Check className="w-8 h-8 text-emerald-500" />
+          </div>
+          <h3 className="text-xl font-bold text-gray-900 mb-2">Request Submitted!</h3>
+          <p className="text-gray-500 text-sm max-w-xs mx-auto">
+            We received your top-up request for <strong>{form.studentName}</strong>.
+            Funds will be added to their account shortly.
+          </p>
+          <button
+            onClick={() => { setStep('form'); setForm(f => ({ ...f, parentName: '', studentName: '', amount: '', transactionRef: '', notes: '' })) }}
+            className="mt-6 text-sm text-amber-600 font-medium hover:underline"
+          >
+            Submit another request
+          </button>
+        </div>
+      ) : (
+        <>
+          <h2 className="text-xl font-bold text-gray-900 mb-1">Request a Top-up</h2>
+          <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 rounded-xl px-3 py-2.5 mb-5 mt-4">
+            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+            <p className="text-xs leading-relaxed">
+              <strong>Only fill this out after you've already sent the payment</strong> using one of the
+              methods on the left. This form does not send money — it just tells us to expect it.
+            </p>
+          </div>
+          {formError && (
+            <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">
+              {formError}
+            </div>
+          )}
+          <form onSubmit={submit} noValidate className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your Name *</label>
+                <input
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
+                  placeholder="Parent's name"
+                  value={form.parentName}
+                  onChange={e => set('parentName', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Son's Name *</label>
+                <input
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
+                  placeholder="Student's name"
+                  value={form.studentName}
+                  onChange={e => set('studentName', e.target.value)}
+                />
+              </div>
+            </div>
 
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your Phone *</label>
+                <input
+                  type="tel"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
+                  placeholder="(555) 000-0000"
+                  value={form.parentPhone}
+                  onChange={e => set('parentPhone', e.target.value)}
+                />
+              </div>
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">Your Email *</label>
+                <input
+                  type="email"
+                  inputMode="email"
+                  autoComplete="email"
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
+                  placeholder="you@example.com"
+                  value={form.parentEmail}
+                  onChange={e => set('parentEmail', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Amount Sent *</label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
+                  placeholder="0.00"
+                  min="1"
+                  step="0.01"
+                  value={form.amount}
+                  onChange={e => set('amount', e.target.value)}
+                />
+              </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method *</label>
+              <select
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all bg-white min-h-[44px]"
+                value={form.method}
+                onChange={e => onMethodChange(e.target.value)}
+              >
+                {enabledMethods.map(m => (
+                  <option key={m} value={m}>{METHOD_LABELS[m]}</option>
+                ))}
+                {ccEnabled && <option value="credit_card">{METHOD_LABELS.credit_card}</option>}
+              </select>
+            </div>
+
+            {form.method !== 'cash' && (
+              <div>
+                <label className="block text-sm font-medium text-gray-700 mb-1">
+                  Confirmation / Reference # <span className="text-gray-400 font-normal">(optional)</span>
+                </label>
+                <input
+                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
+                  placeholder="Transaction ID or last 4 digits"
+                  value={form.transactionRef}
+                  onChange={e => set('transactionRef', e.target.value)}
+                />
+              </div>
+            )}
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">
+                Notes <span className="text-gray-400 font-normal">(optional)</span>
+              </label>
+              <textarea
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all resize-none"
+                rows={2}
+                placeholder="Any extra info..."
+                value={form.notes}
+                onChange={e => set('notes', e.target.value)}
+              />
+            </div>
+
+            {/* Cloudflare Turnstile widget */}
+            {siteKey && (
+              <>
+                <Script
+                  src="https://challenges.cloudflare.com/turnstile/v0/api.js"
+                  strategy="afterInteractive"
+                  onLoad={renderTurnstile}
+                />
+                <div ref={turnstileRef} className="flex justify-center" />
+              </>
+            )}
+
+            <button
+              type="submit"
+              disabled={submitting || (!!siteKey && !turnstileToken)}
+              className="w-full flex items-center justify-center gap-2 bg-amber-400 hover:bg-amber-500 disabled:opacity-60 text-white font-semibold py-3 min-h-[48px] rounded-xl transition-colors text-sm"
+            >
+              {submitting ? (
+                <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              ) : (
+                <Send className="w-4 h-4" />
+              )}
+              {submitting ? 'Submitting...' : 'Submit Request'}
+            </button>
+
+            <p className="text-xs text-gray-400 text-center">
+              Funds are credited once an admin verifies your payment.
+            </p>
+          </form>
+        </>
+      )}
+    </div>
+  )
+}
+
+export default function LandingClient({ loggedIn, settings, announcement, topSellers }: Props) {
+  const canteenName = settings['canteen_name'] || 'Yeshiva Canteen'
+  const tagline = settings['canteen_tagline'] || 'Easy online top-ups for your son\'s canteen account'
+  const ccEnabled = settings['payment_cc_enabled'] === 'true'
+  const ccNotConfigured = !(settings['payment_cc_link'] || '').trim()
+  const ccComingSoon = !ccEnabled && ccNotConfigured && settings['payment_cc_coming_soon_enabled'] === 'true'
+  const nineDaysBlurb = settings['nine_days_blurb'] || ''
+  const nineDaysFileUrl = settings['nine_days_file_url'] || ''
+
+  const enabledMethods = ['zelle', 'venmo', 'paypal', 'cashapp', 'cash'].filter(
+    m => settings[`payment_${m}_enabled`] === 'true'
+  )
+  const noteMethodNames = enabledMethods
+    .filter(m => ['zelle', 'venmo', 'paypal', 'cashapp'].includes(m))
+    .map(m => METHOD_LABELS[m])
+  const noteMethodsText =
+    noteMethodNames.length <= 1
+      ? noteMethodNames.join('')
+      : noteMethodNames.length === 2
+      ? noteMethodNames.join(' or ')
+      : `${noteMethodNames.slice(0, -1).join(', ')}, or ${noteMethodNames[noteMethodNames.length - 1]}`
+  const hasNoteMethods = noteMethodNames.length > 0
+
+  return (
+    <div className="min-h-screen bg-gradient-to-br from-slate-50 via-white to-amber-50">
       {/* Nav */}
       <nav className="bg-white/80 backdrop-blur-md border-b border-gray-100 sticky top-0 z-10">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -468,13 +653,6 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                           <CreditCard className="w-5 h-5" />
                         </div>
                         <p className="flex-1 min-w-0 font-semibold text-gray-900 text-sm truncate">Credit Card</p>
-                        <button
-                          onClick={() => onMethodChange('credit_card')}
-                          className="flex items-center gap-1 px-3 py-2 text-xs font-semibold text-white rounded-lg transition-opacity hover:opacity-90 active:scale-95 shrink-0"
-                          style={{ background: METHOD_COLORS.credit_card }}
-                        >
-                          <ExternalLink className="w-3.5 h-3.5" /> Pay Online
-                        </button>
                       </div>
                       <p className="text-xs text-gray-400 mt-2.5 pl-[52px]">No refunds — processing fees apply</p>
                     </div>
@@ -505,177 +683,12 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
             )}
           </div>
 
-          {/* Form */}
-          <div ref={formSectionRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6 scroll-mt-20">
-            {step === 'success' ? (
-              <div className="text-center py-8">
-                <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
-                  <Check className="w-8 h-8 text-emerald-500" />
-                </div>
-                <h3 className="text-xl font-bold text-gray-900 mb-2">Request Submitted!</h3>
-                <p className="text-gray-500 text-sm max-w-xs mx-auto">
-                  We received your top-up request for <strong>{form.studentName}</strong>.
-                  Funds will be added to their account shortly.
-                </p>
-                <button
-                  onClick={() => { setStep('form'); setForm(f => ({ ...f, parentName: '', studentName: '', amount: '', transactionRef: '', notes: '' })) }}
-                  className="mt-6 text-sm text-amber-600 font-medium hover:underline"
-                >
-                  Submit another request
-                </button>
-              </div>
-            ) : (
-              <>
-                <h2 className="text-xl font-bold text-gray-900 mb-1">Request a Top-up</h2>
-                <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 rounded-xl px-3 py-2.5 mb-5 mt-4">
-                  <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-                  <p className="text-xs leading-relaxed">
-                    <strong>Only fill this out after you've already sent the payment</strong> using one of the
-                    methods on the left. This form does not send money — it just tells us to expect it.
-                  </p>
-                </div>
-                {formError && (
-                  <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3">
-                    {formError}
-                  </div>
-                )}
-                <form onSubmit={submit} noValidate className="space-y-4">
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Name *</label>
-                      <input
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
-                        placeholder="Parent's name"
-                        value={form.parentName}
-                        onChange={e => set('parentName', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Son's Name *</label>
-                      <input
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
-                        placeholder="Student's name"
-                        value={form.studentName}
-                        onChange={e => set('studentName', e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Phone *</label>
-                      <input
-                        type="tel"
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
-                        placeholder="(555) 000-0000"
-                        value={form.parentPhone}
-                        onChange={e => set('parentPhone', e.target.value)}
-                      />
-                    </div>
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">Your Email *</label>
-                      <input
-                        type="email"
-                        inputMode="email"
-                        autoComplete="email"
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
-                        placeholder="you@example.com"
-                        value={form.parentEmail}
-                        onChange={e => set('parentEmail', e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Amount Sent *</label>
-                    <div className="relative">
-                      <span className="absolute left-3 top-1/2 -translate-y-1/2 text-gray-400 font-medium">$</span>
-                      <input
-                        type="number"
-                        inputMode="decimal"
-                        className="w-full pl-7 pr-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
-                        placeholder="0.00"
-                        min="1"
-                        step="0.01"
-                        value={form.amount}
-                        onChange={e => set('amount', e.target.value)}
-                      />
-                    </div>
-                  </div>
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">Payment Method *</label>
-                    <select
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all bg-white min-h-[44px]"
-                      value={form.method}
-                      onChange={e => onMethodChange(e.target.value)}
-                    >
-                      {enabledMethods.map(m => (
-                        <option key={m} value={m}>{METHOD_LABELS[m]}</option>
-                      ))}
-                      {ccEnabled && <option value="credit_card">{METHOD_LABELS.credit_card}</option>}
-                    </select>
-                  </div>
-
-                  {form.method !== 'cash' && (
-                    <div>
-                      <label className="block text-sm font-medium text-gray-700 mb-1">
-                        Confirmation / Reference # <span className="text-gray-400 font-normal">(optional)</span>
-                      </label>
-                      <input
-                        className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
-                        placeholder="Transaction ID or last 4 digits"
-                        value={form.transactionRef}
-                        onChange={e => set('transactionRef', e.target.value)}
-                      />
-                    </div>
-                  )}
-
-                  <div>
-                    <label className="block text-sm font-medium text-gray-700 mb-1">
-                      Notes <span className="text-gray-400 font-normal">(optional)</span>
-                    </label>
-                    <textarea
-                      className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all resize-none"
-                      rows={2}
-                      placeholder="Any extra info..."
-                      value={form.notes}
-                      onChange={e => set('notes', e.target.value)}
-                    />
-                  </div>
-
-                  {/* Cloudflare Turnstile widget */}
-                  {siteKey && (
-                    <>
-                      <Script
-                        src="https://challenges.cloudflare.com/turnstile/v0/api.js"
-                        strategy="afterInteractive"
-                        onLoad={renderTurnstile}
-                      />
-                      <div ref={turnstileRef} className="flex justify-center" />
-                    </>
-                  )}
-
-                  <button
-                    type="submit"
-                    disabled={submitting || (!!siteKey && !turnstileToken)}
-                    className="w-full flex items-center justify-center gap-2 bg-amber-400 hover:bg-amber-500 disabled:opacity-60 text-white font-semibold py-3 min-h-[48px] rounded-xl transition-colors text-sm"
-                  >
-                    {submitting ? (
-                      <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-                    ) : (
-                      <Send className="w-4 h-4" />
-                    )}
-                    {submitting ? 'Submitting...' : 'Submit Request'}
-                  </button>
-
-                  <p className="text-xs text-gray-400 text-center">
-                    Funds are credited once an admin verifies your payment.
-                  </p>
-                </form>
-              </>
-            )}
-          </div>
+          {/* Form — rendered as a stable module-level component so inputs don't remount */}
+          <TopUpFormSection
+            settings={settings}
+            enabledMethods={enabledMethods}
+            ccEnabled={ccEnabled}
+          />
         </div>
 
         {/* Popular items */}
