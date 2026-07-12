@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, X, User, DollarSign } from 'lucide-react'
+import { Search, X, User, DollarSign, Clock } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { BochurWithId } from '@/types/database'
 import toast from 'react-hot-toast'
@@ -12,8 +12,18 @@ interface Props {
   onSuccess?: () => void
 }
 
-const METHODS = ['cash', 'zelle', 'venmo', 'other'] as const
+const METHODS = ['cash', 'zelle', 'venmo', 'paypal', 'cashapp', 'credit_card', 'manual'] as const
 type Method = typeof METHODS[number]
+
+const METHOD_LABELS: Record<Method, string> = {
+  cash: 'Cash',
+  zelle: 'Zelle',
+  venmo: 'Venmo',
+  paypal: 'PayPal',
+  cashapp: 'Cash App',
+  credit_card: 'Credit Card',
+  manual: 'Manual',
+}
 
 export default function TopUpModal({ onClose, onSuccess }: Props) {
   const supabase = createClient()
@@ -53,29 +63,25 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
 
     setSubmitting(true)
     try {
-      const { data: { user } } = await supabase.auth.getUser()
-
-      const { error: balErr } = await supabase
-        .from('bochurim')
-        .update({ balance: (selected.balance || 0) + amt })
-        .eq('id', selected.id)
-      if (balErr) throw balErr
-
-      const { error: ledgerErr } = await supabase.from('balance_ledger').insert({
-        bochur_id: selected.id,
-        amount: amt,
-        type: 'topup',
-        method,
-        cashier_id: user?.id ?? null,
-        note: note.trim() || null,
+      const res = await fetch('/api/pos/cashier-topup', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          bochur_id: selected.id,
+          student_name: selected.name,
+          amount: amt,
+          method,
+          note: note.trim() || null,
+        }),
       })
-      if (ledgerErr) throw ledgerErr
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Failed to submit')
 
-      toast.success(`Added ${formatCurrency(amt)} to ${selected.name}'s account`)
+      toast.success(`Top-up request submitted — pending admin approval`, { duration: 4000 })
       onSuccess?.()
       onClose()
     } catch (err: any) {
-      toast.error(err?.message || 'Failed to add funds')
+      toast.error(err?.message || 'Failed to submit top-up request')
     } finally {
       setSubmitting(false)
     }
@@ -173,13 +179,13 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
                 <button
                   key={m}
                   onClick={() => setMethod(m)}
-                  className={`py-2 rounded-xl text-sm font-medium capitalize transition-all ${
+                  className={`py-2 rounded-xl text-xs font-medium transition-all ${
                     method === m
                       ? 'bg-amber-500 text-white shadow-sm'
                       : 'bg-slate-100 text-slate-600 hover:bg-slate-200'
                   }`}
                 >
-                  {m}
+                  {METHOD_LABELS[m]}
                 </button>
               ))}
             </div>
@@ -197,12 +203,17 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
             />
           </div>
 
+          <div className="flex items-start gap-2 text-xs text-slate-500 bg-amber-50 border border-amber-100 rounded-xl px-3 py-2.5">
+            <Clock className="w-3.5 h-3.5 text-amber-500 shrink-0 mt-0.5" />
+            <span>Requires admin approval before balance is added. Check <strong>Top-ups</strong> in the admin panel.</span>
+          </div>
+
           <button
             onClick={submit}
             disabled={submitting || !selected || !amount}
             className="btn-primary w-full disabled:opacity-50 disabled:cursor-not-allowed"
           >
-            {submitting ? 'Adding...' : selected && amount ? `Add ${formatCurrency(parseFloat(amount) || 0)}` : 'Add Funds'}
+            {submitting ? 'Submitting...' : selected && amount ? `Request ${formatCurrency(parseFloat(amount) || 0)} Top-up` : 'Submit Top-up Request'}
           </button>
         </div>
       </div>

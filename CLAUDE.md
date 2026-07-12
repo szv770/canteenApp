@@ -170,6 +170,9 @@ lib/utils.ts         # formatCurrency, cn
 |---|---|
 | Stripe / card reader integration | User still deciding between Stripe Terminal vs manual phone reader |
 | Enable Supabase Auth leaked-password protection | Flagged 2026-07-10 by `get_advisors`. Not fixable via migration/SQL — it's a Supabase Auth project setting (checks new passwords against HaveIBeenPwned), only togglable from the Supabase dashboard under Authentication → Policies, or the Management API. Low urgency since cashiers/admins are provisioned by the admin, not self-signup, but worth flipping on. |
+| Discount display mode toggle | Admin setting to choose between "show normal price + discount line" vs "show reduced price per item" in checkout |
+| "Lost revenue from discounts" report view | Show total revenue given away in discounts per period |
+| Balance ledger "Other/Internal" type | Add "Other/Internal" type to Add Funds flow so owner compensation doesn't inflate cash counts; edit existing ledger entries from bochur profile |
 
 ---
 
@@ -322,6 +325,8 @@ lib/utils.ts         # formatCurrency, cn
 | 2026-07-10 | Security: hardened `update_updated_at()` function against search_path hijacking (`SET search_path = public`) |
 | 2026-07-10 | Feat: Discount Codes admin page (/discount-codes) — the checkout engine already fully supported coupon codes but there was no admin UI to create them; new CRUD page follows the account-types page pattern, sidebar link added |
 | 2026-07-10 | Feat: CC "Coming Soon" refinement — new `payment_cc_coming_soon_enabled` admin toggle; placeholder now only shows when CC is disabled AND `payment_cc_link` is empty AND the toggle is on, so an admin mid-configuration (link set, not yet enabled) or not wanting the announcement doesn't show anything instead of an automatic "coming soon"; added the new setting key to the anon RLS allowlist |
+| 2026-07-13 | Feat: cashier POS top-ups now require admin confirmation — TopUpModal submits to `/api/pos/cashier-topup` which creates a pending `balance_topups` record; admin confirms/rejects from Admin → Top-ups page; Cashier/Parent badge on each row |
+| 2026-07-13 | Redesign: Reports page fully rebuilt with 4 tabs (Overview, Products, Profit & COGS, Students), sticky global date filter, category filter pills on Products tab, smart charts (line/bar/donut), cashier stats, FBT, COGS breakdown, wastage log, expense log, top spenders, unspent credits, visit frequency, new vs returning |
 | 2026-07-12 | Fix: creating new account types now works — `account_types.type` (NOT NULL, no default) was never included in the insert payload; now set to `baseSlug` derived from the type name |
 | 2026-07-12 | UX: products admin Cost Price field now shows helper text "Used for 'At cost' account type discounts" |
 | 2026-07-12 | Fix: transactions page walk-in orders now visible — replaced unreliable PostgREST LEFT JOIN with two-query pattern (fetch orders, then fetch bochur names separately, merge client-side) so null bochur_id orders always appear |
