@@ -124,37 +124,64 @@ function AnnouncementBanner({ announcement }: { announcement: HomeAnnouncement }
   )
 }
 
-function CreditCardWarningModal({ onCancel, onConfirm }: { onCancel: () => void; onConfirm: () => void }) {
+function formatMoney(n: number) {
+  return `$${n.toFixed(2)}`
+}
+
+function CreditCardPaymentModal({
+  amount,
+  feePercent,
+  onOpenStripe,
+  onSkip,
+}: {
+  amount: number
+  feePercent: number
+  onOpenStripe: () => void
+  onSkip: () => void
+}) {
+  const grossUp = amount / (1 - feePercent / 100)
+  const feeAmount = grossUp - amount
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 px-4 py-6">
       <div className="bg-white rounded-2xl max-w-sm w-full p-5 sm:p-6 shadow-xl max-h-full overflow-y-auto">
         <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <AlertTriangle className="w-6 h-6 text-amber-600" />
         </div>
-        <h3 className="text-lg font-bold text-gray-900 text-center mb-2">Before you continue</h3>
+        <h3 className="text-lg font-bold text-gray-900 text-center mb-2">Your request is saved — now send the payment</h3>
         <p className="text-sm text-gray-600 text-center leading-relaxed">
-          Credit card top-ups <strong>cannot be refunded</strong> — processing fees apply even if money is
-          returned. We recommend starting with a smaller amount and topping up again later as needed.
+          Credit card payments have a <strong>{feePercent}% processing fee</strong>, and{' '}
+          <strong>cannot be refunded</strong> — the fee still applies even if money is returned.
         </p>
-        <p className="text-sm text-gray-600 text-center leading-relaxed mt-2">
-          Zelle, Venmo, and Cash App have no processing fees and can be refunded.
-        </p>
+        <div className="bg-amber-50 border border-amber-200 rounded-xl p-3 mt-3 space-y-1">
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600">You requested</span>
+            <span className="font-semibold text-gray-900">{formatMoney(amount)}</span>
+          </div>
+          <div className="flex justify-between text-sm">
+            <span className="text-gray-600">Processing fee ({feePercent}%)</span>
+            <span className="font-semibold text-gray-900">{formatMoney(feeAmount)}</span>
+          </div>
+          <div className="flex justify-between text-sm pt-1 border-t border-amber-200">
+            <span className="text-gray-700 font-medium">Please send this amount</span>
+            <span className="font-bold text-amber-700">{formatMoney(grossUp)}</span>
+          </div>
+        </div>
         <p className="text-xs text-gray-400 text-center leading-relaxed mt-3 bg-gray-50 rounded-xl px-3 py-2">
-          The payment page will open in a <strong>new browser tab</strong>. After paying, come back to
-          this tab to submit the request form below so we know to credit the account.
+          Stripe can't be pre-filled with the amount — you'll need to type <strong>{formatMoney(grossUp)}</strong>{' '}
+          yourself on the payment page, which opens in a <strong>new browser tab</strong>.
         </p>
         <div className="flex flex-col gap-2 mt-5">
           <button
-            onClick={onConfirm}
+            onClick={onOpenStripe}
             className="w-full bg-amber-500 hover:bg-amber-600 text-white font-semibold py-2.5 rounded-xl transition-colors text-sm"
           >
-            I Understand, Continue
+            Continue to Payment Page
           </button>
           <button
-            onClick={onCancel}
+            onClick={onSkip}
             className="w-full text-gray-500 hover:text-gray-700 font-medium py-2 text-sm"
           >
-            Use a different payment method
+            I'll pay later
           </button>
         </div>
       </div>
@@ -171,12 +198,13 @@ interface TopUpFormSectionProps {
   settings: Record<string, string>
   enabledMethods: string[]
   ccEnabled: boolean
+  ccFeePercent: number
 }
 
-function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSectionProps) {
+function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent }: TopUpFormSectionProps) {
   const formSectionRef = useRef<HTMLDivElement>(null)
-  const previousMethodRef = useRef(enabledMethods[0] || 'zelle')
   const [ccModalOpen, setCcModalOpen] = useState(false)
+  const [submittedAmount, setSubmittedAmount] = useState(0)
 
   const [step, setStep] = useState<'form' | 'success'>('form')
   const [form, setForm] = useState({
@@ -220,39 +248,30 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
     toast.error(msg)
   }
 
-  function onMethodChange(v: string) {
-    if (v === 'credit_card') {
-      previousMethodRef.current = form.method
-      set('method', 'credit_card')
-      setCcModalOpen(true)
-    } else {
-      set('method', v)
-    }
-  }
-
-  function cancelCreditCard() {
-    set('method', previousMethodRef.current)
-    setCcModalOpen(false)
-  }
-
-  function confirmCreditCard() {
+  function openStripeLink() {
     const rawBase = (settings['payment_cc_link'] || '').trim()
     if (rawBase) {
       let url = /^https?:\/\//i.test(rawBase) ? rawBase : `https://${rawBase}`
-      if (settings['payment_cc_prefill_enabled'] === 'true') {
-        const amountParam = settings['payment_cc_amount_param'] || 'prefilled_amount'
-        const nameParam = settings['payment_cc_name_param'] || 'client_reference_id'
-        const params = new URLSearchParams()
-        if (form.amount) params.set(amountParam, form.amount)
-        const fullStudentName = [form.studentFirstName, form.studentLastName].filter(Boolean).join(' ')
-        if (fullStudentName) params.set(nameParam, fullStudentName)
-        const qs = params.toString()
-        if (qs) url += (url.includes('?') ? '&' : '?') + qs
+      // client_reference_id is the one query param Stripe Payment Links actually
+      // support for passing data through — there is no way to prefill the amount.
+      const fullStudentName = [form.studentFirstName, form.studentLastName].filter(Boolean).join(' ')
+      if (fullStudentName) {
+        const qs = new URLSearchParams({ client_reference_id: fullStudentName }).toString()
+        url += (url.includes('?') ? '&' : '?') + qs
       }
       window.open(url, '_blank', 'noopener,noreferrer')
     }
+  }
+
+  function skipStripeForNow() {
     setCcModalOpen(false)
-    formSectionRef.current?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+    setStep('success')
+  }
+
+  function continueToStripe() {
+    openStripeLink()
+    setCcModalOpen(false)
+    setStep('success')
   }
 
   async function submit(e: React.FormEvent) {
@@ -304,7 +323,12 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
         err(json.error || 'Failed to submit — please try again or contact us directly.')
         return
       }
-      setStep('success')
+      setSubmittedAmount(amt)
+      if (method === 'credit_card') {
+        setCcModalOpen(true)
+      } else {
+        setStep('success')
+      }
       // Reset Turnstile for next submission
       if (siteKey && turnstileWidgetId.current !== null && (window as any).turnstile) {
         (window as any).turnstile.reset(turnstileWidgetId.current)
@@ -325,7 +349,14 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
 
   return (
     <div ref={formSectionRef} className="bg-white rounded-2xl border border-gray-100 shadow-sm p-4 sm:p-6 scroll-mt-20">
-      {ccModalOpen && <CreditCardWarningModal onCancel={cancelCreditCard} onConfirm={confirmCreditCard} />}
+      {ccModalOpen && (
+        <CreditCardPaymentModal
+          amount={submittedAmount}
+          feePercent={ccFeePercent}
+          onOpenStripe={continueToStripe}
+          onSkip={skipStripeForNow}
+        />
+      )}
       {step === 'success' ? (
         <div className="text-center py-8">
           <div className="w-16 h-16 bg-emerald-100 rounded-full flex items-center justify-center mx-auto mb-4">
@@ -336,12 +367,22 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
             We received your top-up request for <strong>{form.studentFirstName} {form.studentLastName}</strong>.
             Funds will be added to their account shortly.
           </p>
-          <button
-            onClick={() => { setStep('form'); setForm(f => ({ ...f, parentName: '', studentFirstName: '', studentLastName: '', amount: '', transactionRef: '', notes: '' })) }}
-            className="mt-6 text-sm text-amber-600 font-medium hover:underline"
-          >
-            Submit another request
-          </button>
+          {form.method === 'credit_card' && (
+            <button
+              onClick={openStripeLink}
+              className="mt-4 inline-flex items-center gap-1.5 bg-amber-500 hover:bg-amber-600 text-white text-sm font-semibold px-4 py-2.5 rounded-xl transition-colors"
+            >
+              Open Payment Page
+            </button>
+          )}
+          <div>
+            <button
+              onClick={() => { setStep('form'); setForm(f => ({ ...f, parentName: '', studentFirstName: '', studentLastName: '', amount: '', transactionRef: '', notes: '' })) }}
+              className="mt-4 text-sm text-amber-600 font-medium hover:underline"
+            >
+              Submit another request
+            </button>
+          </div>
         </div>
       ) : (
         <>
@@ -361,15 +402,6 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
           <form onSubmit={submit} noValidate className="space-y-4">
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-gray-700 mb-1">Your Name *</label>
-                <input
-                  className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
-                  placeholder="Parent's name"
-                  value={form.parentName}
-                  onChange={e => set('parentName', e.target.value)}
-                />
-              </div>
-              <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Son's First Name *</label>
                 <input
                   className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
@@ -378,9 +410,6 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
                   onChange={e => set('studentFirstName', e.target.value)}
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Son's Last Name *</label>
                 <input
@@ -390,6 +419,19 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
                   onChange={e => set('studentLastName', e.target.value)}
                 />
               </div>
+            </div>
+
+            <div>
+              <label className="block text-sm font-medium text-gray-700 mb-1">Your Name *</label>
+              <input
+                className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all min-h-[44px]"
+                placeholder="Parent's name"
+                value={form.parentName}
+                onChange={e => set('parentName', e.target.value)}
+              />
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Your Phone *</label>
                 <input
@@ -400,9 +442,6 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
                   onChange={e => set('parentPhone', e.target.value)}
                 />
               </div>
-            </div>
-
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="block text-sm font-medium text-gray-700 mb-1">Your Email *</label>
                 <input
@@ -439,13 +478,18 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled }: TopUpFormSect
               <select
                 className="w-full px-3 py-2.5 border border-gray-200 rounded-xl text-base focus:outline-none focus:ring-2 focus:ring-amber-300 focus:border-amber-400 transition-all bg-white min-h-[44px]"
                 value={form.method}
-                onChange={e => onMethodChange(e.target.value)}
+                onChange={e => set('method', e.target.value)}
               >
                 {enabledMethods.map(m => (
                   <option key={m} value={m}>{METHOD_LABELS[m]}</option>
                 ))}
                 {ccEnabled && <option value="credit_card">{METHOD_LABELS.credit_card}</option>}
               </select>
+              {form.method === 'credit_card' && (
+                <p className="text-xs text-amber-600 mt-1.5">
+                  {ccFeePercent}% processing fee applies — you'll see the exact amount to send after submitting.
+                </p>
+              )}
             </div>
 
             {form.method !== 'cash' && (
@@ -514,6 +558,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   const canteenName = settings['canteen_name'] || 'Yeshiva Canteen'
   const tagline = settings['canteen_tagline'] || 'Easy online top-ups for your son\'s canteen account'
   const ccEnabled = settings['payment_cc_enabled'] === 'true'
+  const ccFeePercent = parseFloat(settings['cc_fee_percent'] || '3')
   const ccNotConfigured = !(settings['payment_cc_link'] || '').trim()
   const ccComingSoon = !ccEnabled && ccNotConfigured && settings['payment_cc_coming_soon_enabled'] === 'true'
   const nineDaysBlurb = settings['nine_days_blurb'] || ''
@@ -668,8 +713,11 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                           <CreditCard className="w-5 h-5" />
                         </div>
                         <p className="flex-1 min-w-0 font-semibold text-gray-900 text-sm truncate">Credit Card</p>
+                        <span className="text-xs font-semibold text-amber-700 bg-amber-50 border border-amber-200 rounded-full px-2 py-1 shrink-0">
+                          {ccFeePercent}% fee
+                        </span>
                       </div>
-                      <p className="text-xs text-gray-400 mt-2.5 pl-[52px]">No refunds — processing fees apply</p>
+                      <p className="text-xs text-gray-400 mt-2.5 pl-[52px]">No refunds — select as your payment method below</p>
                     </div>
                   )}
 
@@ -703,6 +751,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
             settings={settings}
             enabledMethods={enabledMethods}
             ccEnabled={ccEnabled}
+            ccFeePercent={ccFeePercent}
           />
         </div>
 
