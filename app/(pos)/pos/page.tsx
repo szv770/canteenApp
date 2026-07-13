@@ -72,8 +72,30 @@ export default function PosPage() {
       })
       .subscribe()
 
-    // Admin → cashier notifications via Realtime
+    // Admin → cashier notifications
     const seen = new Set<string>()
+
+    function showNotif(n: { id: string; message: string; type: string; is_active: boolean; expires_at: string | null }) {
+      if (!n.is_active || seen.has(n.id)) return
+      if (n.expires_at && new Date(n.expires_at) < new Date()) return
+      seen.add(n.id)
+      const style = n.type === 'urgent'
+        ? { background: '#fef2f2', color: '#991b1b', border: '2px solid #fca5a5', fontWeight: '600', fontSize: '15px' }
+        : n.type === 'warning'
+        ? { background: '#fffbeb', color: '#92400e', border: '2px solid #fcd34d', fontWeight: '600' }
+        : { background: '#eff6ff', color: '#1e3a5f', border: '1px solid #bfdbfe' }
+      // Urgent: stays until cashier taps to dismiss. Warning: 20s. Info: 12s.
+      const duration = n.type === 'urgent' ? Infinity : n.type === 'warning' ? 20000 : 12000
+      toast(n.message, { duration, style })
+    }
+
+    // Show any active notifications that exist when the POS loads (cashier may have missed the INSERT event)
+    supabase
+      .from('cashier_notifications')
+      .select('id, message, type, is_active, expires_at')
+      .eq('is_active', true)
+      .then(({ data }) => { (data || []).forEach(showNotif) })
+
     const notifChannel = supabase
       .channel('pos_notifications')
       .on('postgres_changes', {
@@ -81,16 +103,7 @@ export default function PosPage() {
         schema: 'public',
         table: 'cashier_notifications',
       }, (payload) => {
-        const n = payload.new as { id: string; message: string; type: string; is_active: boolean; expires_at: string | null }
-        if (!n.is_active || seen.has(n.id)) return
-        if (n.expires_at && new Date(n.expires_at) < new Date()) return
-        seen.add(n.id)
-        const style = n.type === 'urgent'
-          ? { background: '#fef2f2', color: '#991b1b', border: '1px solid #fca5a5' }
-          : n.type === 'warning'
-          ? { background: '#fffbeb', color: '#92400e', border: '1px solid #fcd34d' }
-          : { background: '#eff6ff', color: '#1e3a5f', border: '1px solid #bfdbfe' }
-        toast(n.message, { duration: 8000, style })
+        showNotif(payload.new as { id: string; message: string; type: string; is_active: boolean; expires_at: string | null })
       })
       .subscribe()
 
