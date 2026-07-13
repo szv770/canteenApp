@@ -92,8 +92,9 @@ export async function POST(req: NextRequest) {
   if (!studentName) {
     return NextResponse.json({ error: 'Student name is required' }, { status: 400 })
   }
-  if (!parentPhone || parentPhone.replace(/\D/g, '').length < 7) {
-    return NextResponse.json({ error: 'Valid phone number is required' }, { status: 400 })
+  // Phone is optional — but if provided, it must look like a real number.
+  if (parentPhone && parentPhone.replace(/\D/g, '').length < 7) {
+    return NextResponse.json({ error: 'Phone number looks invalid — leave it blank or enter a valid number' }, { status: 400 })
   }
   const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
   if (!parentEmail || !emailRegex.test(parentEmail)) {

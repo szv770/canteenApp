@@ -84,45 +84,25 @@
 }
 
 /* ── Parent landing page (public home only — lp- prefix, do not reuse elsewhere) ── */
+/* Design intent: clean & minimal. Motion is deliberately restrained — a single
+   subtle fade/rise on entrance, nothing decorative. No animated background blobs,
+   no staggered choreography. The page should get out of the way. */
 
-/* Softly drifting gradient blobs behind the hero */
-@keyframes lp-blob-a {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  33%      { transform: translate(40px, -50px) scale(1.12); }
-  66%      { transform: translate(-30px, 25px) scale(0.94); }
-}
-@keyframes lp-blob-b {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  40%      { transform: translate(-45px, 35px) scale(1.08); }
-  70%      { transform: translate(25px, -30px) scale(0.92); }
-}
-@keyframes lp-blob-c {
-  0%, 100% { transform: translate(0, 0) scale(1); }
-  50%      { transform: translate(30px, 40px) scale(1.15); }
-}
-.lp-blob {
-  position: absolute;
-  border-radius: 9999px;
-  filter: blur(70px);
-  pointer-events: none;
-  will-change: transform;
-}
-
-/* Entrance animation for hero elements (staggered via inline animation-delay) */
+/* Entrance fade for hero elements — subtle, single pass */
 @keyframes lp-rise {
-  from { opacity: 0; transform: translateY(20px); }
+  from { opacity: 0; transform: translateY(8px); }
   to   { opacity: 1; transform: translateY(0); }
 }
 .lp-hero-in {
   opacity: 0;
-  animation: lp-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+  animation: lp-rise 0.5s ease-out forwards;
 }
 
 /* Scroll-triggered reveal (IntersectionObserver adds .lp-visible) */
 .lp-reveal {
   opacity: 0;
-  transform: translateY(16px);
-  transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+  transform: translateY(10px);
+  transition: opacity 0.45s ease, transform 0.45s ease;
 }
 .lp-reveal.lp-visible {
   opacity: 1;
@@ -160,11 +140,8 @@
 }
 
 @media (prefers-reduced-motion: reduce) {
-  .lp-blob,
   .lp-confetti {
     animation: none !important;
-  }
-  .lp-confetti {
     opacity: 0;
   }
   .lp-hero-in {
