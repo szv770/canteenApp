@@ -1070,11 +1070,8 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
 
       <footer className="relative z-10 border-t border-stone-200/70 mt-14 sm:mt-20 pt-8 pb-10">
         <div className="flex flex-col items-center gap-2.5 text-center px-4">
-          <div className="flex items-center gap-2">
-            <div className="w-7 h-7 bg-teal-700 rounded-lg flex items-center justify-center shrink-0 shadow-sm shadow-teal-700/20">
-              <ShoppingBag className="w-3.5 h-3.5 text-white" />
-            </div>
-            <span className="font-semibold text-stone-600 text-sm">{canteenName}</span>
+          <div className="w-7 h-7 bg-teal-700 rounded-lg flex items-center justify-center shrink-0 shadow-sm shadow-teal-700/20">
+            <ShoppingBag className="w-3.5 h-3.5 text-white" />
           </div>
           <p className="text-xs text-stone-400">
             &copy; {new Date().getFullYear()} · Powered by Canteen POS
