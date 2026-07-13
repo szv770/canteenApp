@@ -82,3 +82,103 @@
 .scrollbar-hide::-webkit-scrollbar {
   display: none;
 }
+
+/* ── Parent landing page (public home only — lp- prefix, do not reuse elsewhere) ── */
+
+/* Softly drifting gradient blobs behind the hero */
+@keyframes lp-blob-a {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  33%      { transform: translate(40px, -50px) scale(1.12); }
+  66%      { transform: translate(-30px, 25px) scale(0.94); }
+}
+@keyframes lp-blob-b {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  40%      { transform: translate(-45px, 35px) scale(1.08); }
+  70%      { transform: translate(25px, -30px) scale(0.92); }
+}
+@keyframes lp-blob-c {
+  0%, 100% { transform: translate(0, 0) scale(1); }
+  50%      { transform: translate(30px, 40px) scale(1.15); }
+}
+.lp-blob {
+  position: absolute;
+  border-radius: 9999px;
+  filter: blur(70px);
+  pointer-events: none;
+  will-change: transform;
+}
+
+/* Entrance animation for hero elements (staggered via inline animation-delay) */
+@keyframes lp-rise {
+  from { opacity: 0; transform: translateY(20px); }
+  to   { opacity: 1; transform: translateY(0); }
+}
+.lp-hero-in {
+  opacity: 0;
+  animation: lp-rise 0.7s cubic-bezier(0.22, 1, 0.36, 1) forwards;
+}
+
+/* Scroll-triggered reveal (IntersectionObserver adds .lp-visible) */
+.lp-reveal {
+  opacity: 0;
+  transform: translateY(16px);
+  transition: opacity 0.6s ease, transform 0.6s cubic-bezier(0.22, 1, 0.36, 1);
+}
+.lp-reveal.lp-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* Animated success checkmark (SVG stroke draw) */
+@keyframes lp-stroke-draw {
+  to { stroke-dashoffset: 0; }
+}
+.lp-check-circle {
+  stroke-dasharray: 166;
+  stroke-dashoffset: 166;
+  animation: lp-stroke-draw 0.6s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+.lp-check-mark {
+  stroke-dasharray: 48;
+  stroke-dashoffset: 48;
+  animation: lp-stroke-draw 0.35s 0.55s cubic-bezier(0.65, 0, 0.45, 1) forwards;
+}
+
+/* Lightweight CSS confetti on the success screen */
+@keyframes lp-confetti-fall {
+  0%   { opacity: 1; transform: translateY(-10px) rotate(0deg); }
+  100% { opacity: 0; transform: translateY(150px) rotate(340deg); }
+}
+.lp-confetti {
+  position: absolute;
+  top: 0;
+  width: 7px;
+  height: 11px;
+  border-radius: 2px;
+  opacity: 0;
+  animation: lp-confetti-fall 1.7s ease-in forwards;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .lp-blob,
+  .lp-confetti {
+    animation: none !important;
+  }
+  .lp-confetti {
+    opacity: 0;
+  }
+  .lp-hero-in {
+    animation: none;
+    opacity: 1;
+  }
+  .lp-reveal {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .lp-check-circle,
+  .lp-check-mark {
+    animation: none;
+    stroke-dashoffset: 0;
+  }
+}
