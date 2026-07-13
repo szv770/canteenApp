@@ -157,13 +157,15 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Send approval email — fire and forget; stamp approved_email_sent_at on success
+  // Send approval email — awaited; fire-and-forget on Vercel freezes the
+  // function mid-send and delays delivery until the instance thaws
   if (process.env.RESEND_API_KEY && topup.parent_email) {
-    admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
+    try {
+      const { data: settingsRows } = await admin.from('settings').select('key, value')
       const rawSettings: Record<string, string> = {}
       settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
       const emailSettings = buildEmailSettings(rawSettings)
-      sendTopupApproved({
+      const sent = await sendTopupApproved({
         parentEmail: topup.parent_email!,
         parentName: topup.sender_name || 'Parent',
         studentName: topup.student_name || 'your son',
@@ -171,11 +173,10 @@ export async function POST(req: NextRequest) {
         newBalance,
         emailSettings,
       })
-        .then(sent => {
-          if (sent) admin.from('balance_topups').update({ approved_email_sent_at: new Date().toISOString() }).eq('id', topupId).then()
-        })
-        .catch(e => console.error('[topup-confirm] Email error:', e))
-    })
+      if (sent) await admin.from('balance_topups').update({ approved_email_sent_at: new Date().toISOString() }).eq('id', topupId)
+    } catch (e) {
+      console.error('[topup-confirm] Email error:', e)
+    }
   }
 
   return NextResponse.json({ ok: true, skipped_credit: skipCredit })
@@ -215,13 +216,15 @@ export async function PATCH(req: NextRequest) {
 
   await admin.from('balance_topups').update({ status: 'rejected' }).eq('id', topupId)
 
-  // Send rejection email — fire and forget; stamp rejected_email_sent_at on success
+  // Send rejection email — awaited; fire-and-forget on Vercel freezes the
+  // function mid-send and delays delivery until the instance thaws
   if (process.env.RESEND_API_KEY && topup.parent_email) {
-    admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
+    try {
+      const { data: settingsRows } = await admin.from('settings').select('key, value')
       const rawSettings: Record<string, string> = {}
       settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
       const emailSettings = buildEmailSettings(rawSettings)
-      sendTopupRejected({
+      const sent = await sendTopupRejected({
         parentEmail: topup.parent_email!,
         parentName: topup.sender_name || 'Parent',
         studentName: topup.student_name || 'your son',
@@ -229,11 +232,10 @@ export async function PATCH(req: NextRequest) {
         reason: reason || undefined,
         emailSettings,
       })
-        .then(sent => {
-          if (sent) admin.from('balance_topups').update({ rejected_email_sent_at: new Date().toISOString() }).eq('id', topupId).then()
-        })
-        .catch(e => console.error('[topup-reject] Email error:', e))
-    })
+      if (sent) await admin.from('balance_topups').update({ rejected_email_sent_at: new Date().toISOString() }).eq('id', topupId)
+    } catch (e) {
+      console.error('[topup-reject] Email error:', e)
+    }
   }
 
   return NextResponse.json({ ok: true })

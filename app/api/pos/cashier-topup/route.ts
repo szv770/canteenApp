@@ -69,13 +69,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to submit top-up request' }, { status: 500 })
   }
 
-  // Send "received" confirmation email if parent email provided; stamp timestamp on success
+  // Send "received" confirmation email if parent email provided; stamp timestamp on success.
+  // Awaited — fire-and-forget on Vercel freezes the function mid-send and delays delivery.
   if (process.env.RESEND_API_KEY && parentEmail) {
-    admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
+    try {
+      const { data: settingsRows } = await admin.from('settings').select('key, value')
       const rawSettings: Record<string, string> = {}
       settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
       const emailSettings = buildEmailSettings(rawSettings)
-      sendTopupReceived({
+      const sent = await sendTopupReceived({
         parentEmail,
         parentName: studentName || bochur.name,
         studentName: studentName || bochur.name,
@@ -83,11 +85,10 @@ export async function POST(req: NextRequest) {
         method: method!,
         emailSettings,
       })
-        .then(sent => {
-          if (sent) admin.from('balance_topups').update({ received_email_sent_at: new Date().toISOString() }).eq('id', inserted.id).then()
-        })
-        .catch(e => console.error('[cashier-topup] Email error:', e))
-    })
+      if (sent) await admin.from('balance_topups').update({ received_email_sent_at: new Date().toISOString() }).eq('id', inserted.id)
+    } catch (e) {
+      console.error('[cashier-topup] Email error:', e)
+    }
   }
 
   return NextResponse.json({ ok: true }, { status: 201 })

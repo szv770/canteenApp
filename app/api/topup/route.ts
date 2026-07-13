@@ -139,18 +139,19 @@ export async function POST(req: NextRequest) {
     )
   }
 
-  // Send confirmation email — fire and forget; stamp received_email_sent_at on success
+  // Send confirmation email — awaited so the serverless function isn't frozen
+  // mid-send (fire-and-forget on Vercel delays delivery until the instance thaws)
   if (process.env.RESEND_API_KEY) {
-    admin.from('settings').select('key, value').then(({ data: settingsRows }) => {
+    try {
+      const { data: settingsRows } = await admin.from('settings').select('key, value')
       const rawSettings: Record<string, string> = {}
       settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
       const emailSettings = buildEmailSettings(rawSettings)
-      sendTopupReceived({ parentEmail, parentName, studentName, amount: sanitizedAmount, method, emailSettings })
-        .then(sent => {
-          if (sent) admin.from('balance_topups').update({ received_email_sent_at: new Date().toISOString() }).eq('id', inserted.id).then()
-        })
-        .catch(e => console.error('[topup] Email error:', e))
-    })
+      const sent = await sendTopupReceived({ parentEmail, parentName, studentName, amount: sanitizedAmount, method, emailSettings })
+      if (sent) await admin.from('balance_topups').update({ received_email_sent_at: new Date().toISOString() }).eq('id', inserted.id)
+    } catch (e) {
+      console.error('[topup] Email error:', e)
+    }
   }
 
   return NextResponse.json({ ok: true }, { status: 201 })
