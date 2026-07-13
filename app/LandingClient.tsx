@@ -553,9 +553,14 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
               </div>
             </div>
             {form.method === 'credit_card' && (
-              <p className="text-xs text-amber-700 -mt-2">
-                {ccFeePercent}% processing fee applies — you'll see the exact amount to send after submitting.
-              </p>
+              <div className="-mt-2 flex items-start gap-2 bg-teal-50/80 border border-teal-200/80 text-teal-900 rounded-xl px-3 py-2.5">
+                <CreditCard className="w-4 h-4 shrink-0 mt-0.5" />
+                <p className="text-xs leading-relaxed">
+                  When you tap <strong>Submit &amp; Continue to Payment</strong> below, a secure card
+                  payment page opens in a new tab. A <strong>{ccFeePercent}% fee</strong> applies —
+                  we&apos;ll show the exact amount to enter there.
+                </p>
+              </div>
             )}
 
             {form.method !== 'cash' && (
@@ -604,10 +609,16 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
             >
               {submitting ? (
                 <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+              ) : form.method === 'credit_card' ? (
+                <CreditCard className="w-4 h-4" />
               ) : (
                 <Send className="w-4 h-4" />
               )}
-              {submitting ? 'Submitting...' : 'Submit Request'}
+              {submitting
+                ? 'Submitting...'
+                : form.method === 'credit_card'
+                ? 'Submit & Continue to Payment'
+                : 'Submit Request'}
             </button>
 
             <p className="text-xs text-stone-400 text-center">
@@ -763,9 +774,9 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
             </button>
             <button
               onClick={() => scrollToId('topup-form')}
-              className="text-sm text-teal-700 font-semibold hover:underline min-h-[44px] px-3"
+              className="text-sm text-stone-500 font-medium hover:text-teal-700 min-h-[44px] px-3"
             >
-              Already sent the money? Submit the form <ArrowRight className="w-3.5 h-3.5 inline -mt-0.5" />
+              Already paid? Skip ahead to the form <ArrowRight className="w-3.5 h-3.5 inline -mt-0.5" />
             </button>
           </div>
 
