@@ -13,6 +13,7 @@ export interface EmailSettings {
   senderName: string
   senderAddress: string
   replyTo: string
+  contactPhone: string
   footerNote: string
   receivedEnabled: boolean
   receivedSubject: string
@@ -29,6 +30,7 @@ export const DEFAULT_EMAIL_SETTINGS: EmailSettings = {
   senderName: 'Canteen',
   senderAddress: 'canteen@miamimesivta.com',
   replyTo: 'canteen@miamimesivta.com',
+  contactPhone: '',
   footerNote: 'Questions? Reply to this email.',
   receivedEnabled: true,
   receivedSubject: 'Top-up request received — {amount} for {student}',
@@ -46,6 +48,7 @@ export function buildEmailSettings(raw: Record<string, string>): EmailSettings {
     senderName: raw['email_sender_name'] || DEFAULT_EMAIL_SETTINGS.senderName,
     senderAddress: raw['email_sender_address'] || DEFAULT_EMAIL_SETTINGS.senderAddress,
     replyTo: raw['email_reply_to'] || DEFAULT_EMAIL_SETTINGS.replyTo,
+    contactPhone: raw['email_contact_phone'] || '',
     footerNote: raw['email_footer_note'] ?? DEFAULT_EMAIL_SETTINGS.footerNote,
     receivedEnabled: raw['email_topup_received_enabled'] !== 'false',
     receivedSubject: raw['email_topup_received_subject'] || DEFAULT_EMAIL_SETTINGS.receivedSubject,
@@ -63,9 +66,12 @@ function resolveSubject(template: string, amount: string, student: string): stri
   return template.replace('{amount}', amount).replace('{student}', student)
 }
 
-function footerHtml(note: string): string {
-  if (!note) return ''
-  return `<p style="color:#94a3b8;font-size:12px;margin-top:32px">${note}</p>`
+function footerHtml(note: string, contactPhone?: string): string {
+  const parts: string[] = []
+  if (contactPhone) parts.push(`For any issues, please reach out to us at <strong>${contactPhone}</strong>.`)
+  if (note) parts.push(note)
+  if (!parts.length) return ''
+  return `<p style="color:#94a3b8;font-size:12px;margin-top:32px">${parts.join('<br>')}</p>`
 }
 
 function extraNoteHtml(note: string): string {
@@ -102,28 +108,33 @@ export async function sendTopupReceived({
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.receivedSubject, fmt(amount), studentName)
 
-  await getResend().emails.send({
-    from,
-    replyTo: es.replyTo,
-    to: parentEmail,
-    subject,
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
-        <h2 style="color:#1e293b;margin-bottom:8px">We got your request ✅</h2>
-        <p style="color:#475569;margin-top:0">Hi ${parentName},</p>
-        <p style="color:#475569">We received your top-up request and will process it shortly.</p>
-        <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin:20px 0">
-          <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Student:</strong> ${studentName}</p>
-          <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Amount:</strong> ${fmt(amount)}</p>
-          <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Method:</strong> ${methodLabel[method] ?? method}</p>
+  try {
+    await getResend().emails.send({
+      from,
+      replyTo: es.replyTo,
+      to: parentEmail,
+      subject,
+      html: `
+        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+          <h2 style="color:#1e293b;margin-bottom:8px">We got your request ✅</h2>
+          <p style="color:#475569;margin-top:0">Hi ${parentName},</p>
+          <p style="color:#475569">We received your top-up request and will process it shortly.</p>
+          <div style="background:#f8fafc;border:1px solid #e2e8f0;border-radius:12px;padding:16px;margin:20px 0">
+            <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Student:</strong> ${studentName}</p>
+            <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Amount:</strong> ${fmt(amount)}</p>
+            <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Method:</strong> ${methodLabel[method] ?? method}</p>
+          </div>
+          <p style="color:#475569;font-size:14px">You'll receive another email once the balance has been added to ${studentName}'s account.</p>
+          ${extraNoteHtml(es.receivedNote)}
+          ${footerHtml(es.footerNote, es.contactPhone)}
         </div>
-        <p style="color:#475569;font-size:14px">You'll receive another email once the balance has been added to ${studentName}'s account.</p>
-        ${extraNoteHtml(es.receivedNote)}
-        ${footerHtml(es.footerNote)}
-      </div>
-    `,
-  })
-  return true
+      `,
+    })
+    return true
+  } catch (err) {
+    console.error('[email] sendTopupReceived failed:', err)
+    return false
+  }
 }
 
 export async function sendTopupApproved({
@@ -150,27 +161,32 @@ export async function sendTopupApproved({
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.approvedSubject, fmt(amount), studentName)
 
-  await getResend().emails.send({
-    from,
-    replyTo: es.replyTo,
-    to: parentEmail,
-    subject,
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
-        <h2 style="color:#15803d;margin-bottom:8px">Top-up approved 🎉</h2>
-        <p style="color:#475569;margin-top:0">Hi ${parentName},</p>
-        <p style="color:#475569">${fmt(amount)} has been added to ${studentName}'s canteen account.</p>
-        <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;margin:20px 0">
-          <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Student:</strong> ${studentName}</p>
-          <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Amount added:</strong> ${fmt(amount)}</p>
-          ${balanceLine}
+  try {
+    await getResend().emails.send({
+      from,
+      replyTo: es.replyTo,
+      to: parentEmail,
+      subject,
+      html: `
+        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+          <h2 style="color:#15803d;margin-bottom:8px">Top-up approved 🎉</h2>
+          <p style="color:#475569;margin-top:0">Hi ${parentName},</p>
+          <p style="color:#475569">${fmt(amount)} has been added to ${studentName}'s canteen account.</p>
+          <div style="background:#f0fdf4;border:1px solid #bbf7d0;border-radius:12px;padding:16px;margin:20px 0">
+            <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Student:</strong> ${studentName}</p>
+            <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Amount added:</strong> ${fmt(amount)}</p>
+            ${balanceLine}
+          </div>
+          ${extraNoteHtml(es.approvedNote)}
+          ${footerHtml(es.footerNote, es.contactPhone)}
         </div>
-        ${extraNoteHtml(es.approvedNote)}
-        ${footerHtml(es.footerNote)}
-      </div>
-    `,
-  })
-  return true
+      `,
+    })
+    return true
+  } catch (err) {
+    console.error('[email] sendTopupApproved failed:', err)
+    return false
+  }
 }
 
 export async function sendTopupRejected({
@@ -194,22 +210,27 @@ export async function sendTopupRejected({
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.rejectedSubject, fmt(amount), studentName)
 
-  await getResend().emails.send({
-    from,
-    replyTo: es.replyTo,
-    to: parentEmail,
-    subject,
-    html: `
-      <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
-        <h2 style="color:#dc2626;margin-bottom:8px">Top-up not approved</h2>
-        <p style="color:#475569;margin-top:0">Hi ${parentName},</p>
-        <p style="color:#475569">We were unable to process your top-up request of ${fmt(amount)} for ${studentName}.</p>
-        ${reason ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin:20px 0"><p style="margin:0 0 6px;color:#991b1b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Message from us</p><p style="margin:0;color:#7f1d1d;font-size:14px;white-space:pre-line">${reason}</p></div>` : ''}
-        ${extraNoteHtml(es.rejectedNote)}
-        <p style="color:#475569;font-size:14px">Please reply to this email or contact us directly to resolve this.</p>
-        ${footerHtml(es.footerNote)}
-      </div>
-    `,
-  })
-  return true
+  try {
+    await getResend().emails.send({
+      from,
+      replyTo: es.replyTo,
+      to: parentEmail,
+      subject,
+      html: `
+        <div style="font-family:sans-serif;max-width:520px;margin:0 auto;padding:24px">
+          <h2 style="color:#dc2626;margin-bottom:8px">Top-up not approved</h2>
+          <p style="color:#475569;margin-top:0">Hi ${parentName},</p>
+          <p style="color:#475569">We were unable to process your top-up request of ${fmt(amount)} for ${studentName}.</p>
+          ${reason ? `<div style="background:#fef2f2;border:1px solid #fecaca;border-radius:12px;padding:16px;margin:20px 0"><p style="margin:0 0 6px;color:#991b1b;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Message from us</p><p style="margin:0;color:#7f1d1d;font-size:14px;white-space:pre-line">${reason}</p></div>` : ''}
+          ${extraNoteHtml(es.rejectedNote)}
+          <p style="color:#475569;font-size:14px">Please reply to this email or contact us directly to resolve this.</p>
+          ${footerHtml(es.footerNote, es.contactPhone)}
+        </div>
+      `,
+    })
+    return true
+  } catch (err) {
+    console.error('[email] sendTopupRejected failed:', err)
+    return false
+  }
 }

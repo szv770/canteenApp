@@ -80,9 +80,10 @@ const NINE_DAYS_SETTINGS: SettingRow[] = [
 
 const EMAIL_IDENTITY_SETTINGS: SettingRow[] = [
   { key: 'email_sender_name', label: 'Sender Name', description: 'Name parents see in the "From" field, e.g. Miami Mesivta Canteen', type: 'text' },
-  { key: 'email_sender_address', label: 'Sender Address', description: 'Must be a verified domain in your Resend account, e.g. canteen@miamimesivta.com', type: 'text' },
+  { key: 'email_sender_address', label: 'Sender Address', description: 'Must be a verified domain in your Resend account, e.g. canteen@miamimesivta.com. Changing this address requires the new address\'s domain to be verified in Resend or emails will fail.', type: 'text' },
   { key: 'email_reply_to', label: 'Reply-To Address', description: 'Where replies from parents go', type: 'text' },
-  { key: 'email_footer_note', label: 'Footer Note', description: 'Text shown at the bottom of every email, e.g. "Questions? Call us at 305-555-1234"', type: 'textarea' },
+  { key: 'email_contact_phone', label: 'Contact Phone / Support Info', description: 'Shown in every email so parents know how to reach you, e.g. "305-555-1234" or "call or text Rabbi Cohen at 305-555-1234"', type: 'text' },
+  { key: 'email_footer_note', label: 'Footer Note', description: 'Additional text at the bottom of every email', type: 'textarea' },
 ]
 
 const EMAIL_RECEIVED_SETTINGS: SettingRow[] = [
