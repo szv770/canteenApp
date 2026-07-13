@@ -3,8 +3,14 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Script from 'next/script'
 import Link from 'next/link'
+import { Fraunces } from 'next/font/google'
 import { ShoppingBag, Send, Check, ChevronRight, ChevronDown, Smartphone, Copy, ExternalLink, CreditCard, AlertTriangle, X, Megaphone, Info, FileText, Flame, ArrowRight, Wallet } from 'lucide-react'
 import toast from 'react-hot-toast'
+
+// Warm serif for the hero heading only — the canteen name now appears exactly once on
+// this page (in the hero), so it gets a more distinctive display face instead of sharing
+// the plain Inter used everywhere else (POS/admin keep their own separate branding).
+const heroFont = Fraunces({ subsets: ['latin'], weight: ['600'], style: ['normal'], display: 'swap' })
 
 /*
  * Parent landing page visual system (this page only — POS/admin keep their branding):
@@ -808,11 +814,8 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
       {/* Nav */}
       <nav className="bg-[#FAF9F6]/80 backdrop-blur-md border-b border-stone-200/70 sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2.5 min-w-0">
-            <div className="w-8 h-8 bg-teal-700 rounded-lg flex items-center justify-center shrink-0 shadow-sm shadow-teal-700/20">
-              <ShoppingBag className="w-4 h-4 text-white" />
-            </div>
-            <span className="font-bold text-stone-900 truncate">{canteenName}</span>
+          <div className="w-8 h-8 bg-teal-700 rounded-lg flex items-center justify-center shrink-0 shadow-sm shadow-teal-700/20">
+            <ShoppingBag className="w-4 h-4 text-white" />
           </div>
           {loggedIn ? (
             <Link
@@ -839,7 +842,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
           <div className="lp-hero-in inline-flex items-center gap-2 bg-teal-700/10 text-teal-800 px-3.5 py-1.5 rounded-full text-xs font-semibold mb-5">
             <Smartphone className="w-3.5 h-3.5" /> Parent Portal
           </div>
-          <h1 className="lp-hero-in text-balance break-words text-3xl sm:text-5xl font-extrabold tracking-tight text-stone-900 mb-3 leading-[1.1] px-2">
+          <h1 className={`${heroFont.className} lp-hero-in text-balance break-words text-4xl sm:text-6xl text-stone-900 mb-3 leading-[1.1] px-2`}>
             {canteenName}
           </h1>
           <p className="lp-hero-in text-balance break-words text-stone-600 text-base sm:text-lg max-w-md mx-auto px-2 leading-relaxed">
