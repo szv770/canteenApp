@@ -101,6 +101,11 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
   const tendered = parseFloat(cashTendered) || 0
   const change = Math.max(0, Math.round((tendered - displayTotal) * 100) / 100)
 
+  // Real <a href target="_blank"> — more reliable than window.open() on locked-down
+  // kiosk browsers, which can silently swallow script-triggered popups.
+  const ccLinkRaw = settings['payment_cc_link']
+  const stripeUrl = ccLinkRaw ? (/^https?:\/\//i.test(ccLinkRaw) ? ccLinkRaw : `https://${ccLinkRaw}`) : null
+
   const balanceAfter = selectedBochur ? Math.round((selectedBochur.balance - subtotalAfterDiscount - tipAmount) * 100) / 100 : 0
   const insufficientBalance = selectedBochur && selectedBochur.balance < (subtotalAfterDiscount + tipAmount)
   const allowNegative = selectedBochur?.allow_negative ?? false
@@ -482,16 +487,15 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
                     <span className="font-bold text-pos-text">{formatCurrency(total)}</span>
                   </div>
                 </div>
-                {settings['payment_cc_link'] ? (
+                {stripeUrl ? (
                   <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-center space-y-3">
                     <p className="text-2xl font-bold text-blue-800">{formatCurrency(total)}</p>
-                    <button
-                      onClick={() => {
-                        const link = settings['payment_cc_link']
-                        const url = /^https?:\/\//i.test(link) ? link : `https://${link}`
-                        window.open(url, '_blank')
-                        setStripeOpened(true)
-                      }}
+                    <p className="text-xs text-blue-600">Type this amount in on the Stripe payment page</p>
+                    <a
+                      href={stripeUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      onClick={() => setStripeOpened(true)}
                       className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition-all ${
                         stripeOpened
                           ? 'bg-emerald-500 text-white'
@@ -503,7 +507,7 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
                       ) : (
                         <><ExternalLink className="w-4 h-4" /> Open Stripe to Charge</>
                       )}
-                    </button>
+                    </a>
                     <p className="text-xs text-blue-500">
                       {stripeOpened
                         ? 'Once payment is confirmed in Stripe, tap Complete Order below.'
