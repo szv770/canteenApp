@@ -1,7 +1,7 @@
 'use client'
 
 import { useState, useCallback, useRef } from 'react'
-import { X, DollarSign, CreditCard, Wallet, Check, Search, User, UserPlus } from 'lucide-react'
+import { X, DollarSign, CreditCard, Wallet, Check, Search, User, UserPlus, ExternalLink } from 'lucide-react'
 import { formatCurrency, roundCash, calcCCFee, applyDiscount } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
@@ -24,6 +24,7 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
   const [selectedBochur, setSelectedBochur] = useState<BochurWithId | null>(initialBochur)
   const [method, setMethod] = useState<PayMethod>(initialBochur ? 'balance' : 'cash')
   const [linkDismissed, setLinkDismissed] = useState(false)
+  const [stripeOpened, setStripeOpened] = useState(false)
 
   // Inline camper linking (only when checkout opened without a loaded bochur)
   const supabaseRef = useRef(createClient())
@@ -481,11 +482,41 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
                     <span className="font-bold text-pos-text">{formatCurrency(total)}</span>
                   </div>
                 </div>
-                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-center space-y-1">
-                  <p className="text-xs text-blue-600 uppercase font-semibold tracking-wide">Charge on card reader</p>
-                  <p className="text-2xl font-bold text-blue-800">{formatCurrency(total)}</p>
-                  <p className="text-xs text-blue-500">Enter this amount on your card reader, then tap Complete Order</p>
-                </div>
+                {settings['payment_cc_link'] ? (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-center space-y-3">
+                    <p className="text-2xl font-bold text-blue-800">{formatCurrency(total)}</p>
+                    <button
+                      onClick={() => {
+                        const link = settings['payment_cc_link']
+                        const url = /^https?:\/\//i.test(link) ? link : `https://${link}`
+                        window.open(url, '_blank')
+                        setStripeOpened(true)
+                      }}
+                      className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition-all ${
+                        stripeOpened
+                          ? 'bg-emerald-500 text-white'
+                          : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+                      }`}
+                    >
+                      {stripeOpened ? (
+                        <><Check className="w-4 h-4" /> Stripe Opened ✓</>
+                      ) : (
+                        <><ExternalLink className="w-4 h-4" /> Open Stripe to Charge</>
+                      )}
+                    </button>
+                    <p className="text-xs text-blue-500">
+                      {stripeOpened
+                        ? 'Once payment is confirmed in Stripe, tap Complete Order below.'
+                        : 'Opens Stripe in a new tab — come back here once the card is charged.'}
+                    </p>
+                  </div>
+                ) : (
+                  <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-center space-y-1">
+                    <p className="text-xs text-blue-600 uppercase font-semibold tracking-wide">Charge on card reader</p>
+                    <p className="text-2xl font-bold text-blue-800">{formatCurrency(total)}</p>
+                    <p className="text-xs text-blue-500">Enter this amount on your card reader, then tap Complete Order</p>
+                  </div>
+                )}
               </div>
             )}
           </div>

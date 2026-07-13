@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { LogOut, Settings, ShoppingCart, Wallet, Trash2, BarChart2 } from 'lucide-react'
+import { LogOut, Settings, ShoppingCart, Wallet, Trash2, BarChart2, Bell, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import BochurSearch from '@/components/pos/BochurSearch'
@@ -17,6 +17,13 @@ import VariantModal from '@/components/pos/VariantModal'
 import TopUpModal from '@/components/pos/TopUpModal'
 import WastageModal from '@/components/pos/WastageModal'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
+
+interface NotifItem {
+  id: string
+  message: string
+  type: string
+  created_at: string
+}
 
 export default function PosPage() {
   const supabaseRef = useRef(createClient())
@@ -44,6 +51,50 @@ export default function PosPage() {
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [showTopUp, setShowTopUp] = useState(false)
   const [showWastage, setShowWastage] = useState(false)
+  const [notifHistory, setNotifHistory] = useState<NotifItem[]>([])
+  const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
+    try {
+      const stored = localStorage.getItem('pos_dismissed_notifs')
+      return new Set(stored ? JSON.parse(stored) : [])
+    } catch { return new Set() }
+  })
+  const [notifPanelOpen, setNotifPanelOpen] = useState(false)
+  const notifPanelRef = useRef<HTMLDivElement>(null)
+
+  const unreadNotifCount = notifHistory.filter(n => !dismissedIds.has(n.id)).length
+
+  function dismissNotif(id: string) {
+    setDismissedIds(prev => {
+      const next = new Set(prev)
+      next.add(id)
+      try { localStorage.setItem('pos_dismissed_notifs', JSON.stringify(Array.from(next))) } catch {}
+      return next
+    })
+  }
+
+  function dismissAll() {
+    setNotifHistory(prev => {
+      const ids = prev.map(n => n.id)
+      setDismissedIds(prev2 => {
+        const next = new Set(prev2)
+        ids.forEach(id => next.add(id))
+        try { localStorage.setItem('pos_dismissed_notifs', JSON.stringify(Array.from(next))) } catch {}
+        return next
+      })
+      return prev
+    })
+  }
+
+  useEffect(() => {
+    if (!notifPanelOpen) return
+    function handleClick(e: MouseEvent) {
+      if (notifPanelRef.current && !notifPanelRef.current.contains(e.target as Node)) {
+        setNotifPanelOpen(false)
+      }
+    }
+    document.addEventListener('mousedown', handleClick)
+    return () => document.removeEventListener('mousedown', handleClick)
+  }, [notifPanelOpen])
 
   useEffect(() => {
     loadData()
@@ -75,18 +126,46 @@ export default function PosPage() {
     // Admin → cashier notifications
     const seen = new Set<string>()
 
-    function showNotif(n: { id: string; message: string; type: string; is_active: boolean; expires_at: string | null }) {
+    function showNotif(n: { id: string; message: string; type: string; is_active: boolean; expires_at: string | null; created_at?: string }) {
       if (!n.is_active || seen.has(n.id)) return
       if (n.expires_at && new Date(n.expires_at) < new Date()) return
       seen.add(n.id)
-      const style = n.type === 'urgent'
-        ? { background: '#fef2f2', color: '#991b1b', border: '2px solid #fca5a5', fontWeight: '600', fontSize: '15px' }
-        : n.type === 'warning'
-        ? { background: '#fffbeb', color: '#92400e', border: '2px solid #fcd34d', fontWeight: '600' }
-        : { background: '#eff6ff', color: '#1e3a5f', border: '1px solid #bfdbfe' }
-      // Urgent: stays until cashier taps to dismiss. Warning: 20s. Info: 12s.
-      const duration = n.type === 'urgent' ? Infinity : n.type === 'warning' ? 20000 : 12000
-      toast(n.message, { duration, style })
+
+      setNotifHistory(prev => {
+        if (prev.find(h => h.id === n.id)) return prev
+        return [{ id: n.id, message: n.message, type: n.type, created_at: n.created_at || new Date().toISOString() }, ...prev]
+      })
+
+      if (n.type === 'urgent') {
+        const toastId = n.id
+        toast.custom(
+          (t) => (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '12px',
+              background: '#fef2f2', color: '#991b1b', border: '2px solid #fca5a5',
+              fontWeight: 600, fontSize: '15px', padding: '12px 14px', borderRadius: '12px',
+              maxWidth: '380px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+            }}>
+              <span style={{ flex: 1 }}>🚨 {n.message}</span>
+              <button
+                onClick={() => toast.dismiss(t.id)}
+                style={{
+                  background: 'rgba(153,27,27,0.15)', border: 'none', borderRadius: '6px',
+                  padding: '4px 10px', color: '#991b1b', fontWeight: 700, cursor: 'pointer',
+                  flexShrink: 0, fontSize: '14px', lineHeight: '1.4',
+                }}
+              >✕</button>
+            </div>
+          ),
+          { duration: Infinity, id: toastId }
+        )
+      } else {
+        const style = n.type === 'warning'
+          ? { background: '#fffbeb', color: '#92400e', border: '2px solid #fcd34d', fontWeight: '600' }
+          : { background: '#eff6ff', color: '#1e3a5f', border: '1px solid #bfdbfe' }
+        const duration = n.type === 'warning' ? 20000 : 12000
+        toast(n.message, { duration, style })
+      }
     }
 
     // Show any active notifications that exist when the POS loads (cashier may have missed the INSERT event)
@@ -353,6 +432,77 @@ export default function PosPage() {
           >
             <LogOut className="w-5 h-5" />
           </button>
+          {/* Notification bell */}
+          <div className="relative" ref={notifPanelRef}>
+            <button
+              onClick={() => setNotifPanelOpen(v => !v)}
+              className="relative p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-all"
+              title="Notifications"
+            >
+              <Bell className="w-5 h-5" />
+              {unreadNotifCount > 0 && (
+                <span className="absolute -top-0.5 -right-0.5 w-5 h-5 bg-red-500 text-white text-xs font-bold rounded-full flex items-center justify-center">
+                  {unreadNotifCount > 9 ? '9+' : unreadNotifCount}
+                </span>
+              )}
+            </button>
+
+            {notifPanelOpen && (
+              <div className="absolute right-0 top-full mt-2 w-80 bg-white rounded-2xl shadow-2xl border border-slate-100 z-50 overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-slate-100">
+                  <span className="font-semibold text-slate-900 text-sm">Notifications</span>
+                  {notifHistory.some(n => !dismissedIds.has(n.id)) && (
+                    <button
+                      onClick={dismissAll}
+                      className="text-xs text-slate-400 hover:text-slate-600 transition-colors"
+                    >
+                      Dismiss all
+                    </button>
+                  )}
+                </div>
+                {notifHistory.length === 0 ? (
+                  <div className="px-4 py-8 text-center text-slate-400 text-sm">No notifications yet</div>
+                ) : (
+                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
+                    {notifHistory.map(n => {
+                      const isDismissed = dismissedIds.has(n.id)
+                      const emoji = n.type === 'urgent' ? '🚨' : n.type === 'warning' ? '⚠️' : 'ℹ️'
+                      const badge = n.type === 'urgent'
+                        ? 'bg-red-100 text-red-700'
+                        : n.type === 'warning'
+                        ? 'bg-amber-100 text-amber-700'
+                        : 'bg-blue-100 text-blue-700'
+                      return (
+                        <div key={n.id} className={`flex items-start gap-3 px-4 py-3 transition-opacity ${isDismissed ? 'opacity-40' : ''}`}>
+                          <span className="text-lg mt-0.5 shrink-0">{emoji}</span>
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2 mb-0.5">
+                              <span className={`text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${badge}`}>
+                                {n.type}
+                              </span>
+                              <span className="text-xs text-slate-400">
+                                {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                              </span>
+                            </div>
+                            <p className="text-sm text-slate-700 leading-snug">{n.message}</p>
+                          </div>
+                          {!isDismissed && (
+                            <button
+                              onClick={() => dismissNotif(n.id)}
+                              className="shrink-0 p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
+                            >
+                              <X className="w-4 h-4" />
+                            </button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
+
           {/* Mobile cart toggle */}
           <button
             onClick={() => setMobileCartOpen(true)}
