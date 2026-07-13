@@ -238,6 +238,88 @@ function CreditCardPaymentModal({
   )
 }
 
+// Shown inside the form itself once a manual (non-CC, non-cash) method is selected —
+// same handle/copy/open affordances as the Step 1 cards, so a parent who picked the
+// method from the dropdown instead of tapping a Step 1 card still gets full instructions
+// without scrolling back up.
+function MethodInfoBox({
+  method,
+  settings,
+  amount,
+}: {
+  method: string
+  settings: Record<string, string>
+  amount: string
+}) {
+  const info = settings[`payment_${method}_info`]
+  const [copied, setCopied] = useState(false)
+  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
+  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
+
+  if (!info) return null
+
+  const label = METHOD_LABELS[method]
+  const brand = METHOD_COLORS[method] || '#0F766E'
+  const logo = METHOD_LOGOS[method]
+  const deepLink = getPaymentDeepLink(method, info)
+  const amt = parseFloat(amount)
+  const amountText = Number.isFinite(amt) && amt > 0 ? formatMoney(amt) : 'the payment'
+
+  return (
+    <div className="-mt-2 p-3.5 bg-teal-50/70 border border-teal-200/70 rounded-xl">
+      <div className="flex items-center gap-2.5">
+        <div
+          className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0"
+          style={{ color: brand, background: `${brand}14`, boxShadow: `inset 0 0 0 1px ${brand}26` }}
+        >
+          {logo}
+        </div>
+        <p className="flex-1 min-w-0 text-sm font-semibold text-stone-900">Pay with {label}</p>
+        <div className="flex items-center gap-1.5 shrink-0">
+          <button
+            type="button"
+            onClick={async () => {
+              const ok = await copyToClipboard(info)
+              if (ok) {
+                setCopied(true)
+                if (copiedTimer.current) clearTimeout(copiedTimer.current)
+                copiedTimer.current = setTimeout(() => setCopied(false), 1600)
+                toast.success(`${label} handle copied!`, { duration: 2000 })
+              } else {
+                toast.error('Could not copy — please copy manually')
+              }
+            }}
+            className={`flex items-center gap-1 px-2.5 py-2 min-h-[40px] text-xs font-medium border rounded-lg transition-all active:scale-95 ${
+              copied
+                ? 'text-teal-700 border-teal-300 bg-teal-50'
+                : 'text-stone-500 hover:text-stone-800 border-stone-200 hover:border-stone-300 bg-white'
+            }`}
+            title="Copy to clipboard"
+          >
+            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+            {copied ? 'Copied' : 'Copy'}
+          </button>
+          {deepLink && (
+            <a
+              href={deepLink}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="flex items-center gap-1 px-2.5 py-2 min-h-[40px] text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-all active:scale-95"
+            >
+              <ExternalLink className="w-3.5 h-3.5" /> Open
+            </a>
+          )}
+        </div>
+      </div>
+      <p className="text-sm font-mono font-semibold text-stone-700 break-all mt-2 pl-[42px]">{info}</p>
+      <p className="text-xs text-stone-600 mt-2 pl-[42px] leading-relaxed">
+        Open your {label} app and send {amountText} to the info above, then finish filling out this form below.
+        {!deepLink && ' (There\'s no app link for this one — just enter it manually.)'}
+      </p>
+    </div>
+  )
+}
+
 // TopUpFormSection is defined at module level (not inside LandingClient) so that React
 // preserves the component identity across re-renders. Defining it inside LandingClient
 // would cause it to remount on every state change, which makes controlled inputs lose
@@ -577,16 +659,55 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
                 </select>
               </div>
             </div>
-            {form.method === 'credit_card' && (
-              <div className="-mt-2 flex items-start gap-2 bg-teal-50/80 border border-teal-200/80 text-teal-900 rounded-xl px-3 py-2.5">
-                <CreditCard className="w-4 h-4 shrink-0 mt-0.5" />
+            {form.method !== 'credit_card' && form.method !== 'cash' && (
+              <MethodInfoBox method={form.method} settings={settings} amount={form.amount} />
+            )}
+
+            {form.method === 'cash' && (
+              <div className="-mt-2 flex items-start gap-2 bg-stone-100 border border-stone-200 text-stone-700 rounded-xl px-3.5 py-2.5">
+                <Info className="w-4 h-4 shrink-0 mt-0.5" />
                 <p className="text-xs leading-relaxed">
-                  When you tap <strong>Submit &amp; Continue to Payment</strong> below, a secure card
-                  payment page opens in a new tab. A <strong>{ccFeePercent}% fee</strong> applies —
-                  we&apos;ll show the exact amount to enter there.
+                  Send cash or a check in with your son, or bring it in person. No handle or app needed for this one.
                 </p>
               </div>
             )}
+
+            {form.method === 'credit_card' && (() => {
+              const amt = parseFloat(form.amount)
+              const hasAmount = Number.isFinite(amt) && amt > 0
+              const grossUp = hasAmount ? amt / (1 - ccFeePercent / 100) : 0
+              const feeAmount = hasAmount ? grossUp - amt : 0
+              return (
+                <div className="-mt-2 flex flex-col gap-2.5 bg-teal-50/80 border border-teal-200/80 text-teal-900 rounded-xl px-3.5 py-3">
+                  <div className="flex items-start gap-2">
+                    <CreditCard className="w-4 h-4 shrink-0 mt-0.5" />
+                    <p className="text-xs leading-relaxed">
+                      Credit card payments have a <strong>{ccFeePercent}% processing fee</strong> and{' '}
+                      <strong>can&apos;t be refunded</strong>. Submit this form first — a secure payment
+                      page opens after, in a new tab.
+                    </p>
+                  </div>
+                  {hasAmount ? (
+                    <div className="bg-white/70 border border-teal-200 rounded-lg px-3 py-2 ml-6 space-y-1">
+                      <div className="flex justify-between text-xs text-teal-800">
+                        <span>To add exactly {formatMoney(amt)} to the account...</span>
+                      </div>
+                      <div className="flex justify-between text-sm items-center pt-0.5 border-t border-teal-100">
+                        <span className="text-teal-900 font-medium">Type this on the payment page</span>
+                        <span className="font-bold text-amber-700">{formatMoney(grossUp)}</span>
+                      </div>
+                      <div className="text-[11px] text-teal-700/70">
+                        (includes a {formatMoney(feeAmount)} fee at {ccFeePercent}%)
+                      </div>
+                    </div>
+                  ) : (
+                    <p className="text-xs text-teal-700/80 ml-6">
+                      Enter an amount above to see exactly what to type on the payment page.
+                    </p>
+                  )}
+                </div>
+              )
+            })()}
 
             {/* No ref # for cash (none exists) or credit card (payment happens after submitting) */}
             {form.method !== 'cash' && form.method !== 'credit_card' && (
