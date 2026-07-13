@@ -34,7 +34,7 @@ const SETTINGS_CONFIG: SettingRow[] = [
     { value: 'hide', label: 'Hide product' },
     { value: 'block', label: 'Block purchase' },
   ]},
-  { key: 'cc_fee_percent', label: 'Credit Card Fee (%)', description: 'Processing fee % added to CC payments', type: 'number' },
+  { key: 'cc_fee_percent', label: 'Credit Card Fee (%)', description: 'Processing fee % added to CC payments at the register — also shown to parents on the online top-up page', type: 'number' },
   { key: 'daily_revenue_target', label: 'Daily Revenue Target ($)', description: 'Target daily revenue shown as a progress gauge on the dashboard', type: 'number' },
   { key: 'tax_rate', label: 'Tax Rate (%)', description: 'Sales tax percentage (0 for no tax)', type: 'number' },
   { key: 'stripe_enabled', label: 'Stripe Payments', description: 'Enable Stripe Terminal card reader', type: 'toggle' },
@@ -62,10 +62,7 @@ const PAYMENT_SETTINGS: SettingRow[] = [
 
 const CC_PAYMENT_SETTINGS: SettingRow[] = [
   { key: 'payment_cc_enabled', label: 'Credit Card (Online)', description: 'Show an online credit card top-up option for parents', type: 'toggle' },
-  { key: 'payment_cc_link', label: 'Payment Link', description: 'Your Stripe (or other) payment link parents are sent to. https:// is added automatically if you leave it off', type: 'text' },
-  { key: 'payment_cc_prefill_enabled', label: 'Append Amount / Name to Link', description: 'Add query params to the link with the amount and student name entered in the form', type: 'toggle' },
-  { key: 'payment_cc_amount_param', label: 'Amount Param Name', description: 'Query param name for the amount, e.g. prefilled_amount', type: 'text' },
-  { key: 'payment_cc_name_param', label: 'Name Param Name', description: 'Query param name for the student name, e.g. client_reference_id', type: 'text' },
+  { key: 'payment_cc_link', label: 'Payment Link', description: 'Your Stripe (or other) payment link parents are sent to. https:// is added automatically if you leave it off. The camper\'s name is automatically appended as client_reference_id — Stripe does not support prefilling amount via URL, so parents are shown the amount to enter manually.', type: 'text' },
   { key: 'payment_cc_coming_soon_enabled', label: 'Show "Coming Soon" Announcement', description: 'Only used while Credit Card (Online) above is off and no Payment Link is set — shows a greyed-out "coming soon" card instead of hiding it entirely', type: 'toggle' },
 ]
 
