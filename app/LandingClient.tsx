@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState, useCallback } from 'react'
 import Script from 'next/script'
 import Link from 'next/link'
-import { ShoppingBag, Send, Check, ChevronRight, Smartphone, Copy, ExternalLink, CreditCard, AlertTriangle, X, Megaphone, Info, FileText, Flame, ArrowDown, ArrowRight, Wallet } from 'lucide-react'
+import { ShoppingBag, Send, Check, ChevronRight, ChevronDown, Smartphone, Copy, ExternalLink, CreditCard, AlertTriangle, X, Megaphone, Info, FileText, Flame, ArrowRight, Wallet } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 /*
@@ -17,6 +17,12 @@ import toast from 'react-hot-toast'
  *           over the soft gradient background reads identically at zero cost.
  *           (The sticky nav keeps a small backdrop-blur-md — one cheap surface.)
  * Keyframes / reveal / confetti CSS lives in globals.css under the "lp-" prefix.
+ *
+ * Flow (single linear wizard, not two side-by-side panels): Step 1 is the ONE
+ * place a payment method is chosen — tapping a card expands it in place with
+ * everything needed (handle, copy, deep link, what to write in notes) and a
+ * "continue" action. Only once that's done does Step 2 (the form) appear,
+ * fixed to that method — no second method picker inside the form.
  */
 const GLASS_CARD = 'bg-white/75 border border-white/60 ring-1 ring-stone-900/5 shadow-[0_8px_30px_rgba(28,25,23,0.06)]'
 const INPUT_CLS = 'w-full px-3 py-2.5 bg-white border border-stone-200 rounded-xl text-base text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-teal-600/25 focus:border-teal-600 transition-all min-h-[44px]'
@@ -238,84 +244,57 @@ function CreditCardPaymentModal({
   )
 }
 
-// Shown inside the form itself once a manual (non-CC, non-cash) method is selected —
-// same handle/copy/open affordances as the Step 1 cards, so a parent who picked the
-// method from the dropdown instead of tapping a Step 1 card still gets full instructions
-// without scrolling back up.
-function MethodInfoBox({
-  method,
-  settings,
-  amount,
+// One card in the Step 1 accordion. Tapping the header selects the method (and,
+// for manual methods, immediately copies the handle) and expands the body below.
+function MethodCard({
+  selected,
+  onSelectHeader,
+  icon,
+  label,
+  color,
+  rightBadge,
+  subtitle,
+  disabled,
+  children,
 }: {
-  method: string
-  settings: Record<string, string>
-  amount: string
+  selected: boolean
+  onSelectHeader: () => void
+  icon: React.ReactNode
+  label: string
+  color: string
+  rightBadge?: React.ReactNode
+  subtitle?: string
+  disabled?: boolean
+  children?: React.ReactNode
 }) {
-  const info = settings[`payment_${method}_info`]
-  const [copied, setCopied] = useState(false)
-  const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
-  useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
-
-  if (!info) return null
-
-  const label = METHOD_LABELS[method]
-  const brand = METHOD_COLORS[method] || '#0F766E'
-  const logo = METHOD_LOGOS[method]
-  const deepLink = getPaymentDeepLink(method, info)
-  const amt = parseFloat(amount)
-  const amountText = Number.isFinite(amt) && amt > 0 ? formatMoney(amt) : 'the payment'
-
   return (
-    <div className="-mt-2 p-3.5 bg-teal-50/70 border border-teal-200/70 rounded-xl">
-      <div className="flex items-center gap-2.5">
+    <div
+      className={`rounded-2xl overflow-hidden transition-all ${GLASS_CARD} ${
+        selected ? 'ring-2 ring-teal-500/30 border-teal-300/70' : ''
+      }`}
+    >
+      <button
+        type="button"
+        onClick={onSelectHeader}
+        disabled={disabled}
+        className="w-full flex items-center gap-3 p-4 text-left transition-transform active:scale-[0.99] disabled:cursor-not-allowed disabled:opacity-60 disabled:active:scale-100"
+      >
         <div
-          className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0"
-          style={{ color: brand, background: `${brand}14`, boxShadow: `inset 0 0 0 1px ${brand}26` }}
+          className="w-12 h-12 rounded-xl flex items-center justify-center font-bold text-xl shrink-0"
+          style={{ color, background: `${color}14`, boxShadow: `inset 0 0 0 1px ${color}26` }}
         >
-          {logo}
+          {icon}
         </div>
-        <p className="flex-1 min-w-0 text-sm font-semibold text-stone-900">Pay with {label}</p>
-        <div className="flex items-center gap-1.5 shrink-0">
-          <button
-            type="button"
-            onClick={async () => {
-              const ok = await copyToClipboard(info)
-              if (ok) {
-                setCopied(true)
-                if (copiedTimer.current) clearTimeout(copiedTimer.current)
-                copiedTimer.current = setTimeout(() => setCopied(false), 1600)
-                toast.success(`${label} handle copied!`, { duration: 2000 })
-              } else {
-                toast.error('Could not copy — please copy manually')
-              }
-            }}
-            className={`flex items-center gap-1 px-2.5 py-2 min-h-[40px] text-xs font-medium border rounded-lg transition-all active:scale-95 ${
-              copied
-                ? 'text-teal-700 border-teal-300 bg-teal-50'
-                : 'text-stone-500 hover:text-stone-800 border-stone-200 hover:border-stone-300 bg-white'
-            }`}
-            title="Copy to clipboard"
-          >
-            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-            {copied ? 'Copied' : 'Copy'}
-          </button>
-          {deepLink && (
-            <a
-              href={deepLink}
-              target="_blank"
-              rel="noopener noreferrer"
-              className="flex items-center gap-1 px-2.5 py-2 min-h-[40px] text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-all active:scale-95"
-            >
-              <ExternalLink className="w-3.5 h-3.5" /> Open
-            </a>
-          )}
+        <div className="flex-1 min-w-0">
+          <p className="font-bold text-stone-900 text-base truncate">{label}</p>
+          {subtitle && <p className="text-xs text-stone-500 mt-0.5">{subtitle}</p>}
         </div>
-      </div>
-      <p className="text-sm font-mono font-semibold text-stone-700 break-all mt-2 pl-[42px]">{info}</p>
-      <p className="text-xs text-stone-600 mt-2 pl-[42px] leading-relaxed">
-        Open your {label} app and send {amountText} to the info above, then finish filling out this form below.
-        {!deepLink && ' (There\'s no app link for this one — just enter it manually.)'}
-      </p>
+        {rightBadge}
+        {!disabled && (
+          <ChevronDown className={`w-5 h-5 text-stone-400 shrink-0 transition-transform ${selected ? 'rotate-180' : ''}`} />
+        )}
+      </button>
+      {selected && children && <div className="px-4 pb-4">{children}</div>}
     </div>
   )
 }
@@ -327,13 +306,12 @@ function MethodInfoBox({
 // CLAUDE.md for the Settings page's SettingControl component.
 interface TopUpFormSectionProps {
   settings: Record<string, string>
-  enabledMethods: string[]
-  ccEnabled: boolean
+  method: string
   ccFeePercent: number
-  preferredMethod: string | null
+  onChangeMethod: () => void
 }
 
-function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, preferredMethod }: TopUpFormSectionProps) {
+function TopUpFormSection({ settings, method, ccFeePercent, onChangeMethod }: TopUpFormSectionProps) {
   const formSectionRef = useRef<HTMLDivElement>(null)
   const [ccModalOpen, setCcModalOpen] = useState(false)
   const [submittedAmount, setSubmittedAmount] = useState(0)
@@ -346,7 +324,6 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
     studentFirstName: '',
     studentLastName: '',
     amount: '',
-    method: enabledMethods[0] || 'zelle',
     transactionRef: '',
     notes: '',
   })
@@ -356,14 +333,6 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
   const turnstileRef = useRef<HTMLDivElement>(null)
   const turnstileWidgetId = useRef<string | null>(null)
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
-
-  // When a parent taps Copy / Open / "Pay by card" on a method card in Step 1,
-  // pre-select that method here so they don't have to pick it twice.
-  useEffect(() => {
-    if (preferredMethod) {
-      setForm(f => ({ ...f, method: preferredMethod }))
-    }
-  }, [preferredMethod])
 
   const renderTurnstile = useCallback(() => {
     if (!siteKey || !turnstileRef.current || !(window as any).turnstile) return
@@ -436,8 +405,6 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
     if (!Number.isFinite(amt) || amt <= 0) { err('Please enter a valid amount'); return }
     if (amt > 10000) { err('Amount cannot exceed $10,000'); return }
 
-    const method = form.method || 'cash'
-
     if (siteKey && !turnstileToken) {
       err('Please complete the security check below.')
       return
@@ -489,6 +456,9 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
     }
   }
 
+  const badgeLetter = METHOD_LOGOS[method]
+  const brand = METHOD_COLORS[method] || '#0F766E'
+
   return (
     <div ref={formSectionRef} className={`${GLASS_CARD} rounded-3xl p-4 sm:p-6`}>
       {ccModalOpen && (
@@ -519,11 +489,11 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
           <h3 className="text-xl font-bold text-stone-900 mb-2">Request Submitted!</h3>
           <p className="text-stone-500 text-sm max-w-xs mx-auto">
             We received your top-up request for <strong className="text-stone-700">{form.studentFirstName} {form.studentLastName}</strong>.
-            {form.method === 'credit_card'
+            {method === 'credit_card'
               ? ' Funds are added once your card payment comes through and is verified.'
               : ' Funds will be added to their account shortly.'}
           </p>
-          {form.method === 'credit_card' && (
+          {method === 'credit_card' && (
             <>
               <div className="mt-4 max-w-xs mx-auto flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-3 py-2.5 text-left">
                 <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
@@ -552,16 +522,22 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
         </div>
       ) : (
         <>
-          {/* Credit card is the one submit-THEN-pay flow — "send first" would be wrong there */}
-          {form.method !== 'credit_card' && (
-            <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 rounded-xl px-3 py-2.5 mb-5">
-              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-              <p className="text-xs leading-relaxed">
-                <strong>Send the payment first</strong> (Step 1 above). This form doesn't move money —
-                it just tells us to expect your payment.
-              </p>
+          {/* Method is fixed from Step 1 — just a small readout + a way back, not a second picker */}
+          <div className="flex items-center justify-between gap-2 mb-4">
+            <div className="flex items-center gap-2">
+              <div
+                className="w-8 h-8 rounded-lg flex items-center justify-center font-bold text-sm shrink-0"
+                style={{ color: brand, background: `${brand}14`, boxShadow: `inset 0 0 0 1px ${brand}26` }}
+              >
+                {method === 'credit_card' ? <CreditCard className="w-4 h-4" /> : badgeLetter}
+              </div>
+              <p className="text-sm font-semibold text-stone-900">Paying via {METHOD_LABELS[method]}</p>
             </div>
-          )}
+            <button type="button" onClick={onChangeMethod} className="text-xs font-semibold text-teal-700 hover:underline min-h-[36px] px-1">
+              Change
+            </button>
+          </div>
+
           {formError && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">
               {formError}
@@ -626,69 +602,34 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
               </div>
             </div>
 
-            <div className="grid grid-cols-2 gap-3">
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">
-                  {form.method === 'credit_card' ? 'Amount to Add *' : 'Amount Sent *'}
-                </label>
-                <div className="relative">
-                  <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-medium">$</span>
-                  <input
-                    type="number"
-                    inputMode="decimal"
-                    className={`${INPUT_CLS} pl-7`}
-                    placeholder="0.00"
-                    min="1"
-                    step="0.01"
-                    value={form.amount}
-                    onChange={e => set('amount', e.target.value)}
-                  />
-                </div>
-              </div>
-              <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Method *</label>
-                <select
-                  className={INPUT_CLS}
-                  value={form.method}
-                  onChange={e => set('method', e.target.value)}
-                >
-                  {enabledMethods.map(m => (
-                    <option key={m} value={m}>{METHOD_LABELS[m]}</option>
-                  ))}
-                  {ccEnabled && <option value="credit_card">{METHOD_LABELS.credit_card}</option>}
-                </select>
+            <div>
+              <label className="block text-sm font-medium text-stone-700 mb-1">
+                {method === 'credit_card' ? 'Amount to Add *' : 'Amount Sent *'}
+              </label>
+              <div className="relative">
+                <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-medium">$</span>
+                <input
+                  type="number"
+                  inputMode="decimal"
+                  className={`${INPUT_CLS} pl-7`}
+                  placeholder="0.00"
+                  min="1"
+                  step="0.01"
+                  value={form.amount}
+                  onChange={e => set('amount', e.target.value)}
+                />
               </div>
             </div>
-            {form.method !== 'credit_card' && form.method !== 'cash' && (
-              <MethodInfoBox method={form.method} settings={settings} amount={form.amount} />
-            )}
 
-            {form.method === 'cash' && (
-              <div className="-mt-2 flex items-start gap-2 bg-stone-100 border border-stone-200 text-stone-700 rounded-xl px-3.5 py-2.5">
-                <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                <p className="text-xs leading-relaxed">
-                  Send cash or a check in with your son, or bring it in person. No handle or app needed for this one.
-                </p>
-              </div>
-            )}
-
-            {form.method === 'credit_card' && (() => {
+            {method === 'credit_card' && (() => {
               const amt = parseFloat(form.amount)
               const hasAmount = Number.isFinite(amt) && amt > 0
               const grossUp = hasAmount ? amt / (1 - ccFeePercent / 100) : 0
               const feeAmount = hasAmount ? grossUp - amt : 0
               return (
-                <div className="-mt-2 flex flex-col gap-2.5 bg-teal-50/80 border border-teal-200/80 text-teal-900 rounded-xl px-3.5 py-3">
-                  <div className="flex items-start gap-2">
-                    <CreditCard className="w-4 h-4 shrink-0 mt-0.5" />
-                    <p className="text-xs leading-relaxed">
-                      Credit card payments have a <strong>{ccFeePercent}% processing fee</strong> and{' '}
-                      <strong>can&apos;t be refunded</strong>. Submit this form first — a secure payment
-                      page opens after, in a new tab.
-                    </p>
-                  </div>
+                <div className="-mt-2 bg-teal-50/80 border border-teal-200/80 text-teal-900 rounded-xl px-3.5 py-3">
                   {hasAmount ? (
-                    <div className="bg-white/70 border border-teal-200 rounded-lg px-3 py-2 ml-6 space-y-1">
+                    <div className="space-y-1">
                       <div className="flex justify-between text-xs text-teal-800">
                         <span>To add exactly {formatMoney(amt)} to the account...</span>
                       </div>
@@ -701,7 +642,7 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
                       </div>
                     </div>
                   ) : (
-                    <p className="text-xs text-teal-700/80 ml-6">
+                    <p className="text-xs text-teal-700/80">
                       Enter an amount above to see exactly what to type on the payment page.
                     </p>
                   )}
@@ -710,7 +651,7 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
             })()}
 
             {/* No ref # for cash (none exists) or credit card (payment happens after submitting) */}
-            {form.method !== 'cash' && form.method !== 'credit_card' && (
+            {method !== 'cash' && method !== 'credit_card' && (
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">
                   Confirmation / Reference # <span className="text-stone-400 font-normal">(optional)</span>
@@ -756,14 +697,14 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
             >
               {submitting ? (
                 <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
-              ) : form.method === 'credit_card' ? (
+              ) : method === 'credit_card' ? (
                 <CreditCard className="w-4 h-4" />
               ) : (
                 <Send className="w-4 h-4" />
               )}
               {submitting
                 ? 'Submitting...'
-                : form.method === 'credit_card'
+                : method === 'credit_card'
                 ? 'Submit & Continue to Payment'
                 : 'Submit Request'}
             </button>
@@ -787,29 +728,56 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   const ccComingSoon = !ccEnabled && ccNotConfigured && settings['payment_cc_coming_soon_enabled'] === 'true'
   const nineDaysBlurb = settings['nine_days_blurb'] || ''
   const nineDaysFileUrl = settings['nine_days_file_url'] || ''
+  const cashEnabled = settings['payment_cash_enabled'] === 'true'
 
-  const enabledMethods = ['zelle', 'venmo', 'paypal', 'cashapp', 'cash'].filter(
-    m => settings[`payment_${m}_enabled`] === 'true'
+  const manualMethods = ['zelle', 'venmo', 'paypal', 'cashapp'].filter(
+    m => settings[`payment_${m}_enabled`] === 'true' && settings[`payment_${m}_info`]
   )
-  const noteMethodNames = enabledMethods
-    .filter(m => ['zelle', 'venmo', 'paypal', 'cashapp'].includes(m))
-    .map(m => METHOD_LABELS[m])
-  const noteMethodsText =
-    noteMethodNames.length <= 1
-      ? noteMethodNames.join('')
-      : noteMethodNames.length === 2
-      ? noteMethodNames.join(' or ')
-      : `${noteMethodNames.slice(0, -1).join(', ')}, or ${noteMethodNames[noteMethodNames.length - 1]}`
-  const hasNoteMethods = noteMethodNames.length > 0
 
-  // Set when the parent interacts with a method card (Copy / Open / Pay by card) so
-  // the form's Method dropdown pre-selects it — one less thing to pick twice.
-  const [preferredMethod, setPreferredMethod] = useState<string | null>(null)
+  // The ONE place a payment method gets picked. Selecting a card expands it in
+  // place; confirming ("I've sent it" / "Continue") unlocks Step 2 below.
+  const [selectedMethod, setSelectedMethod] = useState<string | null>(null)
+  const [formUnlocked, setFormUnlocked] = useState(false)
 
-  // Copy button briefly flashes a checkmark for the method just copied.
+  // Copy button (inside the expanded card) briefly flashes a checkmark.
   const [copiedMethod, setCopiedMethod] = useState<string | null>(null)
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
+
+  useEffect(() => {
+    if (formUnlocked) scrollToId('topup-form')
+  }, [formUnlocked])
+
+  async function selectMethod(method: string) {
+    setSelectedMethod(method)
+    setFormUnlocked(false)
+    if (manualMethods.includes(method)) {
+      const info = settings[`payment_${method}_info`]
+      if (info) {
+        const ok = await copyToClipboard(info)
+        if (ok) {
+          setCopiedMethod(method)
+          if (copiedTimer.current) clearTimeout(copiedTimer.current)
+          copiedTimer.current = setTimeout(() => setCopiedMethod(null), 1600)
+          toast.success(`${METHOD_LABELS[method]} handle copied!`, { duration: 2000 })
+        }
+      }
+    }
+  }
+
+  async function copyAgain(method: string) {
+    const info = settings[`payment_${method}_info`]
+    if (!info) return
+    const ok = await copyToClipboard(info)
+    if (ok) {
+      setCopiedMethod(method)
+      if (copiedTimer.current) clearTimeout(copiedTimer.current)
+      copiedTimer.current = setTimeout(() => setCopiedMethod(null), 1600)
+      toast.success(`${METHOD_LABELS[method]} handle copied!`, { duration: 2000 })
+    } else {
+      toast.error('Could not copy — please copy manually')
+    }
+  }
 
   // Scroll-triggered reveal: adds .lp-visible when a .lp-reveal element enters the viewport.
   useEffect(() => {
@@ -832,6 +800,8 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
     els.forEach(el => obs.observe(el))
     return () => obs.disconnect()
   }, [])
+
+  const hasAnyMethod = manualMethods.length > 0 || ccEnabled || ccComingSoon || cashEnabled
 
   return (
     <div className="relative min-h-screen bg-[#FAF9F6] text-stone-900 overflow-x-hidden">
@@ -876,191 +846,182 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
             {tagline}
           </p>
           <p className="lp-hero-in text-balance text-stone-500 text-sm sm:text-base max-w-lg mx-auto px-2 mt-4 leading-relaxed">
-            Send money in your own app (Zelle, Venmo, etc.), then fill out the quick form below so we can
-            credit your camper. <span className="text-stone-600 font-medium">This page doesn&apos;t charge you.</span>
+            Pick how you're paying below, and we'll walk you through the rest.{' '}
+            <span className="text-stone-600 font-medium">This page doesn&apos;t charge you.</span>
           </p>
-          <div className="lp-hero-in mt-7 flex flex-col items-center gap-2.5">
+          <div className="lp-hero-in mt-7">
             <button
               onClick={() => scrollToId('send-payment')}
               className="inline-flex items-center justify-center gap-2 bg-orange-700 hover:bg-orange-800 text-white font-bold px-9 py-4 min-h-[56px] rounded-2xl shadow-lg shadow-orange-700/25 transition-all active:scale-95 text-base sm:text-lg"
             >
               <Wallet className="w-5 h-5" /> Add Funds
             </button>
-            <button
-              onClick={() => scrollToId('topup-form')}
-              className="text-xs text-stone-400 font-medium hover:text-teal-700 min-h-[36px] px-3"
-            >
-              Already paid? Skip to the form <ArrowRight className="w-3 h-3 inline -mt-0.5" />
-            </button>
           </div>
         </div>
 
-        <div className="grid grid-cols-1 lg:grid-cols-2 gap-8 lg:gap-10 items-start">
-          {/* Step 1 — Send the payment */}
-          <section id="send-payment" className="space-y-4 scroll-mt-24">
+        <div className="max-w-xl mx-auto w-full space-y-8">
+          {/* Step 1 — the one and only place a payment method is chosen */}
+          <section id="send-payment" className="space-y-3 scroll-mt-24">
             <div className="lp-reveal">
-              <StepHeading n="1" title="Send the payment" subtitle="From your own banking or payment app" />
+              <StepHeading n="1" title="Choose how you're paying" subtitle="Tap one to see exactly what to do" />
             </div>
 
-            {(enabledMethods.length > 0 || ccEnabled || ccComingSoon) && (
-              <div>
-                {hasNoteMethods && (
-                  <div className="lp-reveal flex items-start gap-2 bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl px-3 py-2.5 mb-3">
-                    <Info className="w-4 h-4 shrink-0 mt-0.5" />
-                    <p className="text-xs leading-relaxed">
-                      When sending {noteMethodsText}, please include in the payment notes:{' '}
-                      <span className="font-mono font-semibold">CANTEEN - [your son's name]</span>
-                    </p>
-                  </div>
-                )}
-
-                <div className="space-y-2.5">
-                  {enabledMethods.filter(m => m !== 'cash').map((method, idx) => {
-                    const info = settings[`payment_${method}_info`]
-                    if (!info) return null
-                    const deepLink = getPaymentDeepLink(method, info)
-                    const brand = METHOD_COLORS[method] || '#0F766E'
-                    const logo = METHOD_LOGOS[method]
-                    const copied = copiedMethod === method
-                    return (
-                      <div
-                        key={method}
-                        className={`lp-reveal p-4 ${GLASS_CARD} rounded-2xl`}
-                        style={{ transitionDelay: `${idx * 70}ms` }}
+            {hasAnyMethod ? (
+              <div className="space-y-2.5">
+                {manualMethods.map((method, idx) => {
+                  const info = settings[`payment_${method}_info`]
+                  const deepLink = getPaymentDeepLink(method, info)
+                  const copied = copiedMethod === method
+                  const selected = selectedMethod === method
+                  return (
+                    <div key={method} style={{ transitionDelay: `${idx * 70}ms` }} className="lp-reveal">
+                      <MethodCard
+                        selected={selected}
+                        onSelectHeader={() => selectMethod(method)}
+                        icon={METHOD_LOGOS[method]}
+                        label={METHOD_LABELS[method]}
+                        color={METHOD_COLORS[method] || '#0F766E'}
                       >
-                        <div className="flex items-center gap-3">
-                          {/* Brand shows only as a tinted badge — card stays in the page palette */}
-                          <div
-                            className="w-10 h-10 rounded-xl flex items-center justify-center font-bold text-lg shrink-0"
-                            style={{ color: brand, background: `${brand}14`, boxShadow: `inset 0 0 0 1px ${brand}26` }}
+                        <div className="flex items-center gap-1.5 mb-2">
+                          <button
+                            type="button"
+                            onClick={() => copyAgain(method)}
+                            className={`flex items-center gap-1 px-3 py-2.5 min-h-[44px] text-xs font-medium border rounded-lg transition-all active:scale-95 ${
+                              copied
+                                ? 'text-teal-700 border-teal-300 bg-teal-50'
+                                : 'text-stone-500 hover:text-stone-800 border-stone-200 hover:border-stone-300 bg-white/60'
+                            }`}
                           >
-                            {logo}
-                          </div>
-                          <p className="flex-1 min-w-0 font-semibold text-stone-900 text-sm truncate">{METHOD_LABELS[method]}</p>
-                          <div className="flex items-center gap-1.5 shrink-0">
-                            <button
-                              onClick={async () => {
-                                setPreferredMethod(method)
-                                const ok = await copyToClipboard(info)
-                                if (ok) {
-                                  setCopiedMethod(method)
-                                  if (copiedTimer.current) clearTimeout(copiedTimer.current)
-                                  copiedTimer.current = setTimeout(() => setCopiedMethod(null), 1600)
-                                  toast.success(`${METHOD_LABELS[method]} handle copied!`, { duration: 2000 })
-                                } else {
-                                  toast.error('Could not copy — please copy manually')
-                                }
-                              }}
-                              className={`flex items-center gap-1 px-3 py-2.5 min-h-[44px] text-xs font-medium border rounded-lg transition-all active:scale-95 ${
-                                copied
-                                  ? 'text-teal-700 border-teal-300 bg-teal-50'
-                                  : 'text-stone-500 hover:text-stone-800 border-stone-200 hover:border-stone-300 bg-white/60'
-                              }`}
-                              title="Copy to clipboard"
+                            {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
+                            {copied ? 'Copied' : 'Copy again'}
+                          </button>
+                          {deepLink && (
+                            <a
+                              href={deepLink}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              className="flex items-center gap-1 px-3 py-2.5 min-h-[44px] text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-all active:scale-95"
                             >
-                              {copied ? <Check className="w-3.5 h-3.5" /> : <Copy className="w-3.5 h-3.5" />}
-                              {copied ? 'Copied' : 'Copy'}
-                            </button>
-                            {deepLink && (
-                              <a
-                                href={deepLink}
-                                target="_blank"
-                                rel="noopener noreferrer"
-                                onClick={() => setPreferredMethod(method)}
-                                className="flex items-center gap-1 px-3 py-2.5 min-h-[44px] text-xs font-semibold text-white bg-teal-700 hover:bg-teal-800 rounded-lg transition-all active:scale-95"
-                              >
-                                <ExternalLink className="w-3.5 h-3.5" /> Open
-                              </a>
-                            )}
-                          </div>
+                              <ExternalLink className="w-3.5 h-3.5" /> Open
+                            </a>
+                          )}
                         </div>
-                        <p className="text-sm font-mono font-semibold text-stone-700 break-all mt-2.5 pl-[52px]">{info}</p>
+                        <p className="text-sm font-mono font-semibold text-stone-700 break-all">{info}</p>
                         {!deepLink && (
-                          <p className="text-xs text-stone-400 mt-1.5 pl-[52px]">
-                            No app link available for {METHOD_LABELS[method]} — open your banking app yourself and send to the info above.
+                          <p className="text-xs text-stone-400 mt-1.5">
+                            No app link available — open your banking app yourself and send to the info above.
                           </p>
                         )}
-                      </div>
-                    )
-                  })}
-
-                  {ccEnabled && (
-                    <div className={`lp-reveal p-4 ${GLASS_CARD} rounded-2xl`}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-teal-700 bg-teal-700/10 shrink-0" style={{ boxShadow: 'inset 0 0 0 1px rgba(15,118,110,0.15)' }}>
-                          <CreditCard className="w-5 h-5" />
+                        <div className="flex items-start gap-2 bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl px-3 py-2.5 mt-3">
+                          <Info className="w-4 h-4 shrink-0 mt-0.5" />
+                          <p className="text-xs leading-relaxed">
+                            Please include in the payment notes:{' '}
+                            <span className="font-mono font-semibold">CANTEEN - [your son's name]</span>
+                          </p>
                         </div>
-                        <p className="flex-1 min-w-0 font-semibold text-stone-900 text-sm truncate">Credit Card</p>
+                        <button
+                          onClick={() => setFormUnlocked(true)}
+                          className="mt-3 w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-800 text-white font-semibold py-3 min-h-[48px] rounded-xl transition-all active:scale-[0.98] text-sm shadow-sm shadow-teal-700/20"
+                        >
+                          I've sent it — continue <ArrowRight className="w-4 h-4" />
+                        </button>
+                      </MethodCard>
+                    </div>
+                  )
+                })}
+
+                {ccEnabled && (
+                  <div className="lp-reveal">
+                    <MethodCard
+                      selected={selectedMethod === 'credit_card'}
+                      onSelectHeader={() => selectMethod('credit_card')}
+                      icon={<CreditCard className="w-5 h-5" />}
+                      label="Credit Card"
+                      color={METHOD_COLORS.credit_card}
+                      rightBadge={
                         <span className="text-xs font-semibold text-amber-800 bg-amber-50 border border-amber-200 rounded-full px-2 py-1 shrink-0">
                           {ccFeePercent}% fee
                         </span>
-                      </div>
-                      <p className="text-xs text-stone-400 mt-2.5 pl-[52px]">No refunds. Submit the form first — the payment page opens after.</p>
+                      }
+                    >
+                      <p className="text-sm text-stone-600 leading-relaxed">
+                        Fill out the form next with the amount you want added. After you submit, you'll be
+                        redirected to a secure payment page to enter your card details manually.
+                      </p>
+                      <p className="text-sm text-stone-600 leading-relaxed mt-2">
+                        Card payments have a <strong className="text-stone-800">{ccFeePercent}% processing fee</strong>,
+                        so to add exactly $200 to the account you'd need to pay a bit more — we'll show you the exact
+                        number once you enter an amount in the next step. Whatever amount actually comes through, we
+                        deduct the fee and credit the rest. No refunds on card payments.
+                      </p>
                       <button
-                        onClick={() => { setPreferredMethod('credit_card'); scrollToId('topup-form') }}
-                        className="ml-[52px] mt-1.5 inline-flex items-center gap-1 text-xs font-semibold text-teal-700 hover:text-teal-900 min-h-[44px] transition-colors"
+                        onClick={() => setFormUnlocked(true)}
+                        className="mt-3 w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-800 text-white font-semibold py-3 min-h-[48px] rounded-xl transition-all active:scale-[0.98] text-sm shadow-sm shadow-teal-700/20"
                       >
-                        Pay by card — fill out the form <ArrowRight className="w-3.5 h-3.5" />
+                        Continue to the form <ArrowRight className="w-4 h-4" />
                       </button>
-                    </div>
-                  )}
+                    </MethodCard>
+                  </div>
+                )}
 
-                  {ccComingSoon && (
-                    <div className="lp-reveal p-4 bg-stone-100/90 rounded-2xl border border-dashed border-stone-300/80">
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center text-stone-400 bg-stone-200 shrink-0">
-                          <CreditCard className="w-5 h-5" />
-                        </div>
-                        <div className="flex-1 min-w-0">
-                          <p className="font-semibold text-stone-500 text-sm">Credit Card</p>
-                          <p className="text-xs text-stone-400 mt-0.5">Coming soon — not available yet</p>
-                        </div>
+                {ccComingSoon && (
+                  <div className="lp-reveal p-4 bg-stone-100/90 rounded-2xl border border-dashed border-stone-300/80">
+                    <div className="flex items-center gap-3">
+                      <div className="w-12 h-12 rounded-xl flex items-center justify-center text-stone-400 bg-stone-200 shrink-0">
+                        <CreditCard className="w-5 h-5" />
+                      </div>
+                      <div className="flex-1 min-w-0">
+                        <p className="font-bold text-stone-500 text-base">Credit Card (Online)</p>
+                        <p className="text-xs text-stone-400 mt-0.5">Coming soon — not available yet</p>
                       </div>
                     </div>
-                  )}
+                  </div>
+                )}
 
-                  {settings['payment_cash_enabled'] === 'true' && (
-                    <div className={`lp-reveal p-4 ${GLASS_CARD} rounded-2xl`}>
-                      <div className="flex items-center gap-3">
-                        <div className="w-10 h-10 rounded-xl flex items-center justify-center font-bold shrink-0 text-stone-600 bg-stone-500/10" style={{ boxShadow: 'inset 0 0 0 1px rgba(87,83,78,0.15)' }}>
-                          $
-                        </div>
-                        <div className="min-w-0">
-                          <p className="font-semibold text-stone-900 text-sm">Cash / Check</p>
-                          <p className="text-xs text-stone-500 mt-0.5">Send in with your son or bring in person</p>
-                        </div>
-                      </div>
-                    </div>
-                  )}
-                </div>
-
-                {/* Mobile-only: continue to the form after sending */}
-                <button
-                  onClick={() => scrollToId('topup-form')}
-                  className="lp-reveal lg:hidden mt-4 w-full flex items-center justify-center gap-2 bg-teal-800 hover:bg-teal-900 text-white font-semibold py-3.5 min-h-[52px] rounded-2xl transition-all active:scale-[0.98] text-sm shadow-sm shadow-teal-800/20"
-                >
-                  I've sent it — continue to Step 2 <ArrowDown className="w-4 h-4" />
-                </button>
+                {cashEnabled && (
+                  <div className="lp-reveal">
+                    <MethodCard
+                      selected={selectedMethod === 'cash'}
+                      onSelectHeader={() => selectMethod('cash')}
+                      icon="$"
+                      label="Cash / Check"
+                      color={METHOD_COLORS.cash}
+                    >
+                      <p className="text-sm text-stone-600 leading-relaxed">
+                        Send cash or a check in with your son, or bring it in person. No handle or app needed —
+                        just fill out the form next so we know to expect it.
+                      </p>
+                      <button
+                        onClick={() => setFormUnlocked(true)}
+                        className="mt-3 w-full flex items-center justify-center gap-2 bg-teal-700 hover:bg-teal-800 text-white font-semibold py-3 min-h-[48px] rounded-xl transition-all active:scale-[0.98] text-sm shadow-sm shadow-teal-700/20"
+                      >
+                        Continue <ArrowRight className="w-4 h-4" />
+                      </button>
+                    </MethodCard>
+                  </div>
+                )}
               </div>
+            ) : (
+              <p className="text-sm text-stone-400 lp-reveal">No payment methods are set up yet — please contact us directly.</p>
             )}
           </section>
 
-          {/* Step 2 — Tell us about it */}
-          <section id="topup-form" className="space-y-4 scroll-mt-24">
-            <div className="lp-reveal">
-              <StepHeading n="2" title="Tell us about it" subtitle="So we know whose account to credit" />
-            </div>
-            {/* Form — rendered as a stable module-level component so inputs don't remount */}
-            <div className="lp-reveal" style={{ transitionDelay: '80ms' }}>
-              <TopUpFormSection
-                settings={settings}
-                enabledMethods={enabledMethods}
-                ccEnabled={ccEnabled}
-                ccFeePercent={ccFeePercent}
-                preferredMethod={preferredMethod}
-              />
-            </div>
-          </section>
+          {/* Step 2 — only appears once a method is chosen and confirmed above */}
+          {selectedMethod && formUnlocked && (
+            <section id="topup-form" className="space-y-3 scroll-mt-24">
+              <div>
+                <StepHeading n="2" title="Tell us about it" subtitle="So we know whose account to credit" />
+              </div>
+              <div>
+                <TopUpFormSection
+                  settings={settings}
+                  method={selectedMethod}
+                  ccFeePercent={ccFeePercent}
+                  onChangeMethod={() => setFormUnlocked(false)}
+                />
+              </div>
+            </section>
+          )}
         </div>
 
         {/* Popular items */}
