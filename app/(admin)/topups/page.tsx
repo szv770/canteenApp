@@ -2,7 +2,7 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { RefreshCw, Check, X, Link as LinkIcon, Calendar, Mail, MailCheck, MailX, CheckCheck } from 'lucide-react'
+import { RefreshCw, Check, X, Link as LinkIcon, Calendar, Mail, MailCheck, MailX, CheckCheck, Calculator } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
@@ -45,19 +45,30 @@ export default function TopupsPage() {
   // Reject modal state
   const [rejectingTopup, setRejectingTopup] = useState<{ id: string; studentName: string } | null>(null)
   const [rejectReason, setRejectReason] = useState('')
+  // Credit card fee %, used to compute the fee-adjusted reconcile figures
+  const [ccFeePercent, setCcFeePercent] = useState<number>(3)
+  // Reconcile (Credit Card) modal state
+  const [reconcilingTopup, setReconcilingTopup] = useState<{ id: string; studentName: string; amount: number } | null>(null)
+  const [reconcileReceivedInput, setReconcileReceivedInput] = useState('')
 
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
     setLoading(true)
-    const [tRes, bRes] = await Promise.all([
+    const [tRes, bRes, sRes] = await Promise.all([
       supabase
         .from('balance_topups')
         .select('*, bochurim(name), received_email_sent_at, approved_email_sent_at, rejected_email_sent_at')
         .order('created_at', { ascending: false })
         .limit(100),
       supabase.from('bochurim').select('id,name').eq('archived', false).order('name'),
+      supabase.from('settings').select('key,value').eq('key', 'cc_fee_percent').maybeSingle(),
     ])
+    if (sRes.data?.value != null) {
+      const raw = String(sRes.data.value)
+      const unquoted = raw.startsWith('"') ? raw.slice(1, -1) : raw
+      setCcFeePercent(parseFloat(unquoted) || 3)
+    }
     const rows = tRes.data || []
     // Initialize date received map for pending rows that don't have one yet
     const today = todayDateStr()
@@ -93,7 +104,7 @@ export default function TopupsPage() {
     setLoading(false)
   }
 
-  async function confirmTopup(topup: any, skipCredit = false) {
+  async function confirmTopup(topup: any, skipCredit = false, receivedAmount?: number) {
     if (!topup.bochur_id) {
       toast.error('Link to a bochur first before confirming')
       return
@@ -112,12 +123,17 @@ export default function TopupsPage() {
           topup_id: topup.id,
           payment_received_date: paymentReceivedDate,
           ...(skipCredit ? { skip_credit: true } : {}),
+          ...(receivedAmount !== undefined ? { received_amount: receivedAmount } : {}),
         }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to confirm top-up')
 
       toast.success(skipCredit ? 'Marked as approved — balance unchanged' : 'Top-up confirmed and credited!')
+      if (reconcilingTopup?.id === topup.id) {
+        setReconcilingTopup(null)
+        setReconcileReceivedInput('')
+      }
       loadAll()
     } catch (err: any) {
       const msg = err?.message || ''
@@ -291,7 +307,16 @@ export default function TopupsPage() {
                       </div>
                     )}
                   </td>
-                  <td className="px-5 py-3 text-sm font-bold text-emerald-600">{formatCurrency(t.amount)}</td>
+                  <td className="px-5 py-3 text-sm font-bold text-emerald-600">
+                    {t.credited_amount != null && t.credited_amount !== t.amount ? (
+                      <div className="flex flex-col">
+                        <span>{formatCurrency(t.credited_amount)}</span>
+                        <span className="text-[10px] font-normal text-slate-400">requested {formatCurrency(t.amount)}</span>
+                      </div>
+                    ) : (
+                      formatCurrency(t.amount)
+                    )}
+                  </td>
                   <td className="px-5 py-3 text-sm text-slate-500 capitalize">{t.method}</td>
                   <td className="px-5 py-3 text-xs text-slate-400">{format(new Date(t.created_at), 'MM/dd h:mm a')}</td>
                   <td className="px-5 py-3">
@@ -331,14 +356,28 @@ export default function TopupsPage() {
                   <td className="px-5 py-3 text-right">
                     {t.status === 'pending' && (
                       <div className="flex items-center justify-end gap-1">
-                        <button
-                          onClick={() => confirmTopup(t)}
-                          disabled={confirmingId === t.id || rejectingId === t.id}
-                          className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
-                          title="Confirm & credit balance"
-                        >
-                          <Check className="w-4 h-4" />
-                        </button>
+                        {t.method === 'credit_card' ? (
+                          <button
+                            onClick={() => {
+                              setReconcilingTopup({ id: t.id, studentName: t.student_name || 'this top-up', amount: t.amount })
+                              setReconcileReceivedInput((t.amount / (1 - ccFeePercent / 100)).toFixed(2))
+                            }}
+                            disabled={confirmingId === t.id || rejectingId === t.id}
+                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Reconcile & confirm"
+                          >
+                            <Calculator className="w-4 h-4" />
+                          </button>
+                        ) : (
+                          <button
+                            onClick={() => confirmTopup(t)}
+                            disabled={confirmingId === t.id || rejectingId === t.id}
+                            className="p-1.5 text-emerald-600 hover:bg-emerald-50 rounded-lg transition-colors disabled:opacity-50 disabled:cursor-not-allowed"
+                            title="Confirm & credit balance"
+                          >
+                            <Check className="w-4 h-4" />
+                          </button>
+                        )}
                         <button
                           onClick={() => {
                             if (confirm('Mark as approved without crediting balance?\n\nUse this when you already added the balance manually.')) {
@@ -423,6 +462,63 @@ export default function TopupsPage() {
                 className="bg-red-500 hover:bg-red-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
               >
                 {rejectingId === rejectingTopup.id ? 'Rejecting…' : 'Reject →'}
+              </button>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {/* Reconcile Credit Card modal */}
+      {reconcilingTopup && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <h3 className="text-base font-semibold text-slate-900 mb-1">
+              Reconcile Credit Card Payment for <span className="text-emerald-600">{reconcilingTopup.studentName}</span>
+            </h3>
+            <p className="text-xs text-slate-500 mb-4">
+              Requested: <span className="font-semibold text-slate-600">{formatCurrency(reconcilingTopup.amount)}</span>
+            </p>
+
+            <label className="block text-xs font-semibold text-slate-600 mb-2">
+              Amount received on card processor
+            </label>
+            <input
+              type="number"
+              step="0.01"
+              min="0.01"
+              className="w-full border border-slate-200 rounded-xl px-3 py-2.5 text-sm text-slate-700 focus:outline-none focus:ring-2 focus:ring-emerald-300 focus:border-emerald-400"
+              value={reconcileReceivedInput}
+              onChange={e => setReconcileReceivedInput(e.target.value)}
+              autoFocus
+            />
+
+            <p className="text-sm mt-3">
+              Will credit: <span className="font-bold text-emerald-600">
+                {formatCurrency((parseFloat(reconcileReceivedInput || '0') || 0) * (1 - ccFeePercent / 100))}
+              </span>
+            </p>
+
+            <div className="flex justify-end gap-2 mt-4">
+              <button
+                onClick={() => { setReconcilingTopup(null); setReconcileReceivedInput('') }}
+                className="btn-secondary text-sm"
+              >
+                Cancel
+              </button>
+              <button
+                onClick={() => {
+                  const topup = topups.find(x => x.id === reconcilingTopup.id)
+                  if (!topup) return
+                  confirmTopup(topup, false, parseFloat(reconcileReceivedInput))
+                }}
+                disabled={
+                  confirmingId === reconcilingTopup.id ||
+                  !Number.isFinite(parseFloat(reconcileReceivedInput)) ||
+                  parseFloat(reconcileReceivedInput) <= 0
+                }
+                className="bg-emerald-500 hover:bg-emerald-600 disabled:opacity-50 text-white text-sm font-semibold px-4 py-2 rounded-xl transition-colors"
+              >
+                {confirmingId === reconcilingTopup.id ? 'Confirming…' : 'Confirm & Credit'}
               </button>
             </div>
           </div>
