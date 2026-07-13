@@ -11,10 +11,14 @@ import toast from 'react-hot-toast'
  *   Base    cream #FAF9F6 + stone text scale
  *   Primary deep teal   — teal-700 #0F766E (badges, links, secondary actions, focus rings)
  *   Accent  terracotta  — orange-700 #C2410C (primary CTAs only; AA contrast w/ white text)
- *   Cards   frosted glass — bg-white/60 + backdrop-blur-xl + border-white/60
+ *   Cards   frosted look — semi-opaque white fill + light border. Deliberately NO
+ *           backdrop-blur: a dozen live backdrop-filter surfaces stacked over the
+ *           animated blobs caused visible scroll jank on phones. A white/75 fill
+ *           over the soft gradient background reads identically at zero cost.
+ *           (The sticky nav keeps a small backdrop-blur-md — one cheap surface.)
  * Keyframes / reveal / confetti CSS lives in globals.css under the "lp-" prefix.
  */
-const GLASS_CARD = 'bg-white/60 backdrop-blur-xl border border-white/60 ring-1 ring-stone-900/5 shadow-[0_8px_30px_rgba(28,25,23,0.06)]'
+const GLASS_CARD = 'bg-white/75 border border-white/60 ring-1 ring-stone-900/5 shadow-[0_8px_30px_rgba(28,25,23,0.06)]'
 const INPUT_CLS = 'w-full px-3 py-2.5 bg-white border border-stone-200 rounded-xl text-base text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-teal-600/25 focus:border-teal-600 transition-all min-h-[44px]'
 
 const METHOD_LABELS: Record<string, string> = {
@@ -133,13 +137,13 @@ function AnnouncementBanner({ announcement }: { announcement: HomeAnnouncement }
   if (dismissed) return null
 
   const styles = {
-    info: 'bg-blue-50/90 border-blue-200 text-blue-900',
-    warning: 'bg-amber-50/90 border-amber-200 text-amber-900',
-    urgent: 'bg-red-50/90 border-red-200 text-red-900',
+    info: 'bg-blue-50 border-blue-200 text-blue-900',
+    warning: 'bg-amber-50 border-amber-200 text-amber-900',
+    urgent: 'bg-red-50 border-red-200 text-red-900',
   }[announcement.type]
 
   return (
-    <div className={`border-b px-4 py-2.5 backdrop-blur-sm ${styles}`}>
+    <div className={`border-b px-4 py-2.5 ${styles}`}>
       <div className="max-w-5xl mx-auto flex items-center gap-2.5">
         <Megaphone className="w-4 h-4 shrink-0" />
         <p className="text-sm font-medium flex-1 min-w-0">{announcement.message}</p>
@@ -187,7 +191,7 @@ function CreditCardPaymentModal({
   const grossUp = amount / (1 - feePercent / 100)
   const feeAmount = grossUp - amount
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/40 backdrop-blur-sm px-4 py-6">
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-stone-950/50 px-4 py-6">
       <div className="bg-white rounded-3xl max-w-sm w-full p-5 sm:p-6 shadow-2xl max-h-full overflow-y-auto animate-scale-in">
         <div className="w-12 h-12 bg-amber-100 rounded-full flex items-center justify-center mx-auto mb-4">
           <AlertTriangle className="w-6 h-6 text-amber-600" />
@@ -336,9 +340,11 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
     if (!form.studentFirstName.trim()) { err("Please enter your son's first name"); return }
     if (!form.studentLastName.trim()) { err("Please enter your son's last name"); return }
 
-    const phoneDigits = form.parentPhone.replace(/\D/g, '')
-    if (!form.parentPhone.trim()) { err('Please enter your phone number'); return }
-    if (phoneDigits.length < 7) { err('Please enter a valid phone number'); return }
+    // Phone is optional — only validate the format if one was entered.
+    if (form.parentPhone.trim()) {
+      const phoneDigits = form.parentPhone.replace(/\D/g, '')
+      if (phoneDigits.length < 7) { err('Please enter a valid phone number'); return }
+    }
 
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
     if (!form.parentEmail.trim()) { err('Please enter your email'); return }
@@ -431,15 +437,27 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
           <h3 className="text-xl font-bold text-stone-900 mb-2">Request Submitted!</h3>
           <p className="text-stone-500 text-sm max-w-xs mx-auto">
             We received your top-up request for <strong className="text-stone-700">{form.studentFirstName} {form.studentLastName}</strong>.
-            Funds will be added to their account shortly.
+            {form.method === 'credit_card'
+              ? ' Funds are added once your card payment comes through and is verified.'
+              : ' Funds will be added to their account shortly.'}
           </p>
           {form.method === 'credit_card' && (
-            <button
-              onClick={openStripeLink}
-              className="mt-4 inline-flex items-center gap-1.5 bg-orange-700 hover:bg-orange-800 text-white text-sm font-semibold px-5 py-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 shadow-sm shadow-orange-700/20"
-            >
-              Open Payment Page
-            </button>
+            <>
+              <div className="mt-4 max-w-xs mx-auto flex items-start gap-2 bg-amber-50 border border-amber-200 text-amber-900 rounded-xl px-3 py-2.5 text-left">
+                <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+                <p className="text-xs leading-relaxed">
+                  Haven't paid yet? Open the payment page and enter{' '}
+                  <strong>{formatMoney(submittedAmount / (1 - ccFeePercent / 100))}</strong>{' '}
+                  (includes the {ccFeePercent}% card fee).
+                </p>
+              </div>
+              <button
+                onClick={openStripeLink}
+                className="mt-3 inline-flex items-center gap-1.5 bg-orange-700 hover:bg-orange-800 text-white text-sm font-semibold px-5 py-2.5 min-h-[44px] rounded-xl transition-all active:scale-95 shadow-sm shadow-orange-700/20"
+              >
+                <CreditCard className="w-4 h-4" /> Open Payment Page
+              </button>
+            </>
           )}
           <div>
             <button
@@ -452,13 +470,16 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
         </div>
       ) : (
         <>
-          <div className="flex items-start gap-2 bg-red-50/90 border border-red-200 text-red-800 rounded-xl px-3 py-2.5 mb-5">
-            <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
-            <p className="text-xs leading-relaxed">
-              <strong>Send the payment first</strong> (Step 1 above). This form doesn't move money —
-              it just tells us to expect your payment.
-            </p>
-          </div>
+          {/* Credit card is the one submit-THEN-pay flow — "send first" would be wrong there */}
+          {form.method !== 'credit_card' && (
+            <div className="flex items-start gap-2 bg-red-50 border border-red-200 text-red-800 rounded-xl px-3 py-2.5 mb-5">
+              <AlertTriangle className="w-4 h-4 shrink-0 mt-0.5" />
+              <p className="text-xs leading-relaxed">
+                <strong>Send the payment first</strong> (Step 1 above). This form doesn't move money —
+                it just tells us to expect your payment.
+              </p>
+            </div>
+          )}
           {formError && (
             <div className="bg-red-50 border border-red-200 text-red-700 text-sm rounded-xl px-4 py-3 mb-4">
               {formError}
@@ -498,7 +519,9 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
 
             <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Your Phone *</label>
+                <label className="block text-sm font-medium text-stone-700 mb-1">
+                  Your Phone <span className="text-stone-400 font-normal">(optional)</span>
+                </label>
                 <input
                   type="tel"
                   className={INPUT_CLS}
@@ -523,7 +546,9 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
 
             <div className="grid grid-cols-2 gap-3">
               <div>
-                <label className="block text-sm font-medium text-stone-700 mb-1">Amount Sent *</label>
+                <label className="block text-sm font-medium text-stone-700 mb-1">
+                  {form.method === 'credit_card' ? 'Amount to Add *' : 'Amount Sent *'}
+                </label>
                 <div className="relative">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-stone-400 font-medium">$</span>
                   <input
@@ -563,7 +588,8 @@ function TopUpFormSection({ settings, enabledMethods, ccEnabled, ccFeePercent, p
               </div>
             )}
 
-            {form.method !== 'cash' && (
+            {/* No ref # for cash (none exists) or credit card (payment happens after submitting) */}
+            {form.method !== 'cash' && form.method !== 'credit_card' && (
               <div>
                 <label className="block text-sm font-medium text-stone-700 mb-1">
                   Confirmation / Reference # <span className="text-stone-400 font-normal">(optional)</span>
@@ -664,19 +690,6 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   const copiedTimer = useRef<ReturnType<typeof setTimeout> | null>(null)
   useEffect(() => () => { if (copiedTimer.current) clearTimeout(copiedTimer.current) }, [])
 
-  // Sticky mobile CTA: shown until the form section is scrolled into view.
-  const [showStickyCta, setShowStickyCta] = useState(false)
-  useEffect(() => {
-    const el = document.getElementById('topup-form')
-    if (!el || typeof IntersectionObserver === 'undefined') return
-    const obs = new IntersectionObserver(
-      ([entry]) => setShowStickyCta(!entry.isIntersecting),
-      { rootMargin: '0px 0px -25% 0px' }
-    )
-    obs.observe(el)
-    return () => obs.disconnect()
-  }, [])
-
   // Scroll-triggered reveal: adds .lp-visible when a .lp-reveal element enters the viewport.
   useEffect(() => {
     const els = Array.from(document.querySelectorAll('.lp-reveal'))
@@ -700,23 +713,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
   }, [])
 
   return (
-    <div className="relative min-h-screen bg-[#FAF9F6] text-stone-900 pb-20 lg:pb-0 overflow-x-hidden">
-      {/* Floating gradient blobs behind the hero */}
-      <div className="absolute inset-x-0 top-0 h-[640px] overflow-hidden pointer-events-none" aria-hidden="true">
-        <div
-          className="lp-blob"
-          style={{ width: 380, height: 380, top: -110, left: '-12%', background: 'radial-gradient(circle at 35% 35%, rgba(15,118,110,0.22), rgba(15,118,110,0) 70%)', animation: 'lp-blob-a 13s ease-in-out infinite' }}
-        />
-        <div
-          className="lp-blob"
-          style={{ width: 420, height: 420, top: 40, right: '-16%', background: 'radial-gradient(circle at 60% 40%, rgba(234,88,12,0.16), rgba(234,88,12,0) 70%)', animation: 'lp-blob-b 15s ease-in-out infinite' }}
-        />
-        <div
-          className="lp-blob"
-          style={{ width: 320, height: 320, top: 330, left: '28%', background: 'radial-gradient(circle at 50% 50%, rgba(245,158,11,0.18), rgba(245,158,11,0) 70%)', animation: 'lp-blob-c 11s ease-in-out infinite' }}
-        />
-      </div>
-
+    <div className="relative min-h-screen bg-[#FAF9F6] text-stone-900 overflow-x-hidden">
       {/* Nav */}
       <nav className="bg-[#FAF9F6]/80 backdrop-blur-md border-b border-stone-200/70 sticky top-0 z-30">
         <div className="max-w-5xl mx-auto px-4 py-3 flex items-center justify-between">
@@ -746,26 +743,22 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
       </nav>
 
       <main className="relative z-10 max-w-5xl mx-auto px-4 pb-6 sm:pb-12">
-        {/* Hero — generous, animated entrance */}
-        <div className="text-center pt-14 pb-10 sm:pt-24 sm:pb-16">
+        {/* Hero — name, tagline, one-line explainer of the whole flow */}
+        <div className="text-center pt-12 pb-8 sm:pt-16 sm:pb-12 max-w-2xl mx-auto">
           <div className="lp-hero-in inline-flex items-center gap-2 bg-teal-700/10 text-teal-800 px-3.5 py-1.5 rounded-full text-xs font-semibold mb-5">
             <Smartphone className="w-3.5 h-3.5" /> Parent Portal
           </div>
-          <h1
-            className="lp-hero-in text-balance break-words text-4xl sm:text-5xl md:text-6xl font-extrabold tracking-tight text-stone-900 mb-3 sm:mb-4 leading-[1.08] max-w-2xl mx-auto px-2"
-            style={{ animationDelay: '0.08s' }}
-          >
+          <h1 className="lp-hero-in text-balance break-words text-3xl sm:text-5xl font-extrabold tracking-tight text-stone-900 mb-3 leading-[1.1] px-2">
             {canteenName}
           </h1>
-          <p
-            className="lp-hero-in text-balance break-words text-stone-500 text-base sm:text-lg max-w-md mx-auto px-2"
-            style={{ animationDelay: '0.16s' }}
-          >
+          <p className="lp-hero-in text-balance break-words text-stone-600 text-base sm:text-lg max-w-md mx-auto px-2 leading-relaxed">
             {tagline}
           </p>
-
-          {/* Primary CTA */}
-          <div className="lp-hero-in mt-7 sm:mt-8 flex flex-col items-center gap-2" style={{ animationDelay: '0.24s' }}>
+          <p className="lp-hero-in text-balance text-stone-500 text-sm sm:text-base max-w-lg mx-auto px-2 mt-4 leading-relaxed">
+            Send money in your own app (Zelle, Venmo, etc.), then fill out the quick form below so we can
+            credit your camper. <span className="text-stone-600 font-medium">This page doesn&apos;t charge you.</span>
+          </p>
+          <div className="lp-hero-in mt-7 flex flex-col items-center gap-2.5">
             <button
               onClick={() => scrollToId('send-payment')}
               className="inline-flex items-center justify-center gap-2 bg-orange-700 hover:bg-orange-800 text-white font-bold px-9 py-4 min-h-[56px] rounded-2xl shadow-lg shadow-orange-700/25 transition-all active:scale-95 text-base sm:text-lg"
@@ -774,32 +767,10 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
             </button>
             <button
               onClick={() => scrollToId('topup-form')}
-              className="text-sm text-stone-500 font-medium hover:text-teal-700 min-h-[44px] px-3"
+              className="text-xs text-stone-400 font-medium hover:text-teal-700 min-h-[36px] px-3"
             >
-              Already paid? Skip ahead to the form <ArrowRight className="w-3.5 h-3.5 inline -mt-0.5" />
+              Already paid? Skip to the form <ArrowRight className="w-3 h-3 inline -mt-0.5" />
             </button>
-          </div>
-
-          {/* Compact how-it-works strip — frosted glass */}
-          <div
-            className={`lp-hero-in mt-9 sm:mt-12 max-w-md mx-auto ${GLASS_CARD} rounded-3xl divide-y divide-stone-200/60 text-left`}
-            style={{ animationDelay: '0.32s' }}
-          >
-            {[
-              { n: '1', title: 'Send money from your own app', desc: "Zelle, Venmo, etc. — this page can't send it for you." },
-              { n: '2', title: 'Submit the short form here', desc: "Tell us who it's for and how much you sent." },
-              { n: '3', title: "We credit your son's account", desc: 'Usually within a few hours of verifying the payment.' },
-            ].map(step => (
-              <div key={step.n} className="flex items-center gap-3 px-4 py-3.5">
-                <div className="w-6 h-6 bg-teal-700/10 text-teal-800 rounded-full flex items-center justify-center text-xs font-bold shrink-0">
-                  {step.n}
-                </div>
-                <div className="min-w-0">
-                  <p className="font-semibold text-stone-900 text-sm leading-snug">{step.title}</p>
-                  <p className="text-stone-500 text-xs mt-0.5">{step.desc}</p>
-                </div>
-              </div>
-            ))}
           </div>
         </div>
 
@@ -813,7 +784,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
             {(enabledMethods.length > 0 || ccEnabled || ccComingSoon) && (
               <div>
                 {hasNoteMethods && (
-                  <div className="lp-reveal flex items-start gap-2 bg-amber-50/80 border border-amber-200/80 text-amber-900 rounded-xl px-3 py-2.5 mb-3 backdrop-blur-sm">
+                  <div className="lp-reveal flex items-start gap-2 bg-amber-50 border border-amber-200/80 text-amber-900 rounded-xl px-3 py-2.5 mb-3">
                     <Info className="w-4 h-4 shrink-0 mt-0.5" />
                     <p className="text-xs leading-relaxed">
                       When sending {noteMethodsText}, please include in the payment notes:{' '}
@@ -914,7 +885,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
                   )}
 
                   {ccComingSoon && (
-                    <div className="lp-reveal p-4 bg-stone-100/70 backdrop-blur-sm rounded-2xl border border-dashed border-stone-300/80">
+                    <div className="lp-reveal p-4 bg-stone-100/90 rounded-2xl border border-dashed border-stone-300/80">
                       <div className="flex items-center gap-3">
                         <div className="w-10 h-10 rounded-xl flex items-center justify-center text-stone-400 bg-stone-200 shrink-0">
                           <CreditCard className="w-5 h-5" />
@@ -973,7 +944,7 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
 
         {/* Popular items */}
         {topSellers.length > 0 && (
-          <section className="mt-12 sm:mt-16 lp-reveal">
+          <section className="mt-10 sm:mt-14 lp-reveal">
             <div className="flex items-center gap-2 mb-1.5">
               <Flame className="w-5 h-5 text-orange-600" />
               <h2 className="text-lg sm:text-xl font-bold text-stone-900 tracking-tight">Popular Right Now</h2>
@@ -1015,20 +986,18 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
         )}
       </main>
 
-      {/* Sticky mobile CTA — hides once the form is in view */}
-      {showStickyCta && (
-        <div className="lg:hidden fixed bottom-0 inset-x-0 z-20 px-4 pb-4 pt-2 bg-gradient-to-t from-[#FAF9F6] via-[#FAF9F6]/90 to-transparent pointer-events-none">
-          <button
-            onClick={() => scrollToId('send-payment')}
-            className="pointer-events-auto w-full flex items-center justify-center gap-2 bg-orange-700 hover:bg-orange-800 text-white font-bold py-3.5 min-h-[52px] rounded-2xl shadow-lg shadow-orange-700/30 transition-all active:scale-[0.98] text-base"
-          >
-            <Wallet className="w-5 h-5" /> Add Funds
-          </button>
+      <footer className="relative z-10 border-t border-stone-200/70 mt-14 sm:mt-20 pt-8 pb-10">
+        <div className="flex flex-col items-center gap-2.5 text-center px-4">
+          <div className="flex items-center gap-2">
+            <div className="w-7 h-7 bg-teal-700 rounded-lg flex items-center justify-center shrink-0 shadow-sm shadow-teal-700/20">
+              <ShoppingBag className="w-3.5 h-3.5 text-white" />
+            </div>
+            <span className="font-semibold text-stone-600 text-sm">{canteenName}</span>
+          </div>
+          <p className="text-xs text-stone-400">
+            &copy; {new Date().getFullYear()} · Powered by Canteen POS
+          </p>
         </div>
-      )}
-
-      <footer className="relative z-10 border-t border-stone-200/70 mt-12 sm:mt-16 py-6 text-center text-sm text-stone-400">
-        {canteenName} · Powered by Canteen POS
       </footer>
     </div>
   )
