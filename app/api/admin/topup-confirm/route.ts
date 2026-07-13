@@ -54,6 +54,14 @@ export async function POST(req: NextRequest) {
     ? body.payment_received_date
     : null
 
+  // Optional: reconciliation — what the admin actually saw hit their card processor
+  // for a credit_card top-up (may differ from the requested `amount` if the parent
+  // typed the wrong grossed-up number on Stripe's page). Only meaningful for
+  // credit_card + non-skip-credit confirms; ignored otherwise.
+  const receivedAmount = typeof body.received_amount === 'number' && Number.isFinite(body.received_amount) && body.received_amount > 0
+    ? body.received_amount
+    : null
+
   const admin = createAdminClient()
 
   // Fetch the topup — verify it's pending and has a bochur linked
@@ -66,6 +74,14 @@ export async function POST(req: NextRequest) {
   if (topupErr || !topup) {
     return NextResponse.json({ error: 'Top-up not found' }, { status: 404 })
   }
+
+  // Settings fetch moved up here (was previously re-fetched inside the email
+  // try/catch below) so we can compute the fee-adjusted credit amount before
+  // crediting the balance, and reuse the same settings for the email call.
+  const { data: settingsRows } = await admin.from('settings').select('key, value')
+  const rawSettings: Record<string, string> = {}
+  settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
+  const emailSettings = buildEmailSettings(rawSettings)
   if (topup.status !== 'pending') {
     return NextResponse.json(
       { error: `Top-up is already ${topup.status}` },
@@ -84,6 +100,16 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Top-up has invalid amount' }, { status: 400 })
   }
 
+  // Reconciliation: for a credit_card top-up (not skip-credit), a received_amount
+  // means the admin is telling us what actually hit the card processor, which may
+  // differ from the parent-typed/requested `amount`. Compute the fee-adjusted
+  // credit amount now so it can be written atomically with the status claim below.
+  const ccFeePercent = parseFloat(rawSettings['cc_fee_percent'] || '3')
+  const isReconciledCC = !skipCredit && topup.method === 'credit_card' && receivedAmount !== null
+  const creditAmount = isReconciledCC
+    ? Math.round((receivedAmount as number) * (1 - ccFeePercent / 100) * 100) / 100
+    : topup.amount
+
   // --- Atomic status claim (TOCTOU guard) ---
   // Update status to 'confirmed' only if it is still 'pending'.
   // If two requests race here, exactly one will update a row; the other
@@ -95,6 +121,7 @@ export async function POST(req: NextRequest) {
       confirmed_by: auth.user.id,
       confirmed_at: new Date().toISOString(),
       ...(paymentReceivedDate ? { payment_received_date: paymentReceivedDate } : {}),
+      ...(isReconciledCC ? { credited_amount: creditAmount } : {}),
     })
     .eq('id', topupId)
     .eq('status', 'pending')  // atomic guard — only succeeds once
@@ -134,7 +161,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Bochur not found' }, { status: 404 })
     }
 
-    newBalance = Math.round((bochur.balance + topup.amount) * 100) / 100
+    newBalance = Math.round((bochur.balance + creditAmount) * 100) / 100
 
     // Apply balance update
     const { error: balanceErr } = await admin
@@ -148,11 +175,14 @@ export async function POST(req: NextRequest) {
     }
 
     // Ledger entry
+    const ledgerNote = isReconciledCC && creditAmount !== topup.amount
+      ? `credit_card top-up (reconciled: received $${(receivedAmount as number).toFixed(2)}, credited $${creditAmount.toFixed(2)} after ${ccFeePercent}% fee)${topup.sender_name ? ` from ${topup.sender_name}` : ''}`
+      : `${topup.method} top-up${topup.sender_name ? ` from ${topup.sender_name}` : ''}`
     await admin.from('balance_ledger').insert({
       bochur_id: topup.bochur_id,
-      amount: topup.amount,
+      amount: creditAmount,
       type: 'topup',
-      note: `${topup.method} top-up${topup.sender_name ? ` from ${topup.sender_name}` : ''}`,
+      note: ledgerNote,
       cashier_id: auth.user.id,
     })
   }
@@ -161,17 +191,17 @@ export async function POST(req: NextRequest) {
   // function mid-send and delays delivery until the instance thaws
   if (process.env.RESEND_API_KEY && topup.parent_email) {
     try {
-      const { data: settingsRows } = await admin.from('settings').select('key, value')
-      const rawSettings: Record<string, string> = {}
-      settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
-      const emailSettings = buildEmailSettings(rawSettings)
+      const reconciliationNote = isReconciledCC && creditAmount !== topup.amount
+        ? `You were charged $${(receivedAmount as number).toFixed(2)} on your card. After the ${ccFeePercent}% processing fee, $${creditAmount.toFixed(2)} was credited to the account.`
+        : undefined
       const sent = await sendTopupApproved({
         parentEmail: topup.parent_email!,
         parentName: topup.sender_name || 'Parent',
         studentName: topup.student_name || 'your son',
-        amount: topup.amount,
+        amount: creditAmount,
         newBalance,
         emailSettings,
+        ...(reconciliationNote ? { reconciliationNote } : {}),
       })
       if (sent) await admin.from('balance_topups').update({ approved_email_sent_at: new Date().toISOString() }).eq('id', topupId)
     } catch (e) {

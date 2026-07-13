@@ -144,6 +144,7 @@ export async function sendTopupApproved({
   amount,
   newBalance,
   emailSettings,
+  reconciliationNote,
 }: {
   parentEmail: string
   parentName: string
@@ -151,12 +152,21 @@ export async function sendTopupApproved({
   amount: number
   newBalance?: number
   emailSettings?: EmailSettings
+  // Present only when a credit_card top-up was reconciled against what the
+  // card processor actually received, and the credited amount ended up
+  // differing from the parent's original requested amount. Built server-side
+  // from numbers we control (never raw user input), so plain interpolation
+  // into the HTML below is safe.
+  reconciliationNote?: string
 }): Promise<boolean> {
   const es = emailSettings ?? DEFAULT_EMAIL_SETTINGS
   if (!es.approvedEnabled) return false
   const fmt = (n: number) => `$${n.toFixed(2)}`
   const balanceLine = newBalance !== undefined
     ? `<p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">New balance:</strong> ${fmt(newBalance)}</p>`
+    : ''
+  const reconciliationHtml = reconciliationNote
+    ? `<div style="background:#fffbeb;border:1px solid #fde68a;border-radius:12px;padding:16px;margin:20px 0"><p style="margin:0 0 6px;color:#92400e;font-size:11px;font-weight:700;text-transform:uppercase;letter-spacing:.06em">Card charge note</p><p style="margin:0;color:#78350f;font-size:14px">${reconciliationNote}</p></div>`
     : ''
   const from = `${es.senderName} <${es.senderAddress}>`
   const subject = resolveSubject(es.approvedSubject, fmt(amount), studentName)
@@ -177,6 +187,7 @@ export async function sendTopupApproved({
             <p style="margin:4px 0;color:#64748b;font-size:14px"><strong style="color:#1e293b">Amount added:</strong> ${fmt(amount)}</p>
             ${balanceLine}
           </div>
+          ${reconciliationHtml}
           ${extraNoteHtml(es.approvedNote)}
           ${footerHtml(es.footerNote, es.contactPhone)}
         </div>
