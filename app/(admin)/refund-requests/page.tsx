@@ -6,6 +6,7 @@ import { RefreshCw, Check, X } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import CashierQuickViewModal from '@/components/admin/CashierQuickViewModal'
 
 export default function RefundRequestsPage() {
   const supabase = createClient()
@@ -14,6 +15,7 @@ export default function RefundRequestsPage() {
   const [processingId, setProcessingId] = useState<string | null>(null)
   const [rejectingId, setRejectingId] = useState<string | null>(null)
   const [rejectNote, setRejectNote] = useState('')
+  const [viewCashierId, setViewCashierId] = useState<string | null>(null)
 
   useEffect(() => { load() }, [])
 
@@ -123,7 +125,17 @@ export default function RefundRequestsPage() {
           <td className="px-5 py-3 text-sm font-semibold text-slate-900">#{r.orders?.order_number ?? '—'}</td>
           <td className="px-5 py-3 text-sm font-bold text-slate-900">{formatCurrency(r.amount)}</td>
           <td className="px-5 py-3 text-sm text-slate-700 max-w-xs truncate" title={r.reason}>{r.reason}</td>
-          <td className="px-5 py-3 text-sm text-slate-700">{r.cashier_profiles?.name || '—'}</td>
+          <td className="px-5 py-3 text-sm text-slate-700">
+            {r.cashier_profiles?.name ? (
+              <button
+                type="button"
+                onClick={e => { e.stopPropagation(); setViewCashierId(r.requested_by) }}
+                className="hover:underline hover:text-indigo-600 text-left"
+              >
+                {r.cashier_profiles.name}
+              </button>
+            ) : '—'}
+          </td>
           <td className="px-5 py-3 text-center"><span className={`badge ${statusBadge[r.status] || 'bg-slate-100 text-slate-500'}`}>{r.status}</span></td>
           <td className="px-5 py-3 text-right">
             {r.status === 'pending' ? (
@@ -212,6 +224,10 @@ export default function RefundRequestsPage() {
           </table>
         </div>
       </div>
+
+      {viewCashierId && (
+        <CashierQuickViewModal cashierId={viewCashierId} onClose={() => setViewCashierId(null)} />
+      )}
     </div>
   )
 }

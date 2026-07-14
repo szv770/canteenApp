@@ -2,6 +2,8 @@ import { createClient } from '@/lib/supabase/server'
 import { formatCurrency } from '@/lib/utils'
 import { TrendingUp, Users, ShoppingCart, AlertTriangle, Package, CreditCard, ArrowUpRight, ArrowDownRight, BarChart2 } from 'lucide-react'
 import { format } from 'date-fns'
+import TopProductsTable from '@/components/admin/TopProductsTable'
+import LowStockList from '@/components/admin/LowStockList'
 
 export const revalidate = 60
 
@@ -70,11 +72,11 @@ async function getStats(supabase: any) {
   ])
 
   // Aggregate top products
-  const productMap: Record<string, { name: string; qty: number; revenue: number }> = {}
+  const productMap: Record<string, { id: string | null; name: string; qty: number; revenue: number }> = {}
   for (const item of (topProducts.data || []) as any[]) {
     const key = item.product_id || item.product_name
     if (!productMap[key]) {
-      productMap[key] = { name: item.product_name, qty: 0, revenue: 0 }
+      productMap[key] = { id: item.product_id ?? null, name: item.product_name, qty: 0, revenue: 0 }
     }
     productMap[key].qty += item.quantity
     productMap[key].revenue += Number(item.total)
@@ -409,44 +411,7 @@ export default async function DashboardPage() {
           <h2 className="font-semibold text-slate-900">Top Selling Products</h2>
           <span className="ml-auto text-xs text-slate-400">Last 30 days · by quantity</span>
         </div>
-        <div className="overflow-x-auto">
-          {stats.topProducts.length === 0 ? (
-            <div className="text-center py-10">
-              <p className="text-sm text-slate-400">No sales data yet</p>
-            </div>
-          ) : (
-            <table className="w-full min-w-[400px]">
-              <thead>
-                <tr className="border-b border-slate-50 bg-slate-50/50">
-                  <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Product</th>
-                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Units Sold</th>
-                  <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Revenue</th>
-                  <th className="px-5 py-3 w-40"></th>
-                </tr>
-              </thead>
-              <tbody>
-                {stats.topProducts.map((p: any, i: number) => {
-                  const maxQty = stats.topProducts[0]?.qty || 1
-                  const pct = (p.qty / maxQty) * 100
-                  return (
-                    <tr key={p.name} className="table-row border-b border-slate-50 last:border-0">
-                      <td className="px-5 py-3 text-sm font-medium text-slate-900">
-                        <span className="text-slate-400 text-xs mr-2">#{i + 1}</span>{p.name}
-                      </td>
-                      <td className="px-5 py-3 text-sm font-bold text-slate-900 text-right">{p.qty}</td>
-                      <td className="px-5 py-3 text-sm font-semibold text-slate-700 text-right">{formatCurrency(p.revenue)}</td>
-                      <td className="px-5 py-3">
-                        <div className="w-full bg-slate-100 rounded-full h-1.5">
-                          <div className="bg-emerald-400 h-1.5 rounded-full" style={{ width: `${pct}%` }} />
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          )}
-        </div>
+        <TopProductsTable products={stats.topProducts} />
       </div>
 
       <div className="grid grid-cols-1 lg:grid-cols-3 gap-6">
@@ -512,27 +477,11 @@ export default async function DashboardPage() {
               </span>
             )}
           </div>
-          <div className="p-3 space-y-1">
-            {actualLowStock.length === 0 ? (
-              <div className="text-center py-8">
-                <p className="text-sm text-slate-400 font-medium">All stocked up!</p>
-                <p className="text-xs text-slate-300 mt-1">No items running low</p>
-              </div>
-            ) : actualLowStock.map((p: any) => (
-              <div key={p.id} className="flex items-center justify-between px-3 py-2.5 rounded-xl hover:bg-slate-50 transition-colors">
-                <div className="flex items-center gap-2.5">
-                  <span className="text-lg leading-none">{p.icon || '📦'}</span>
-                  <span className="text-sm text-slate-700 font-medium">{p.name}</span>
-                </div>
-                <span className={`badge ${p.stock_quantity <= 0 ? 'bg-red-50 text-red-600' : 'bg-amber-50 text-amber-600'}`}>
-                  {p.stock_quantity}
-                </span>
-              </div>
-            ))}
-          </div>
+          <LowStockList products={actualLowStock} />
         </div>
       </div>
-      {/* Low balance alert log */}
+      {/* Low balance alert log — bochur_name here is a denormalized string on failed_checkout_log
+          with no bochur_id column, so it can't be made clickable into a student quick-view */}
       {failedCheckouts.length > 0 && (
         <div className="bg-white rounded-xl border border-slate-100 shadow-sm overflow-hidden">
           <div className="px-5 py-4 border-b border-slate-100 flex items-center gap-2">

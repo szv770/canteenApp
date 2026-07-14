@@ -676,6 +676,7 @@ export default function PosPage() {
         <TopUpModal
           onClose={() => setShowTopUp(false)}
           onSuccess={() => { if (loadedBochur) loadData() }}
+          settings={settings}
         />
       )}
 
