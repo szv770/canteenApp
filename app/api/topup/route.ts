@@ -56,20 +56,32 @@ export async function POST(req: NextRequest) {
   }
 
   // --- Cloudflare Turnstile verification ---
+  // Fails OPEN, not closed: if the widget never loaded client-side (ad blocker,
+  // network hiccup, site-key/domain mismatch) or Cloudflare's verify endpoint is
+  // unreachable, a real parent must still be able to submit — this only gates
+  // credit, since funds are never applied until an admin manually reviews the
+  // request anyway. The IP rate limiter above is the actual spam backstop. We
+  // only hard-reject when a token WAS provided and Cloudflare explicitly says
+  // it's invalid — that's the one case we can be confident is a bad attempt.
   const turnstileSecret = process.env.CLOUDFLARE_TURNSTILE_SECRET
   if (turnstileSecret) {
     const token = typeof body['cf-turnstile-response'] === 'string' ? body['cf-turnstile-response'] : ''
-    if (!token) {
-      return NextResponse.json({ error: 'Please complete the security check.' }, { status: 400 })
-    }
-    const verify = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ secret: turnstileSecret, response: token }),
-    })
-    const vResult = await verify.json() as { success: boolean }
-    if (!vResult.success) {
-      return NextResponse.json({ error: 'Security check failed. Please refresh and try again.' }, { status: 400 })
+    if (token) {
+      try {
+        const verify = await fetch('https://challenges.cloudflare.com/turnstile/v0/siteverify', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ secret: turnstileSecret, response: token }),
+        })
+        const vResult = await verify.json() as { success: boolean }
+        if (!vResult.success) {
+          return NextResponse.json({ error: 'Security check failed. Please refresh and try again.' }, { status: 400 })
+        }
+      } catch (e) {
+        console.error('[topup] Turnstile verify request failed, allowing through:', e)
+      }
+    } else {
+      console.warn('[topup] No Turnstile token on submission (widget likely failed to load) — allowing through.')
     }
   }
 

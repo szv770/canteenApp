@@ -336,6 +336,11 @@ function TopUpFormSection({ settings, method, ccFeePercent, onChangeMethod }: To
   const [submitting, setSubmitting] = useState(false)
   const [formError, setFormError] = useState('')
   const [turnstileToken, setTurnstileToken] = useState<string | null>(null)
+  // Set when the widget errors, or never loads within a few seconds (ad blocker,
+  // network hiccup, site-key/domain mismatch). A parent must never be permanently
+  // stuck unable to submit because a third-party script didn't load — see the
+  // matching fail-open change in app/api/topup/route.ts.
+  const [turnstileUnavailable, setTurnstileUnavailable] = useState(false)
   const turnstileRef = useRef<HTMLDivElement>(null)
   const turnstileWidgetId = useRef<string | null>(null)
   const siteKey = process.env.NEXT_PUBLIC_TURNSTILE_SITE_KEY
@@ -346,11 +351,19 @@ function TopUpFormSection({ settings, method, ccFeePercent, onChangeMethod }: To
     if (turnstileWidgetId.current !== null) return
     turnstileWidgetId.current = (window as any).turnstile.render(turnstileRef.current, {
       sitekey: siteKey,
-      callback: (token: string) => setTurnstileToken(token),
+      callback: (token: string) => { setTurnstileToken(token); setTurnstileUnavailable(false) },
       'expired-callback': () => setTurnstileToken(null),
-      'error-callback': () => setTurnstileToken(null),
+      'error-callback': () => { setTurnstileToken(null); setTurnstileUnavailable(true) },
       theme: 'light',
     })
+  }, [siteKey])
+
+  useEffect(() => {
+    if (!siteKey) return
+    const timer = setTimeout(() => {
+      if (turnstileWidgetId.current === null) setTurnstileUnavailable(true)
+    }, 6000)
+    return () => clearTimeout(timer)
   }, [siteKey])
 
   function set(k: keyof typeof form, v: string) {
@@ -411,7 +424,7 @@ function TopUpFormSection({ settings, method, ccFeePercent, onChangeMethod }: To
     if (!Number.isFinite(amt) || amt <= 0) { err('Please enter a valid amount'); return }
     if (amt > 10000) { err('Amount cannot exceed $10,000'); return }
 
-    if (siteKey && !turnstileToken) {
+    if (siteKey && !turnstileToken && !turnstileUnavailable) {
       err('Please complete the security check below.')
       return
     }
@@ -691,14 +704,20 @@ function TopUpFormSection({ settings, method, ccFeePercent, onChangeMethod }: To
                   src="https://challenges.cloudflare.com/turnstile/v0/api.js"
                   strategy="afterInteractive"
                   onLoad={renderTurnstile}
+                  onError={() => setTurnstileUnavailable(true)}
                 />
                 <div ref={turnstileRef} className="flex justify-center" />
+                {turnstileUnavailable && (
+                  <p className="text-xs text-stone-400 text-center">
+                    Security check unavailable right now — you can still submit; we&apos;ll review your request manually.
+                  </p>
+                )}
               </>
             )}
 
             <button
               type="submit"
-              disabled={submitting || (!!siteKey && !turnstileToken)}
+              disabled={submitting || (!!siteKey && !turnstileToken && !turnstileUnavailable)}
               className="w-full flex items-center justify-center gap-2 bg-orange-700 hover:bg-orange-800 disabled:opacity-60 disabled:cursor-not-allowed text-white font-semibold py-3.5 min-h-[52px] rounded-2xl transition-all active:scale-[0.98] text-base shadow-md shadow-orange-700/20"
             >
               {submitting ? (
