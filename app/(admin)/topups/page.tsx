@@ -2,11 +2,39 @@
 
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { RefreshCw, Check, X, Link as LinkIcon, Calendar, Mail, MailCheck, MailX, CheckCheck, Calculator } from 'lucide-react'
+import { RefreshCw, Check, X, Link as LinkIcon, Calendar, Mail, MailCheck, MailX, CheckCheck, Calculator, Eye } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import TableSkeleton from '@/components/admin/TableSkeleton'
+import CashierQuickViewModal from '@/components/admin/CashierQuickViewModal'
+import BochurProfileModal from '../bochurim/BochurProfileModal'
+import type { BochurWithId, AccountType } from '@/types/database'
+
+// Fetch-by-id wrapper so the Bochur profile modal (which needs a full row, not just an id)
+// can be opened from a quick-view trigger. Same pattern as reports/page.tsx's StudentProfilePanel.
+function StudentProfilePanel({
+  bochurId, accountTypes, onClose,
+}: { bochurId: string; accountTypes: AccountType[]; onClose: () => void }) {
+  const supabase = createClient()
+  const [bochur, setBochur] = useState<BochurWithId | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.from('bochurim_with_id')
+      .select('*, account_type:account_types(*)')
+      .eq('id', bochurId).single()
+      .then(({ data }) => { setBochur(data as any); setLoading(false) })
+  }, [bochurId])
+
+  if (loading) return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl p-8"><div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" /></div>
+    </div>
+  )
+  if (!bochur) return null
+  return <BochurProfileModal bochur={bochur} accountTypes={accountTypes} onClose={onClose} onUpdated={onClose} />
+}
 
 const todayDateStr = () => new Date().toISOString().slice(0, 10)
 
@@ -50,12 +78,16 @@ export default function TopupsPage() {
   // Reconcile (Credit Card) modal state
   const [reconcilingTopup, setReconcilingTopup] = useState<{ id: string; studentName: string; amount: number } | null>(null)
   const [reconcileReceivedInput, setReconcileReceivedInput] = useState('')
+  // Quick-view popups
+  const [viewCashierId, setViewCashierId] = useState<string | null>(null)
+  const [viewBochurId, setViewBochurId] = useState<string | null>(null)
+  const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
 
   useEffect(() => { loadAll() }, [])
 
   async function loadAll() {
     setLoading(true)
-    const [tRes, bRes, sRes] = await Promise.all([
+    const [tRes, bRes, sRes, atRes] = await Promise.all([
       supabase
         .from('balance_topups')
         .select('*, bochurim(name), received_email_sent_at, approved_email_sent_at, rejected_email_sent_at')
@@ -63,7 +95,9 @@ export default function TopupsPage() {
         .limit(100),
       supabase.from('bochurim').select('id,name').eq('archived', false).order('name'),
       supabase.from('settings').select('key,value').eq('key', 'cc_fee_percent').maybeSingle(),
+      supabase.from('account_types').select('*').eq('is_active', true).order('name'),
     ])
+    setAccountTypes((atRes.data || []) as AccountType[])
     if (sRes.data?.value != null) {
       const raw = String(sRes.data.value)
       const unquoted = raw.startsWith('"') ? raw.slice(1, -1) : raw
@@ -263,7 +297,19 @@ export default function TopupsPage() {
                       )}
                     </div>
                     <p className="text-xs text-slate-400">
-                      from {t.created_by ? ((t.cashier_profiles as any)?.name || t.sender_name || 'Cashier') : (t.sender_name || '—')}
+                      from {t.created_by ? (
+                        // cashier_profiles!created_by(...) can't be joined via PostgREST (created_by is a
+                        // cross-schema FK to auth.users — see gotcha #18), but cashier_profiles.id is always
+                        // set to the same auth.users id at account creation, so created_by IS a valid
+                        // cashier_profiles.id we can pass straight to the quick-view modal without a join.
+                        <button
+                          type="button"
+                          onClick={() => setViewCashierId(t.created_by)}
+                          className="hover:underline hover:text-indigo-600 text-left"
+                        >
+                          {t.sender_name || 'Cashier'}
+                        </button>
+                      ) : (t.sender_name || '—')}
                     </p>
                     {t.parent_phone && <p className="text-xs text-slate-400">{t.parent_phone}</p>}
                     {t.parent_email && <p className="text-xs text-slate-400">{t.parent_email}</p>}
@@ -286,13 +332,25 @@ export default function TopupsPage() {
                       </div>
                     ) : (
                       <div className="flex flex-col items-start gap-1">
-                        <button
-                          onClick={() => { setLinkingId(t.id); setLinkBochurId(t.bochur_id || '') }}
-                          className={`flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 transition-colors font-medium ${t.bochurim?.name ? 'text-slate-700 hover:bg-slate-100' : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-100'}`}
-                        >
-                          <LinkIcon className="w-3 h-3" />
-                          {t.bochurim?.name || 'Link bochur'}
-                        </button>
+                        <div className="flex items-center gap-1">
+                          <button
+                            onClick={() => { setLinkingId(t.id); setLinkBochurId(t.bochur_id || '') }}
+                            className={`flex items-center gap-1.5 text-xs rounded-lg px-2.5 py-1.5 transition-colors font-medium ${t.bochurim?.name ? 'text-slate-700 hover:bg-slate-100' : 'text-amber-700 bg-amber-50 hover:bg-amber-100 border border-amber-100'}`}
+                          >
+                            <LinkIcon className="w-3 h-3" />
+                            {t.bochurim?.name || 'Link bochur'}
+                          </button>
+                          {t.bochur_id && t.bochurim?.name && (
+                            <button
+                              type="button"
+                              onClick={(e) => { e.stopPropagation(); setViewBochurId(t.bochur_id) }}
+                              className="p-1 text-slate-300 hover:text-indigo-600 hover:bg-indigo-50 rounded-lg transition-colors"
+                              title="View student profile"
+                            >
+                              <Eye className="w-3.5 h-3.5" />
+                            </button>
+                          )}
+                        </div>
                         {!t.bochur_id && suggestionsMap[t.id] && (
                           <div className={`flex items-center gap-1.5 text-[10px] rounded-lg px-2 py-1 border ${suggestionsMap[t.id].score >= 0.85 ? 'bg-amber-50 border-amber-200 text-amber-700' : 'bg-slate-50 border-slate-100 text-slate-500'}`}>
                             <span>💡 {suggestionsMap[t.id].bochurName}?</span>
@@ -523,6 +581,17 @@ export default function TopupsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {viewCashierId && (
+        <CashierQuickViewModal cashierId={viewCashierId} onClose={() => setViewCashierId(null)} />
+      )}
+      {viewBochurId && (
+        <StudentProfilePanel
+          bochurId={viewBochurId}
+          accountTypes={accountTypes}
+          onClose={() => setViewBochurId(null)}
+        />
       )}
     </div>
   )

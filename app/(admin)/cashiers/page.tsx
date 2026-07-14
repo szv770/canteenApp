@@ -5,7 +5,34 @@ import { createClient } from '@/lib/supabase/client'
 import { Plus, X, Shield, User, Key, Pencil, Trash2, DollarSign, Link, Unlink } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { formatCurrency } from '@/lib/utils'
-import type { CashierProfile } from '@/types/database'
+import type { CashierProfile, BochurWithId, AccountType } from '@/types/database'
+import CashierQuickViewModal from '@/components/admin/CashierQuickViewModal'
+import BochurProfileModal from '../bochurim/BochurProfileModal'
+
+// Fetch-by-id wrapper so the Bochur profile modal (needs a full row, not just an id) can be
+// opened from a quick-view trigger. Same pattern as reports/page.tsx's StudentProfilePanel.
+function StudentProfilePanel({
+  bochurId, accountTypes, onClose,
+}: { bochurId: string; accountTypes: AccountType[]; onClose: () => void }) {
+  const supabase = createClient()
+  const [bochur, setBochur] = useState<BochurWithId | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.from('bochurim_with_id')
+      .select('*, account_type:account_types(*)')
+      .eq('id', bochurId).single()
+      .then(({ data }) => { setBochur(data as any); setLoading(false) })
+  }, [bochurId])
+
+  if (loading) return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl p-8"><div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" /></div>
+    </div>
+  )
+  if (!bochur) return null
+  return <BochurProfileModal bochur={bochur} accountTypes={accountTypes} onClose={onClose} onUpdated={onClose} />
+}
 
 interface CashierRow extends CashierProfile {
   tip_balance?: number
@@ -20,10 +47,15 @@ export default function CashiersPage() {
   const [showCreate, setShowCreate] = useState(false)
   const [editTarget, setEditTarget] = useState<CashierRow | null>(null)
   const [currentUserId, setCurrentUserId] = useState<string | null>(null)
+  const [viewCashierId, setViewCashierId] = useState<string | null>(null)
+  const [viewBochurId, setViewBochurId] = useState<string | null>(null)
+  const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
 
   useEffect(() => {
     supabase.auth.getUser().then(({ data }) => setCurrentUserId(data.user?.id ?? null))
     loadCashiers()
+    supabase.from('account_types').select('*').eq('is_active', true).order('name')
+      .then(({ data }) => setAccountTypes((data || []) as AccountType[]))
   }, [])
 
   async function loadCashiers() {
@@ -146,7 +178,13 @@ export default function CashiersPage() {
                         {c.name.charAt(0).toUpperCase()}
                       </div>
                       <div>
-                        <p className="text-sm font-medium text-gray-900">{c.name}</p>
+                        <button
+                          type="button"
+                          onClick={() => setViewCashierId(c.id)}
+                          className="text-sm font-medium text-gray-900 hover:underline hover:text-indigo-600 text-left"
+                        >
+                          {c.name}
+                        </button>
                         {c.id === currentUserId && <p className="text-xs text-brand font-medium">You</p>}
                       </div>
                     </div>
@@ -159,10 +197,14 @@ export default function CashiersPage() {
                   </td>
                   <td className="px-5 py-3">
                     {c.linked_bochur_name ? (
-                      <span className="badge bg-blue-50 text-blue-700">
+                      <button
+                        type="button"
+                        onClick={() => setViewBochurId(c.bochur_id!)}
+                        className="badge bg-blue-50 text-blue-700 hover:bg-blue-100 hover:underline transition-colors"
+                      >
                         <Link className="w-3 h-3 inline mr-1" />
                         {c.linked_bochur_name}
-                      </span>
+                      </button>
                     ) : (
                       <span className="text-xs text-gray-400">Not linked</span>
                     )}
@@ -223,6 +265,16 @@ export default function CashiersPage() {
           cashier={editTarget}
           onClose={() => setEditTarget(null)}
           onSaved={() => { setEditTarget(null); loadCashiers() }}
+        />
+      )}
+      {viewCashierId && (
+        <CashierQuickViewModal cashierId={viewCashierId} onClose={() => setViewCashierId(null)} />
+      )}
+      {viewBochurId && (
+        <StudentProfilePanel
+          bochurId={viewBochurId}
+          accountTypes={accountTypes}
+          onClose={() => setViewBochurId(null)}
         />
       )}
     </div>

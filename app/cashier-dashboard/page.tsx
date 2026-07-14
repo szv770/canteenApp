@@ -4,8 +4,13 @@ import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 import { ArrowLeft, ShoppingBag, Users, Star, RefreshCw, ChevronDown } from 'lucide-react'
+import ProductQuickViewModal from '@/components/admin/ProductQuickViewModal'
+import CashierQuickViewModal from '@/components/admin/CashierQuickViewModal'
+import BochurProfileModal from '../(admin)/bochurim/BochurProfileModal'
+import type { BochurWithId, AccountType } from '@/types/database'
 
 interface OrderLineItem {
+  product_id: string | null
   product_name: string
   quantity: number
 }
@@ -15,10 +20,37 @@ interface RecentOrder {
   created_at: string
   total: number
   status: string
+  bochur_id: string | null
   bochur_name: string | null
+  cashier_id: string | null
   cashier_name: string | null
   item_count: number
   items: OrderLineItem[]
+}
+
+// Fetch-by-id wrapper so the Bochur profile modal (needs a full row, not just an id) can be
+// opened from a quick-view trigger. Same pattern as reports/page.tsx's StudentProfilePanel.
+function StudentProfilePanel({
+  bochurId, accountTypes, onClose,
+}: { bochurId: string; accountTypes: AccountType[]; onClose: () => void }) {
+  const supabase = createClient()
+  const [bochur, setBochur] = useState<BochurWithId | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.from('bochurim_with_id')
+      .select('*, account_type:account_types(*)')
+      .eq('id', bochurId).single()
+      .then(({ data }) => { setBochur(data as any); setLoading(false) })
+  }, [bochurId])
+
+  if (loading) return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl p-8"><div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" /></div>
+    </div>
+  )
+  if (!bochur) return null
+  return <BochurProfileModal bochur={bochur} accountTypes={accountTypes} onClose={onClose} onUpdated={onClose} />
 }
 
 export default function CashierDashboardPage() {
@@ -31,6 +63,15 @@ export default function CashierDashboardPage() {
   const [recentOrders, setRecentOrders] = useState<RecentOrder[]>([])
   const [lastRefresh, setLastRefresh] = useState(new Date())
   const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
+  const [viewBochurId, setViewBochurId] = useState<string | null>(null)
+  const [viewCashierId, setViewCashierId] = useState<string | null>(null)
+  const [viewProductId, setViewProductId] = useState<string | null>(null)
+
+  useEffect(() => {
+    supabase.from('account_types').select('*').eq('is_active', true).order('name')
+      .then(({ data }) => setAccountTypes((data || []) as AccountType[]))
+  }, [])
 
   const loadData = useCallback(async () => {
     const now = new Date()
@@ -54,7 +95,7 @@ export default function CashierDashboardPage() {
 
       supabase
         .from('orders')
-        .select('id, created_at, total, status, bochurim!bochur_id(name), cashier_profiles!cashier_id(name), order_items(product_name, quantity)')
+        .select('id, created_at, total, status, bochur_id, cashier_id, bochurim!bochur_id(name), cashier_profiles!cashier_id(name), order_items(product_id, product_name, quantity)')
         .eq('order_items.is_bundle_component', false)
         .gte('created_at', todayStart)
         .lt('created_at', todayEnd)
@@ -80,10 +121,12 @@ export default function CashierDashboardPage() {
       created_at: o.created_at,
       total: Number(o.total),
       status: o.status,
+      bochur_id: o.bochur_id || null,
       bochur_name: (o.bochurim as any)?.name || null,
+      cashier_id: o.cashier_id || null,
       cashier_name: (o.cashier_profiles as any)?.name || null,
       item_count: Array.isArray(o.order_items) ? o.order_items.reduce((s: number, i: any) => s + i.quantity, 0) : 0,
-      items: Array.isArray(o.order_items) ? o.order_items.map((i: any) => ({ product_name: i.product_name, quantity: i.quantity })) : [],
+      items: Array.isArray(o.order_items) ? o.order_items.map((i: any) => ({ product_id: i.product_id || null, product_name: i.product_name, quantity: i.quantity })) : [],
     }))
     setRecentOrders(recent)
 
@@ -183,24 +226,52 @@ export default function CashierDashboardPage() {
                 const expanded = expandedId === order.id
                 return (
                   <div key={order.id}>
-                    <button
+                    {/* Rendered as a div (not a button) since the bochur/cashier names below are
+                        clickable buttons themselves — nested <button> elements are invalid HTML. */}
+                    <div
+                      role="button"
+                      tabIndex={0}
                       onClick={() => setExpandedId(expanded ? null : order.id)}
-                      className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors"
+                      onKeyDown={e => { if (e.key === 'Enter' || e.key === ' ') setExpandedId(expanded ? null : order.id) }}
+                      className="w-full px-4 py-3 flex items-center gap-3 text-left hover:bg-slate-50 transition-colors cursor-pointer"
                     >
                       <div className="flex-1 min-w-0">
                         <p className="text-sm font-medium text-slate-800 truncate">
-                          {order.bochur_name || 'Walk-in'}
+                          {order.bochur_id && order.bochur_name ? (
+                            <button
+                              type="button"
+                              onClick={e => { e.stopPropagation(); setViewBochurId(order.bochur_id!) }}
+                              className="hover:underline hover:text-indigo-600 text-left"
+                            >
+                              {order.bochur_name}
+                            </button>
+                          ) : (
+                            order.bochur_name || 'Walk-in'
+                          )}
                         </p>
                         <p className="text-xs text-slate-400">
                           {formatTime(order.created_at)} · {order.item_count} item{order.item_count !== 1 ? 's' : ''}
-                          {order.cashier_name && <> · rung by {order.cashier_name}</>}
+                          {order.cashier_name && (
+                            <>
+                              {' '}· rung by{' '}
+                              {order.cashier_id ? (
+                                <button
+                                  type="button"
+                                  onClick={e => { e.stopPropagation(); setViewCashierId(order.cashier_id!) }}
+                                  className="hover:underline hover:text-indigo-600"
+                                >
+                                  {order.cashier_name}
+                                </button>
+                              ) : order.cashier_name}
+                            </>
+                          )}
                         </p>
                       </div>
                       <span className={`text-xs font-semibold px-2 py-0.5 rounded-full shrink-0 ${STATUS_BADGE[order.status] || 'bg-slate-50 text-slate-500'}`}>
                         {order.status}
                       </span>
                       <ChevronDown className={`w-4 h-4 text-slate-300 shrink-0 transition-transform ${expanded ? 'rotate-180' : ''}`} />
-                    </button>
+                    </div>
                     {expanded && (
                       <div className="px-4 pb-3 -mt-1">
                         <div className="bg-slate-50 rounded-xl p-3 space-y-1">
@@ -209,7 +280,17 @@ export default function CashierDashboardPage() {
                           ) : (
                             order.items.map((item, i) => (
                               <div key={i} className="flex justify-between text-xs text-slate-600">
-                                <span>{item.product_name}</span>
+                                {item.product_id ? (
+                                  <button
+                                    type="button"
+                                    onClick={() => setViewProductId(item.product_id!)}
+                                    className="hover:underline hover:text-indigo-600 text-left"
+                                  >
+                                    {item.product_name}
+                                  </button>
+                                ) : (
+                                  <span>{item.product_name}</span>
+                                )}
                                 <span className="text-slate-400">x{item.quantity}</span>
                               </div>
                             ))
@@ -224,6 +305,20 @@ export default function CashierDashboardPage() {
           )}
         </div>
       </div>
+
+      {viewBochurId && (
+        <StudentProfilePanel
+          bochurId={viewBochurId}
+          accountTypes={accountTypes}
+          onClose={() => setViewBochurId(null)}
+        />
+      )}
+      {viewCashierId && (
+        <CashierQuickViewModal cashierId={viewCashierId} onClose={() => setViewCashierId(null)} />
+      )}
+      {viewProductId && (
+        <ProductQuickViewModal productId={viewProductId} onClose={() => setViewProductId(null)} />
+      )}
     </div>
   )
 }
