@@ -2,14 +2,15 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { Search, X, User, DollarSign, Clock, Mail } from 'lucide-react'
-import { formatCurrency } from '@/lib/utils'
+import { Search, X, User, DollarSign, Clock, Mail, ExternalLink, Check } from 'lucide-react'
+import { formatCurrency, calcCCFee } from '@/lib/utils'
 import type { BochurWithId } from '@/types/database'
 import toast from 'react-hot-toast'
 
 interface Props {
   onClose: () => void
   onSuccess?: () => void
+  settings: Record<string, string>
 }
 
 const METHODS = ['cash', 'zelle', 'venmo', 'paypal', 'cashapp', 'credit_card', 'manual'] as const
@@ -25,7 +26,7 @@ const METHOD_LABELS: Record<Method, string> = {
   manual: 'Manual',
 }
 
-export default function TopUpModal({ onClose, onSuccess }: Props) {
+export default function TopUpModal({ onClose, onSuccess, settings }: Props) {
   const supabase = createClient()
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<BochurWithId[]>([])
@@ -37,7 +38,15 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
   const [note, setNote] = useState('')
   const [parentEmail, setParentEmail] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [stripeOpened, setStripeOpened] = useState(false)
   const debounceRef = useRef<NodeJS.Timeout>()
+
+  const parsedAmount = parseFloat(amount) || 0
+  const ccFeePercent = parseFloat(settings['cc_fee_percent'] || '3')
+  const ccFee = method === 'credit_card' && parsedAmount > 0 ? calcCCFee(parsedAmount, ccFeePercent) : 0
+  const ccTotalToCharge = parsedAmount + ccFee
+  const ccLinkRaw = settings['payment_cc_link']
+  const stripeUrl = ccLinkRaw ? (/^https?:\/\//i.test(ccLinkRaw) ? ccLinkRaw : `https://${ccLinkRaw}`) : null
 
   const search = useCallback((q: string) => {
     clearTimeout(debounceRef.current)
@@ -180,7 +189,7 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
               {METHODS.map(m => (
                 <button
                   key={m}
-                  onClick={() => setMethod(m)}
+                  onClick={() => { setMethod(m); setStripeOpened(false) }}
                   className={`py-2 rounded-xl text-xs font-medium transition-all ${
                     method === m
                       ? 'bg-amber-500 text-white shadow-sm'
@@ -192,6 +201,58 @@ export default function TopUpModal({ onClose, onSuccess }: Props) {
               ))}
             </div>
           </div>
+
+          {/* Credit card — fee math + Stripe hand-off, mirrors CheckoutModal's CC tab */}
+          {method === 'credit_card' && parsedAmount > 0 && (
+            <div className="space-y-3">
+              <div className="bg-slate-50 rounded-xl p-3 space-y-1.5">
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Top-up amount (credited)</span>
+                  <span className="text-slate-900 font-medium">{formatCurrency(parsedAmount)}</span>
+                </div>
+                <div className="flex justify-between text-sm">
+                  <span className="text-slate-500">Card fee ({ccFeePercent}%)</span>
+                  <span className="text-slate-900 font-medium">{formatCurrency(ccFee)}</span>
+                </div>
+                <div className="border-t border-slate-200 pt-1.5 flex justify-between">
+                  <span className="font-semibold text-slate-700">Total to charge on Stripe</span>
+                  <span className="font-bold text-slate-900">{formatCurrency(ccTotalToCharge)}</span>
+                </div>
+              </div>
+              {stripeUrl ? (
+                <div className="p-4 bg-blue-50 border border-blue-200 rounded-xl text-center space-y-3">
+                  <p className="text-2xl font-bold text-blue-800">{formatCurrency(ccTotalToCharge)}</p>
+                  <p className="text-xs text-blue-600">Type this amount in on the Stripe payment page</p>
+                  <a
+                    href={stripeUrl}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={() => setStripeOpened(true)}
+                    className={`w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold transition-all ${
+                      stripeOpened
+                        ? 'bg-emerald-500 text-white'
+                        : 'bg-blue-600 text-white hover:bg-blue-700 active:bg-blue-800'
+                    }`}
+                  >
+                    {stripeOpened ? (
+                      <><Check className="w-4 h-4" /> Stripe Opened ✓</>
+                    ) : (
+                      <><ExternalLink className="w-4 h-4" /> Open Stripe to Charge</>
+                    )}
+                  </a>
+                  <p className="text-xs text-blue-500">
+                    {stripeOpened
+                      ? 'Once the card is charged, submit the request below.'
+                      : 'Opens Stripe in a new tab — come back here once the card is charged.'}
+                  </p>
+                </div>
+              ) : (
+                <div className="p-3 bg-amber-50 border border-amber-100 rounded-xl text-xs text-amber-700">
+                  No Stripe link configured — ask an admin to set one in Settings, or run the card manually and note it below.
+                </div>
+              )}
+            </div>
+          )}
 
           {/* Parent email — optional, enables email notifications for this top-up */}
           <div>

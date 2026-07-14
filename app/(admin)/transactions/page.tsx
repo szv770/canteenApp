@@ -7,6 +7,34 @@ import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import RefundRequestsPage from '../refund-requests/page'
+import BochurProfileModal from '../bochurim/BochurProfileModal'
+import ProductQuickViewModal from '@/components/admin/ProductQuickViewModal'
+import CashierQuickViewModal from '@/components/admin/CashierQuickViewModal'
+import type { BochurWithId, AccountType } from '@/types/database'
+
+// ─── Student profile panel (fetch-by-id wrapper around BochurProfileModal) ────
+function StudentProfilePanel({
+  bochurId, accountTypes, onClose,
+}: { bochurId: string; accountTypes: AccountType[]; onClose: () => void }) {
+  const supabase = createClient()
+  const [bochur, setBochur] = useState<BochurWithId | null>(null)
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => {
+    supabase.from('bochurim_with_id')
+      .select('*, account_type:account_types(*)')
+      .eq('id', bochurId).single()
+      .then(({ data }) => { setBochur(data as any); setLoading(false) })
+  }, [bochurId])
+
+  if (loading) return (
+    <div className="fixed inset-0 bg-black/40 flex items-center justify-center z-50">
+      <div className="bg-white rounded-2xl p-8"><div className="w-8 h-8 border-2 border-indigo-400 border-t-transparent rounded-full animate-spin" /></div>
+    </div>
+  )
+  if (!bochur) return null
+  return <BochurProfileModal bochur={bochur} accountTypes={accountTypes} onClose={onClose} onUpdated={onClose} />
+}
 
 type TxTab = 'orders' | 'refunds'
 
@@ -50,8 +78,16 @@ function OrdersContent() {
   const [loading, setLoading] = useState(true)
   const [viewOrder, setViewOrder] = useState<any | null>(null)
   const [refundOrder, setRefundOrder] = useState<any | null>(null)
+  const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
+  const [viewCashierId, setViewCashierId] = useState<string | null>(null)
+  const [viewBochurId, setViewBochurId] = useState<string | null>(null)
 
   useEffect(() => { loadOrders() }, [statusFilter])
+
+  useEffect(() => {
+    supabase.from('account_types').select('*').eq('is_active', true).order('name')
+      .then(({ data }) => setAccountTypes((data || []) as AccountType[]))
+  }, [])
 
   async function loadOrders() {
     setLoading(true)
@@ -183,8 +219,28 @@ function OrdersContent() {
               <tr key={o.id} className="table-row">
                 <td className="px-5 py-3 text-sm font-semibold text-slate-900">#{o.order_number}</td>
                 <td className="px-5 py-3 text-sm text-slate-500">{format(new Date(o.created_at), 'MM/dd HH:mm')}</td>
-                <td className="px-5 py-3 text-sm text-slate-700">{o.cashier_profiles?.name || '—'}</td>
-                <td className="px-5 py-3 text-sm text-slate-700">{o.bochurim?.name || <span className="text-slate-400">Walk-in / No account</span>}</td>
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {o.cashier_profiles?.name ? (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); setViewCashierId(o.cashier_id) }}
+                      className="hover:underline hover:text-indigo-600 text-left"
+                    >
+                      {o.cashier_profiles.name}
+                    </button>
+                  ) : '—'}
+                </td>
+                <td className="px-5 py-3 text-sm text-slate-700">
+                  {o.bochurim?.name ? (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); setViewBochurId(o.bochur_id) }}
+                      className="hover:underline hover:text-indigo-600 text-left"
+                    >
+                      {o.bochurim.name}
+                    </button>
+                  ) : <span className="text-slate-400">Walk-in / No account</span>}
+                </td>
                 <td className="px-5 py-3 text-center">
                   <span className={`badge ${statusBadge[o.status] || 'bg-slate-100 text-slate-500'}`}>{o.status}</span>
                 </td>
@@ -222,6 +278,18 @@ function OrdersContent() {
           onClose={() => setRefundOrder(null)}
         />
       )}
+
+      {viewCashierId && (
+        <CashierQuickViewModal cashierId={viewCashierId} onClose={() => setViewCashierId(null)} />
+      )}
+
+      {viewBochurId && (
+        <StudentProfilePanel
+          bochurId={viewBochurId}
+          accountTypes={accountTypes}
+          onClose={() => setViewBochurId(null)}
+        />
+      )}
     </div>
   )
 }
@@ -232,6 +300,7 @@ function RefundRequestModal({ order, onClose }: { order: any; onClose: () => voi
   const [amount, setAmount] = useState(String(order.total ?? ''))
   const [reason, setReason] = useState('')
   const [submitting, setSubmitting] = useState(false)
+  const [viewProductId, setViewProductId] = useState<string | null>(null)
 
   useEffect(() => {
     supabase.from('order_items').select('*').eq('order_id', order.id).eq('is_bundle_component', false).then(({ data }) => setItems(data || []))
@@ -278,7 +347,19 @@ function RefundRequestModal({ order, onClose }: { order: any; onClose: () => voi
             </div>
             {items.map(item => (
               <div key={item.id} className="flex justify-between text-xs text-slate-500">
-                <span>{item.quantity}x {item.product_name}{item.variant_label ? ` (${item.variant_label})` : ''}</span>
+                <span>
+                  {item.quantity}x{' '}
+                  {item.product_id ? (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); setViewProductId(item.product_id) }}
+                      className="hover:underline hover:text-indigo-600 text-left"
+                    >
+                      {item.product_name}
+                    </button>
+                  ) : item.product_name}
+                  {item.variant_label ? ` (${item.variant_label})` : ''}
+                </span>
                 <span>{formatCurrency(item.total)}</span>
               </div>
             ))}
@@ -317,6 +398,10 @@ function RefundRequestModal({ order, onClose }: { order: any; onClose: () => voi
           </button>
         </div>
       </div>
+
+      {viewProductId && (
+        <ProductQuickViewModal productId={viewProductId} onClose={() => setViewProductId(null)} />
+      )}
     </div>
   )
 }
@@ -325,6 +410,7 @@ function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () 
   const supabase = createClient()
   const [items, setItems] = useState<any[]>([])
   const [payments, setPayments] = useState<any[]>([])
+  const [viewProductId, setViewProductId] = useState<string | null>(null)
 
   useEffect(() => {
     Promise.all([
@@ -344,7 +430,19 @@ function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () 
           <div className="space-y-1">
             {items.map(item => (
               <div key={item.id} className="flex justify-between text-sm">
-                <span className="text-slate-700">{item.quantity}x {item.product_name}{item.variant_label ? ` (${item.variant_label})` : ''}</span>
+                <span className="text-slate-700">
+                  {item.quantity}x{' '}
+                  {item.product_id ? (
+                    <button
+                      type="button"
+                      onClick={e => { e.stopPropagation(); setViewProductId(item.product_id) }}
+                      className="hover:underline hover:text-indigo-600 text-left"
+                    >
+                      {item.product_name}
+                    </button>
+                  ) : item.product_name}
+                  {item.variant_label ? ` (${item.variant_label})` : ''}
+                </span>
                 <span className="font-medium text-slate-900">{formatCurrency(item.total)}</span>
               </div>
             ))}
@@ -372,6 +470,10 @@ function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () 
           )}
         </div>
       </div>
+
+      {viewProductId && (
+        <ProductQuickViewModal productId={viewProductId} onClose={() => setViewProductId(null)} />
+      )}
     </div>
   )
 }
