@@ -13,6 +13,8 @@ import {
   Trash2, Pencil, Search, X, Check,
 } from 'lucide-react'
 import BochurProfileModal from '@/app/(admin)/bochurim/BochurProfileModal'
+import ProductQuickViewModal from '@/components/admin/ProductQuickViewModal'
+import CashierQuickViewModal from '@/components/admin/CashierQuickViewModal'
 import type { BochurWithId, AccountType } from '@/types/database'
 
 // ─── Palette ─────────────────────────────────────────────────────────────────
@@ -35,13 +37,13 @@ interface RawOrderItem {
 }
 interface RawOrder {
   id: string; status: string; total: number; bochur_id: string | null; created_at: string
-  cashier_profiles: { name: string } | null
+  cashier_profiles: { id: string; name: string } | null
   bochurim: { name: string; account_types: { name: string } | null } | null
 }
 interface WastageItem {
-  id: string; product_name: string; quantity: number; unit_cost: number
+  id: string; product_id: string | null; product_name: string; quantity: number; unit_cost: number
   reason: string; notes: string | null; created_at: string
-  cashier_profiles: { name: string } | null
+  cashier_profiles: { id: string; name: string } | null
 }
 
 // ─── Helpers ──────────────────────────────────────────────────────────────────
@@ -208,6 +210,8 @@ export default function ReportsPage() {
   const [exporting, setExporting] = useState(false)
   const [tableViews, setTableViews] = useState<Set<string>>(new Set())
   const [profileBochurId, setProfileBochurId] = useState<string | null>(null)
+  const [viewingProductId, setViewingProductId] = useState<string | null>(null)
+  const [viewingCashierId, setViewingCashierId] = useState<string | null>(null)
   const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
   const [studentSearch, setStudentSearch] = useState('')
   const [editingWastageId, setEditingWastageId] = useState<string | null>(null)
@@ -274,7 +278,7 @@ export default function ReportsPage() {
 
     const [ordersRes, itemsRes, paymentsRes, historicRes, expRes, wastRes, bochurRes, wastItemRes, expItemRes, atRes] = await Promise.all([
       supabase.from('orders')
-        .select('id, status, total, bochur_id, created_at, cashier_profiles!cashier_id(name), bochurim!bochur_id(name, account_types(name))')
+        .select('id, status, total, bochur_id, created_at, cashier_profiles!cashier_id(id, name), bochurim!bochur_id(name, account_types(name))')
         .gte('created_at', fromISO).lt('created_at', toISO),
 
       supabase.from('order_items')
@@ -292,7 +296,7 @@ export default function ReportsPage() {
       supabase.from('bochurim_with_id').select('id, name, balance').eq('archived', false).gt('balance', 0).order('balance', { ascending: false }).limit(20),
 
       supabase.from('wastage_log')
-        .select('id, product_name, quantity, unit_cost, reason, notes, created_at, cashier_profiles!cashier_id(name)')
+        .select('id, product_id, product_name, quantity, unit_cost, reason, notes, created_at, cashier_profiles!cashier_id(id, name)')
         .gte('created_at', fromISO).lt('created_at', toISO).order('created_at', { ascending: false }),
 
       supabase.from('expense_entries').select('description, amount, expense_type, date')
@@ -451,10 +455,11 @@ export default function ReportsPage() {
   }, [rawPayments])
 
   const cashierStats = useMemo(() => {
-    const map: Record<string, { orders: number; revenue: number }> = {}
+    const map: Record<string, { id: string | null; orders: number; revenue: number }> = {}
     for (const o of completedOrders) {
-      const name = (o.cashier_profiles as any)?.name || 'Unknown'
-      if (!map[name]) map[name] = { orders: 0, revenue: 0 }
+      const cp = o.cashier_profiles as any
+      const name = cp?.name || 'Unknown'
+      if (!map[name]) map[name] = { id: cp?.id || null, orders: 0, revenue: 0 }
       map[name].orders += 1; map[name].revenue += Number(o.total)
     }
     return Object.entries(map).map(([name, d]) => ({ name, ...d, avg: d.orders > 0 ? d.revenue / d.orders : 0 })).sort((a, b) => b.revenue - a.revenue)
@@ -473,20 +478,20 @@ export default function ReportsPage() {
   }, [allHistoricOrders, bochurimInRange, _fi, _ti])
 
   const topSellers = useMemo(() => {
-    const map: Record<string, { name: string; units: number; revenue: number }> = {}
+    const map: Record<string, { name: string; productId: string | null; units: number; revenue: number }> = {}
     for (const item of filteredItems) {
       const key = `${item.product_id ?? item.product_name}|${item.variant_label ?? ''}`
-      if (!map[key]) map[key] = { name: item.variant_label ? `${item.product_name} (${item.variant_label})` : item.product_name, units: 0, revenue: 0 }
+      if (!map[key]) map[key] = { name: item.variant_label ? `${item.product_name} (${item.variant_label})` : item.product_name, productId: item.product_id, units: 0, revenue: 0 }
       map[key].units += item.quantity; map[key].revenue += Number(item.total)
     }
     return Object.values(map).sort((a, b) => b.units - a.units).slice(0, 12)
   }, [filteredItems])
 
   const bottomSellers = useMemo(() => {
-    const map: Record<string, { name: string; units: number; revenue: number }> = {}
+    const map: Record<string, { name: string; productId: string | null; units: number; revenue: number }> = {}
     for (const item of filteredItems) {
       const key = `${item.product_id ?? item.product_name}|${item.variant_label ?? ''}`
-      if (!map[key]) map[key] = { name: item.variant_label ? `${item.product_name} (${item.variant_label})` : item.product_name, units: 0, revenue: 0 }
+      if (!map[key]) map[key] = { name: item.variant_label ? `${item.product_name} (${item.variant_label})` : item.product_name, productId: item.product_id, units: 0, revenue: 0 }
       map[key].units += item.quantity; map[key].revenue += Number(item.total)
     }
     return Object.values(map).filter(p => p.units > 0).sort((a, b) => a.units - b.units).slice(0, 10)
@@ -526,12 +531,12 @@ export default function ReportsPage() {
 
   const cogs = useMemo(() => rawItems.reduce((s, item) => s + Number((item.products as any)?.cost_price || 0) * item.quantity, 0), [rawItems])
   const cogsBreakdown = useMemo(() => {
-    const map: Record<string, { name: string; units: number; costPerUnit: number; total: number }> = {}
+    const map: Record<string, { name: string; productId: string | null; units: number; costPerUnit: number; total: number }> = {}
     for (const item of rawItems) {
       const cost = Number((item.products as any)?.cost_price || 0); if (cost <= 0) continue
       const key = `${item.product_id ?? item.product_name}|${item.variant_label ?? ''}`
       const name = item.variant_label ? `${item.product_name} (${item.variant_label})` : item.product_name
-      if (!map[key]) map[key] = { name, units: 0, costPerUnit: cost, total: 0 }
+      if (!map[key]) map[key] = { name, productId: item.product_id, units: 0, costPerUnit: cost, total: 0 }
       map[key].units += item.quantity; map[key].total += cost * item.quantity
     }
     return Object.values(map).sort((a, b) => b.total - a.total)
@@ -853,7 +858,12 @@ export default function ReportsPage() {
                       <tbody className="divide-y divide-slate-50">
                         {cashierStats.map((c, i) => (
                           <tr key={i} className="hover:bg-slate-50/50 transition-colors">
-                            <td className="px-5 py-3 text-sm font-medium text-slate-800">{c.name}</td>
+                            <td className="px-5 py-3 text-sm font-medium text-slate-800">
+                              {c.id ? (
+                                <button type="button" onClick={() => setViewingCashierId(c.id)}
+                                  className="hover:underline hover:text-indigo-600 text-left">{c.name}</button>
+                              ) : c.name}
+                            </td>
                             <td className="px-5 py-3 text-sm text-slate-600">{c.orders}</td>
                             <td className="px-5 py-3 text-sm font-semibold text-emerald-600">{formatCurrency(c.revenue)}</td>
                             <td className="px-5 py-3 text-sm text-slate-600">{formatCurrency(c.avg)}</td>
@@ -927,7 +937,7 @@ export default function ReportsPage() {
                     tableViews.has('top') ? (
                       <div className="overflow-x-auto max-h-96">
                         <table className="w-full text-sm"><thead><tr className="border-b border-slate-100"><th className="text-left pb-2 text-xs text-slate-400 uppercase">#</th><th className="text-left pb-2 text-xs text-slate-400 uppercase">Product</th><th className="text-right pb-2 text-xs text-slate-400 uppercase">Units</th><th className="text-right pb-2 text-xs text-slate-400 uppercase">Revenue</th></tr></thead>
-                          <tbody className="divide-y divide-slate-50">{topSellers.map((p, i) => <tr key={i}><td className="py-1.5 text-xs text-slate-400">{i + 1}</td><td className="py-1.5 text-slate-700 font-medium">{p.name}</td><td className="py-1.5 text-right text-slate-600">{p.units}</td><td className="py-1.5 text-right font-semibold text-emerald-600">{formatCurrency(p.revenue)}</td></tr>)}</tbody>
+                          <tbody className="divide-y divide-slate-50">{topSellers.map((p, i) => <tr key={i}><td className="py-1.5 text-xs text-slate-400">{i + 1}</td><td className="py-1.5 text-slate-700 font-medium">{p.productId ? <button type="button" onClick={() => setViewingProductId(p.productId!)} className="hover:underline hover:text-indigo-600 text-left">{p.name}</button> : p.name}</td><td className="py-1.5 text-right text-slate-600">{p.units}</td><td className="py-1.5 text-right font-semibold text-emerald-600">{formatCurrency(p.revenue)}</td></tr>)}</tbody>
                         </table>
                       </div>
                     ) : (
@@ -958,7 +968,7 @@ export default function ReportsPage() {
                   {tableViews.has('bottom') ? (
                     <div className="overflow-x-auto">
                       <table className="w-full text-sm"><thead><tr className="border-b border-slate-100"><th className="text-left pb-2 text-xs text-slate-400 uppercase">Product</th><th className="text-right pb-2 text-xs text-slate-400 uppercase">Units</th><th className="text-right pb-2 text-xs text-slate-400 uppercase">Revenue</th></tr></thead>
-                        <tbody className="divide-y divide-slate-50">{bottomSellers.map((p, i) => <tr key={i}><td className="py-1.5 text-slate-700 font-medium">{p.name}</td><td className="py-1.5 text-right text-red-500 font-semibold">{p.units}</td><td className="py-1.5 text-right text-slate-500">{formatCurrency(p.revenue)}</td></tr>)}</tbody>
+                        <tbody className="divide-y divide-slate-50">{bottomSellers.map((p, i) => <tr key={i}><td className="py-1.5 text-slate-700 font-medium">{p.productId ? <button type="button" onClick={() => setViewingProductId(p.productId!)} className="hover:underline hover:text-indigo-600 text-left">{p.name}</button> : p.name}</td><td className="py-1.5 text-right text-red-500 font-semibold">{p.units}</td><td className="py-1.5 text-right text-slate-500">{formatCurrency(p.revenue)}</td></tr>)}</tbody>
                       </table>
                     </div>
                   ) : (
@@ -1034,7 +1044,12 @@ export default function ReportsPage() {
                     <tbody className="divide-y divide-slate-50">
                       {cogsBreakdown.map((row, i) => (
                         <tr key={i} className={`hover:bg-slate-50/50 transition-colors ${i % 2 === 1 ? 'bg-slate-50/30' : ''}`}>
-                          <td className="px-5 py-2.5 text-sm font-medium text-slate-700">{row.name}</td>
+                          <td className="px-5 py-2.5 text-sm font-medium text-slate-700">
+                            {row.productId ? (
+                              <button type="button" onClick={() => setViewingProductId(row.productId!)}
+                                className="hover:underline hover:text-indigo-600 text-left">{row.name}</button>
+                            ) : row.name}
+                          </td>
                           <td className="px-5 py-2.5 text-sm text-slate-600 text-right">{row.units}</td>
                           <td className="px-5 py-2.5 text-sm text-slate-600 text-right">{formatCurrency(row.costPerUnit)}</td>
                           <td className="px-5 py-2.5 text-sm font-semibold text-amber-600 text-right">{formatCurrency(row.total)}</td>
@@ -1083,7 +1098,12 @@ export default function ReportsPage() {
                         {wastageItems.map((w) => (
                           <tr key={w.id} className="hover:bg-slate-50/50 transition-colors">
                             <td className="px-5 py-2.5">
-                              <p className="text-sm text-slate-700">{w.product_name}</p>
+                              <p className="text-sm text-slate-700">
+                                {w.product_id ? (
+                                  <button type="button" onClick={() => setViewingProductId(w.product_id!)}
+                                    className="hover:underline hover:text-indigo-600 text-left">{w.product_name}</button>
+                                ) : w.product_name}
+                              </p>
                               <p className="text-xs text-slate-400">{w.reason}</p>
                             </td>
                             <td className="px-2 py-2.5 text-sm text-slate-600 text-center">{w.quantity}</td>
@@ -1099,7 +1119,12 @@ export default function ReportsPage() {
                               ) : (
                                 <div>
                                   {w.notes && <p className="text-xs text-slate-600 truncate">{w.notes}</p>}
-                                  {(w.cashier_profiles as any)?.name && <p className="text-xs text-slate-400">{(w.cashier_profiles as any).name}</p>}
+                                  {w.cashier_profiles?.name && (
+                                    <button type="button" onClick={() => setViewingCashierId(w.cashier_profiles!.id)}
+                                      className="text-xs text-slate-400 hover:underline hover:text-indigo-600 text-left">
+                                      {w.cashier_profiles.name}
+                                    </button>
+                                  )}
                                 </div>
                               )}
                             </td>
@@ -1244,6 +1269,14 @@ export default function ReportsPage() {
           accountTypes={accountTypes}
           onClose={() => setProfileBochurId(null)}
         />
+      )}
+
+      {/* ── Product / Cashier quick-view modals ──────────────────────────── */}
+      {viewingProductId && (
+        <ProductQuickViewModal productId={viewingProductId} onClose={() => setViewingProductId(null)} />
+      )}
+      {viewingCashierId && (
+        <CashierQuickViewModal cashierId={viewingCashierId} onClose={() => setViewingCashierId(null)} />
       )}
     </div>
   )
