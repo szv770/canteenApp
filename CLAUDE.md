@@ -1,7 +1,7 @@
 # Canteen App — Project State
 
 **Repo:** `szv770/canteenApp` | **Prod:** `main` → canteen.szvtech.org  
-**Dev branch:** `claude/practical-meitner-je2psm`  
+**Dev branch:** `claude/fable-agent-home-page-h4z91n`  
 **Supabase project:** `hlseiqquxspdfunrclfv`  
 **Stack:** Next.js 14 App Router · Supabase JS v2 · Tailwind CSS · recharts
 
@@ -228,6 +228,14 @@ lib/utils.ts         # formatCurrency, cn
 
 17. **`account_types.type` is NOT NULL with no default** — when inserting a new account type, the `type` column must be provided or the DB will reject the row. In `AccountTypesPanel.tsx`, `type` is set to `baseSlug` (the name-derived slug without the timestamp suffix). UPDATE statements don't need to provide it, only INSERTs.
 
+19. **UTC-vs-local calendar-day bugs are the single most recurring class of money-reporting bug in this app — check every new date-range feature against it.** Confirmed live on 2026-07-14: `getDateRange`/`fmtDate` in `reports/page.tsx` built "Today" using `Date.UTC(now.getUTCFullYear(), ...)` / `getUTCDate()`, and `accounts/page.tsx`'s `todayStr()` was `new Date().toISOString().slice(0,10)` — both read the **UTC** calendar date, not the browser's local one. The Supabase DB itself runs in UTC (`current_setting('TIMEZONE')` = UTC), so for anyone west of UTC (any US timezone) in the evening, "Today" silently meant "tomorrow" — the date `<input>` boxes would show tomorrow's date while the real business day's orders (correctly stored with real UTC timestamps) fell outside the `[today, tomorrow)` window and were undercounted or missing entirely. Symptom the user actually sees: Reports "Today" gross sales reads implausibly low (e.g. "$7.80, 9 orders" when far more was actually rung up) while their wall clock still reads the previous evening. Fixed by rebuilding every "today"/date-math helper from **local** `Date` components (`new Date(y, m, d)`, `.getFullYear()/.getMonth()/.getDate()`, `.setDate()`) instead of the UTC variants — `new Date(y, m, d)` already interprets its arguments as local time and produces the correct UTC instant for the `created_at` (timestamptz) comparison, so no other query code needs to change. Also fixed in the same pass: `dailyRevenue`/`hourlyData`/`dowData` in reports bucketed by `getUTCHours()`/`getUTCDay()`/`created_at.split('T')[0]` (UTC string slicing) instead of local equivalents, which shifted evening orders onto the wrong bar/hour/day-of-week. **When adding any new date filter, chart bucket, or "today" button anywhere in the app, grep for `getUTC`/`setUTC`/`toISOString().slice(0,10)`/`+'T00:00:00.000Z'` in that file first — those are the tells.**
+
+20. **Cash/Zelle/Credit Card headline totals on the Accounts page must include top-up deposits, not just POS `payments` rows.** A parent's Zelle/cash top-up that funds a student's balance is real money physically received, exactly like a register payment — but it lands in `balance_topups`, not `payments`. The headline cards were summing `payments` only, so e.g. $160 of confirmed Zelle top-ups showed as "Zelle $0.00" at the top of the page while the same $160 correctly appeared in the "Top-up Deposits Received" section below — looking like money had vanished. Fixed: `cash`/`zelle`/`cc` now equal `paymentMap[method] + topupByMethod[method]`, with `topupByMethod` bucketed by its own "Date Received" field. Any future breakdown-by-method section on this page needs to remember both sources exist.
+
+21. **`dashboard/page.tsx`'s "Today's COGS" always summed to $0** — it read `order_items.cost_price`, a column the checkout route (`app/api/pos/checkout/route.ts`) never wrote to. Reports' COGS calculation was already correct because it joins `products(cost_price)` live instead. Fixed dashboard to do the same live join. If a new page needs per-order COGS, join `products(cost_price)` (or `product_variants(cost_price)` when the item has a variant) — don't trust an `order_items.cost_price` column to be populated.
+
+22. **`order_items.is_bundle_component`** — added so bundle purchases can roll component units into COGS/units-sold reporting without double-counting revenue. When a bundle is purchased, the checkout route inserts one normal `order_items` row for the bundle itself (`is_bundle_component: false`, carries the real revenue) *plus* one zero-revenue row per component product (`is_bundle_component: true`, `unit_price: 0, total: 0`) purely so per-product unit/COGS totals include what was actually consumed. **Any query that lists "items in this order" for display (transaction detail, refund modal, cashier/bochur order history) must filter `.eq('is_bundle_component', false)` or component rows will show as extra $0 line items.**
+
 ---
 
 ## Deployment
@@ -242,7 +250,10 @@ lib/utils.ts         # formatCurrency, cn
 
 | Date | Change |
 |---|---|
-| 2026-07-12 | Security: fix TOCTOU race in topup-confirm — atomic status claim with `.eq('status','pending')` guard before balance update prevents double-credit |
+| 2026-07-14 | Fix: money/reporting accuracy pass — (1) Reports & Accounts "Today"/date-range filters used UTC calendar-day math (`getUTCDate`, `.toISOString().slice(0,10)`) instead of the browser's local day, so "Today" silently meant "tomorrow" in the evening and undercounted the real business day (see gotcha #19); (2) Accounts page headline Cash/Zelle/Credit Card cards now include confirmed top-up deposits of that method, not just POS `payments` rows — top-ups are real money received too (gotcha #20); (3) Dashboard "Today's COGS" always read $0 from the never-populated `order_items.cost_price`, now live-joins `products(cost_price)` like Reports does (gotcha #21) |
+| 2026-07-14 | Feat: bundle purchases now attribute component-product units to COGS/units-sold reporting via new `order_items.is_bundle_component` flag — one $0 row per component alongside the real bundle revenue row; order-item-listing queries (transaction detail, refund modal, bochur/cashier order history) filter it out (gotcha #22) |
+| 2026-07-14 | Feat: bochur profile timed-ban section gets an Edit button (was lift-only) — reopens the ban form prefilled with the current reason/expiry |
+| 2026-07-14 | UX: POS notification history — non-urgent toasts now have a dismiss ✕ button too (previously only urgent did); clicking a notification row in the history panel opens a full-text popup instead of only showing a truncated line |
 | 2026-07-12 | Security: discount uses_count increment made atomic via `increment_discount_uses` Postgres RPC (avoids read-then-write race with concurrent checkouts) |
 | 2026-07-12 | Security audit: all API routes verified — admin routes guarded by requireCashier()/requireAdmin(), public routes (/api/topup, /api/home/top-sellers) intentionally unauthenticated with rate limiting / tight data scoping |
 | 2026-07-12 | RLS audit: bundle_items has anon SELECT (qual=true) — non-sensitive product bundle composition data, noted in Known Issues |

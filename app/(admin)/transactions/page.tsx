@@ -234,7 +234,7 @@ function RefundRequestModal({ order, onClose }: { order: any; onClose: () => voi
   const [submitting, setSubmitting] = useState(false)
 
   useEffect(() => {
-    supabase.from('order_items').select('*').eq('order_id', order.id).then(({ data }) => setItems(data || []))
+    supabase.from('order_items').select('*').eq('order_id', order.id).eq('is_bundle_component', false).then(({ data }) => setItems(data || []))
   }, [order.id])
 
   async function submit() {
@@ -328,7 +328,7 @@ function OrderDetailModal({ order, onClose, onVoid }: { order: any; onClose: () 
 
   useEffect(() => {
     Promise.all([
-      supabase.from('order_items').select('*').eq('order_id', order.id),
+      supabase.from('order_items').select('*').eq('order_id', order.id).eq('is_bundle_component', false),
       supabase.from('payments').select('*').eq('order_id', order.id),
     ]).then(([i, p]) => { setItems(i.data || []); setPayments(p.data || []) })
   }, [order.id])

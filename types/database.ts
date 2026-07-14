@@ -63,6 +63,7 @@ export interface ProductVariant {
   product_id: string
   label: string
   price: number
+  cost_price: number | null
   stock_quantity: number | null
   sort_order: number
   is_active: boolean
@@ -133,7 +134,7 @@ export interface Order {
 export interface OrderItem {
   id: string
   order_id: string
-  product_id: string
+  product_id: string | null
   variant_id: string | null
   product_name: string
   variant_label: string | null
@@ -141,6 +142,7 @@ export interface OrderItem {
   unit_price: number
   discount_amount: number
   total: number
+  is_bundle_component: boolean
 }
 
 export interface Payment {

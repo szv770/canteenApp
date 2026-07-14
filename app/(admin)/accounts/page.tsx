@@ -7,7 +7,13 @@ import { Wallet, Plus, Trash2, RefreshCw, DollarSign, CreditCard, Smartphone, Ba
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 
-const todayStr = () => new Date().toISOString().slice(0, 10)
+// Local calendar date as "YYYY-MM-DD" — `.toISOString().slice(0,10)` reads the UTC
+// date instead, which silently rolls "today" over to tomorrow for anyone west of
+// UTC once local time passes UTC midnight (e.g. any US timezone, evening hours).
+function fmtLocalDate(d: Date) {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+const todayStr = () => fmtLocalDate(new Date())
 
 interface WithdrawalRow {
   id: string
@@ -55,11 +61,16 @@ export default function AccountsPage() {
 
   async function loadPayments() {
     setLoadingPayments(true)
-    const fromISO = from + 'T00:00:00.000Z'
-    const toISO = to + 'T23:59:59.999Z'
+    // from/to are local "YYYY-MM-DD" strings (from <input type="date"> and the
+    // quick-filter buttons below) — build boundaries from local time components,
+    // not by tacking a literal 'Z' (UTC) onto a local calendar date.
+    const [fy, fm, fd] = from.split('-').map(Number)
+    const [ty, tm, td] = to.split('-').map(Number)
+    const fromISO = new Date(fy, fm - 1, fd).toISOString()
+    const toISO = new Date(ty, tm - 1, td + 1).toISOString() // exclusive: start of the day after `to`
 
     const [{ data: payments }, { data: bochurim }, { data: allTopups }] = await Promise.all([
-      supabase.from('payments').select('method, amount').gte('created_at', fromISO).lte('created_at', toISO),
+      supabase.from('payments').select('method, amount').gte('created_at', fromISO).lt('created_at', toISO),
       supabase.from('bochurim').select('balance').eq('archived', false),
       // Fetch all confirmed topups to filter client-side using payment_received_date (fallback: confirmed_at)
       supabase
@@ -133,14 +144,33 @@ export default function AccountsPage() {
     setWithdrawals(prev => prev.filter(w => w.id !== id))
   }
 
-  // Aggregated totals
-  const cash = paymentMap['cash'] || 0
-  const zelle = paymentMap['zelle'] || 0
-  const cc = (paymentMap['credit_card'] || 0) + (paymentMap['card'] || 0)
+  // Which quick-filter (if any) matches the currently loaded range — drives the
+  // active/highlighted button style below (previously "Today" was hardcoded green
+  // regardless of the actual range shown).
+  const isTodayRange = from === todayStr() && to === todayStr()
+  const last7From = (() => { const d = new Date(); d.setDate(d.getDate() - 6); return fmtLocalDate(d) })()
+  const isLast7Range = from === last7From && to === todayStr()
+  const last30From = (() => { const d = new Date(); d.setDate(d.getDate() - 29); return fmtLocalDate(d) })()
+  const isLast30Range = from === last30From && to === todayStr()
+
+  // Aggregated totals — top-up deposits (parent-facing payments that fund a
+  // student's balance) are real money physically received just like a register
+  // payment, so they roll into the same headline Cash/Zelle/Credit Card buckets
+  // instead of being tracked only in the separate "Top-up Deposits" section below.
+  const topupCash = topupByMethod['cash'] || 0
+  const topupZelle = topupByMethod['zelle'] || 0
+  const topupCC = (topupByMethod['credit_card'] || 0) + (topupByMethod['card'] || 0)
+  const topupOther = Object.entries(topupByMethod)
+    .filter(([k]) => !['cash', 'zelle', 'credit_card', 'card'].includes(k))
+    .reduce((s, [, v]) => s + v, 0)
+
+  const cash = (paymentMap['cash'] || 0) + topupCash
+  const zelle = (paymentMap['zelle'] || 0) + topupZelle
+  const cc = (paymentMap['credit_card'] || 0) + (paymentMap['card'] || 0) + topupCC
   const balance = paymentMap['balance'] || 0
   const other = Object.entries(paymentMap)
     .filter(([k]) => !['cash', 'zelle', 'credit_card', 'card', 'balance'].includes(k))
-    .reduce((s, [, v]) => s + v, 0)
+    .reduce((s, [, v]) => s + v, 0) + topupOther
   const grandTotal = cash + zelle + cc + balance + other
 
   const PayCard = ({
@@ -206,25 +236,25 @@ export default function AccountsPage() {
           </div>
           <button
             onClick={() => { setFrom(todayStr()); setTo(todayStr()) }}
-            className="text-sm text-emerald-600 hover:text-emerald-700 font-medium"
+            className={`text-sm font-medium ${isTodayRange ? 'text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Today
           </button>
           <button
             onClick={() => {
               const d = new Date(); d.setDate(d.getDate() - 6)
-              setFrom(d.toISOString().slice(0, 10)); setTo(todayStr())
+              setFrom(fmtLocalDate(d)); setTo(todayStr())
             }}
-            className="text-sm text-slate-500 hover:text-slate-700 font-medium"
+            className={`text-sm font-medium ${isLast7Range ? 'text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Last 7 days
           </button>
           <button
             onClick={() => {
               const d = new Date(); d.setDate(d.getDate() - 29)
-              setFrom(d.toISOString().slice(0, 10)); setTo(todayStr())
+              setFrom(fmtLocalDate(d)); setTo(todayStr())
             }}
-            className="text-sm text-slate-500 hover:text-slate-700 font-medium"
+            className={`text-sm font-medium ${isLast30Range ? 'text-emerald-600' : 'text-slate-500 hover:text-slate-700'}`}
           >
             Last 30 days
           </button>
@@ -261,6 +291,7 @@ export default function AccountsPage() {
           <p className="text-sm text-slate-400 mt-0.5">
             Parent payments confirmed in the selected date range, grouped by method.
             Uses the &ldquo;Date Received&rdquo; field set at confirmation (falls back to confirmation date if not set).
+            Already included in the Cash/Zelle/Credit Card balances above — shown here as a breakdown, not an addition.
           </p>
         </div>
 

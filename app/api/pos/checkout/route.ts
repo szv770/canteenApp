@@ -123,12 +123,12 @@ export async function POST(req: NextRequest) {
   }
 
   // Fetch bundles if needed
-  const bundleMap = new Map<string, { id: string; name: string; price: number; is_active: boolean; bundle_items: Array<{ product_id: string; quantity: number }> }>()
+  const bundleMap = new Map<string, { id: string; name: string; price: number; is_active: boolean; bundle_items: Array<{ product_id: string; quantity: number; products: { name: string } | null }> }>()
   if (bundleItems.length > 0) {
     const bundleIds = Array.from(new Set(bundleItems.map(i => i.bundle_id!)))
     const { data: bundles, error: bundleErr } = await admin
       .from('product_bundles')
-      .select('id, name, price, is_active, bundle_items(product_id, quantity)')
+      .select('id, name, price, is_active, bundle_items(product_id, quantity, products(name))')
       .in('id', bundleIds)
     if (bundleErr || !bundles) {
       return NextResponse.json({ error: 'Failed to fetch bundles' }, { status: 500 })
@@ -138,11 +138,11 @@ export async function POST(req: NextRequest) {
 
   // Fetch variants if needed
   const variantIds = regularItems.map(i => i.variant_id).filter(Boolean) as string[]
-  const variantMap = new Map<string, { id: string; label: string; price: number; stock_quantity: number | null; is_active: boolean; product_id: string }>()
+  const variantMap = new Map<string, { id: string; label: string; price: number; cost_price: number | null; stock_quantity: number | null; is_active: boolean; product_id: string }>()
   if (variantIds.length > 0) {
     const { data: variants, error: varErr } = await admin
       .from('product_variants')
-      .select('id, label, price, stock_quantity, is_active, product_id')
+      .select('id, label, price, cost_price, stock_quantity, is_active, product_id')
       .in('id', variantIds)
     if (varErr || !variants) {
       return NextResponse.json({ error: 'Failed to fetch variants' }, { status: 500 })
@@ -211,6 +211,7 @@ export async function POST(req: NextRequest) {
     unit_price: number
     discount_amount: number
     total: number
+    is_bundle_component: boolean
   }> = []
 
   for (const item of items) {
@@ -234,7 +235,26 @@ export async function POST(req: NextRequest) {
         unit_price: bundle.price,
         discount_amount: 0,
         total: itemTotal,
+        is_bundle_component: false,
       })
+      // Attribute component units to their own products at $0 revenue, purely so
+      // units-sold/COGS reporting rolls up correctly for the products actually
+      // consumed — the bundle line above remains the sole source of order revenue,
+      // so this never double-counts money. Flagged so receipts/transaction detail
+      // (which show every order_items row) can filter these out.
+      for (const bi of bundle.bundle_items) {
+        orderItems.push({
+          product_id: bi.product_id,
+          variant_id: null,
+          product_name: bi.products?.name ?? 'Bundle item',
+          variant_label: null,
+          quantity: bi.quantity * item.quantity,
+          unit_price: 0,
+          discount_amount: 0,
+          total: 0,
+          is_bundle_component: true,
+        })
+      }
       continue
     }
 
@@ -301,8 +321,11 @@ export async function POST(req: NextRequest) {
         itemDiscountAmount = Math.round((unitPrice - discounted) * 100) / 100
         unitPrice = discounted
       } else if (dtype === 'cost_price') {
-        // Use product cost_price if available; else fall back to percentage
-        const cp = item.variant_id ? null : product.cost_price
+        // Per-variant cost_price when the item has a variant (no fallback to the
+        // product's own cost_price — a variant with no cost set explicitly gets no
+        // cost-price discount); otherwise the product's cost_price. Falls back to
+        // the account type's percentage discount if no cost is set either way.
+        const cp = item.variant_id ? (variantMap.get(item.variant_id)?.cost_price ?? null) : product.cost_price
         if (cp != null && cp > 0) {
           itemDiscountAmount = Math.round((unitPrice - cp) * 100) / 100
           unitPrice = cp
@@ -330,6 +353,7 @@ export async function POST(req: NextRequest) {
       unit_price: unitPrice,
       discount_amount: itemDiscountAmount,
       total: itemTotal,
+      is_bundle_component: false,
     })
   }
 

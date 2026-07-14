@@ -59,6 +59,7 @@ export default function PosPage() {
     } catch { return new Set() }
   })
   const [notifPanelOpen, setNotifPanelOpen] = useState(false)
+  const [viewingNotif, setViewingNotif] = useState<NotifItem | null>(null)
   const notifPanelRef = useRef<HTMLDivElement>(null)
 
   const unreadNotifCount = notifHistory.filter(n => !dismissedIds.has(n.id)).length
@@ -136,8 +137,8 @@ export default function PosPage() {
         return [{ id: n.id, message: n.message, type: n.type, created_at: n.created_at || new Date().toISOString() }, ...prev]
       })
 
+      const toastId = n.id
       if (n.type === 'urgent') {
-        const toastId = n.id
         toast.custom(
           (t) => (
             <div style={{
@@ -159,12 +160,50 @@ export default function PosPage() {
           ),
           { duration: Infinity, id: toastId }
         )
+      } else if (n.type === 'warning') {
+        toast.custom(
+          (t) => (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '12px',
+              background: '#fffbeb', color: '#92400e', border: '2px solid #fcd34d',
+              fontWeight: 600, fontSize: '15px', padding: '12px 14px', borderRadius: '12px',
+              maxWidth: '380px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+            }}>
+              <span style={{ flex: 1 }}>⚠️ {n.message}</span>
+              <button
+                onClick={() => toast.dismiss(t.id)}
+                style={{
+                  background: 'rgba(146,64,14,0.15)', border: 'none', borderRadius: '6px',
+                  padding: '4px 10px', color: '#92400e', fontWeight: 700, cursor: 'pointer',
+                  flexShrink: 0, fontSize: '14px', lineHeight: '1.4',
+                }}
+              >✕</button>
+            </div>
+          ),
+          { duration: 20000, id: toastId }
+        )
       } else {
-        const style = n.type === 'warning'
-          ? { background: '#fffbeb', color: '#92400e', border: '2px solid #fcd34d', fontWeight: '600' }
-          : { background: '#eff6ff', color: '#1e3a5f', border: '1px solid #bfdbfe' }
-        const duration = n.type === 'warning' ? 20000 : 12000
-        toast(n.message, { duration, style })
+        toast.custom(
+          (t) => (
+            <div style={{
+              display: 'flex', alignItems: 'flex-start', gap: '12px',
+              background: '#eff6ff', color: '#1e3a5f', border: '1px solid #bfdbfe',
+              fontWeight: 500, fontSize: '15px', padding: '12px 14px', borderRadius: '12px',
+              maxWidth: '380px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+            }}>
+              <span style={{ flex: 1 }}>ℹ️ {n.message}</span>
+              <button
+                onClick={() => toast.dismiss(t.id)}
+                style={{
+                  background: 'rgba(30,58,95,0.1)', border: 'none', borderRadius: '6px',
+                  padding: '4px 10px', color: '#1e3a5f', fontWeight: 700, cursor: 'pointer',
+                  flexShrink: 0, fontSize: '14px', lineHeight: '1.4',
+                }}
+              >✕</button>
+            </div>
+          ),
+          { duration: 12000, id: toastId }
+        )
       }
     }
 
@@ -460,45 +499,50 @@ export default function PosPage() {
                     </button>
                   )}
                 </div>
-                {notifHistory.length === 0 ? (
-                  <div className="px-4 py-8 text-center text-slate-400 text-sm">No notifications yet</div>
-                ) : (
-                  <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
-                    {notifHistory.map(n => {
-                      const isDismissed = dismissedIds.has(n.id)
-                      const emoji = n.type === 'urgent' ? '🚨' : n.type === 'warning' ? '⚠️' : 'ℹ️'
-                      const badge = n.type === 'urgent'
-                        ? 'bg-red-100 text-red-700'
-                        : n.type === 'warning'
-                        ? 'bg-amber-100 text-amber-700'
-                        : 'bg-blue-100 text-blue-700'
-                      return (
-                        <div key={n.id} className={`flex items-start gap-3 px-4 py-3 transition-opacity ${isDismissed ? 'opacity-40' : ''}`}>
-                          <span className="text-lg mt-0.5 shrink-0">{emoji}</span>
-                          <div className="flex-1 min-w-0">
-                            <div className="flex items-center gap-2 mb-0.5">
-                              <span className={`text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${badge}`}>
-                                {n.type}
-                              </span>
-                              <span className="text-xs text-slate-400">
-                                {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
-                              </span>
+                {(() => {
+                  const visibleNotifs = notifHistory.filter(n => !dismissedIds.has(n.id))
+                  if (visibleNotifs.length === 0) {
+                    return <div className="px-4 py-8 text-center text-slate-400 text-sm">No notifications</div>
+                  }
+                  return (
+                    <div className="max-h-80 overflow-y-auto divide-y divide-slate-50">
+                      {visibleNotifs.map(n => {
+                        const emoji = n.type === 'urgent' ? '🚨' : n.type === 'warning' ? '⚠️' : 'ℹ️'
+                        const badge = n.type === 'urgent'
+                          ? 'bg-red-100 text-red-700'
+                          : n.type === 'warning'
+                          ? 'bg-amber-100 text-amber-700'
+                          : 'bg-blue-100 text-blue-700'
+                        return (
+                          <div
+                            key={n.id}
+                            onClick={() => setViewingNotif(n)}
+                            className="flex items-start gap-3 px-4 py-3 cursor-pointer hover:bg-slate-50 transition-colors"
+                          >
+                            <span className="text-lg mt-0.5 shrink-0">{emoji}</span>
+                            <div className="flex-1 min-w-0">
+                              <div className="flex items-center gap-2 mb-0.5">
+                                <span className={`text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${badge}`}>
+                                  {n.type}
+                                </span>
+                                <span className="text-xs text-slate-400">
+                                  {new Date(n.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+                                </span>
+                              </div>
+                              <p className="text-sm text-slate-700 leading-snug truncate">{n.message}</p>
                             </div>
-                            <p className="text-sm text-slate-700 leading-snug">{n.message}</p>
-                          </div>
-                          {!isDismissed && (
                             <button
-                              onClick={() => dismissNotif(n.id)}
+                              onClick={(e) => { e.stopPropagation(); dismissNotif(n.id) }}
                               className="shrink-0 p-1 rounded-lg hover:bg-slate-100 text-slate-400 hover:text-slate-600 transition-colors"
                             >
                               <X className="w-4 h-4" />
                             </button>
-                          )}
-                        </div>
-                      )
-                    })}
-                  </div>
-                )}
+                          </div>
+                        )
+                      })}
+                    </div>
+                  )
+                })()}
               </div>
             )}
           </div>
@@ -640,6 +684,38 @@ export default function PosPage() {
           onClose={() => setShowWastage(false)}
           onSuccess={() => { setShowWastage(false); loadData() }}
         />
+      )}
+
+      {viewingNotif && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
+          <div className="bg-white rounded-2xl shadow-xl w-full max-w-lg p-6">
+            <div className="flex items-center gap-2 mb-3">
+              <span className={`text-xs font-bold uppercase tracking-wide px-1.5 py-0.5 rounded ${
+                viewingNotif.type === 'urgent'
+                  ? 'bg-red-100 text-red-700'
+                  : viewingNotif.type === 'warning'
+                  ? 'bg-amber-100 text-amber-700'
+                  : 'bg-blue-100 text-blue-700'
+              }`}>
+                {viewingNotif.type}
+              </span>
+              <span className="text-xs text-slate-400">
+                {new Date(viewingNotif.created_at).toLocaleTimeString([], { hour: '2-digit', minute: '2-digit' })}
+              </span>
+            </div>
+            <p className="text-sm text-slate-700 leading-relaxed whitespace-pre-wrap mb-6">
+              {viewingNotif.message}
+            </p>
+            <div className="flex justify-end">
+              <button
+                onClick={() => setViewingNotif(null)}
+                className="btn-secondary text-sm"
+              >
+                Close
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {showCheckout && (

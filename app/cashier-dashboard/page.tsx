@@ -55,6 +55,7 @@ export default function CashierDashboardPage() {
       supabase
         .from('orders')
         .select('id, created_at, total, status, bochurim!bochur_id(name), cashier_profiles!cashier_id(name), order_items(product_name, quantity)')
+        .eq('order_items.is_bundle_component', false)
         .gte('created_at', todayStart)
         .lt('created_at', todayEnd)
         .order('created_at', { ascending: false })
