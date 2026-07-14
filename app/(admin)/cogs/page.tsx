@@ -5,6 +5,8 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import { Plus, AlertTriangle, DollarSign, Trash2, ShoppingCart, Pencil, X } from 'lucide-react'
 import toast from 'react-hot-toast'
+import ProductQuickViewModal from '@/components/admin/ProductQuickViewModal'
+import CashierQuickViewModal from '@/components/admin/CashierQuickViewModal'
 
 interface WastageEntry {
   id: string
@@ -17,7 +19,7 @@ interface WastageEntry {
   notes: string | null
   cashier_id: string | null
   created_at: string
-  cashier_profiles?: { name: string } | null
+  cashier_profiles?: { id: string; name: string } | null
 }
 
 interface StockEntry {
@@ -65,6 +67,10 @@ export default function CogsPage() {
   const [submitting, setSubmitting] = useState(false)
   const [deleting, setDeleting] = useState<string | null>(null)
 
+  // Quick-view modals
+  const [viewingProductId, setViewingProductId] = useState<string | null>(null)
+  const [viewingCashierId, setViewingCashierId] = useState<string | null>(null)
+
   // Edit purchase modal
   const [editingPurchase, setEditingPurchase] = useState<StockEntry | null>(null)
   const [editQty, setEditQty] = useState('')
@@ -79,7 +85,7 @@ export default function CogsPage() {
     const [wRes, eRes, pRes] = await Promise.all([
       supabase
         .from('wastage_log')
-        .select('*, cashier_profiles!cashier_id(name)')
+        .select('*, cashier_profiles!cashier_id(id, name)')
         .order('created_at', { ascending: false })
         .limit(300),
       supabase
@@ -274,9 +280,17 @@ export default function CogsPage() {
                         {new Date(w.created_at).toLocaleDateString()}
                       </td>
                       <td className="px-4 py-3 text-slate-600">
-                        {(w.cashier_profiles as any)?.name || <span className="text-slate-300">&mdash;</span>}
+                        {w.cashier_profiles?.name ? (
+                          <button type="button" onClick={() => setViewingCashierId(w.cashier_profiles!.id)}
+                            className="hover:underline hover:text-indigo-600 text-left">{w.cashier_profiles.name}</button>
+                        ) : <span className="text-slate-300">&mdash;</span>}
                       </td>
-                      <td className="px-4 py-3 font-medium text-slate-800">{w.product_name}</td>
+                      <td className="px-4 py-3 font-medium text-slate-800">
+                        {w.product_id ? (
+                          <button type="button" onClick={() => setViewingProductId(w.product_id!)}
+                            className="hover:underline hover:text-indigo-600 text-left">{w.product_name}</button>
+                        ) : w.product_name}
+                      </td>
                       <td className="px-4 py-3 text-right text-slate-700">{w.quantity}</td>
                       <td className="px-4 py-3 text-right text-slate-600">{formatCurrency(w.unit_cost)}</td>
                       <td className="px-4 py-3 text-right font-semibold text-red-600">
@@ -359,7 +373,12 @@ export default function CogsPage() {
                           {new Date(p.created_at).toLocaleDateString()}
                         </td>
                         <td className="px-4 py-3 font-medium text-slate-800">
-                          {(p.products as any)?.name ?? <span className="text-slate-400 italic">Unknown product</span>}
+                          {(p.products as any)?.name ? (
+                            p.product_id ? (
+                              <button type="button" onClick={() => setViewingProductId(p.product_id!)}
+                                className="hover:underline hover:text-indigo-600 text-left">{(p.products as any).name}</button>
+                            ) : (p.products as any).name
+                          ) : <span className="text-slate-400 italic">Unknown product</span>}
                         </td>
                         <td className="px-4 py-3 text-right text-slate-700">{p.quantity_added}</td>
                         <td className="px-4 py-3 text-right text-slate-600">
@@ -642,6 +661,14 @@ export default function CogsPage() {
             </div>
           </div>
         </div>
+      )}
+
+      {/* Quick-view modals */}
+      {viewingProductId && (
+        <ProductQuickViewModal productId={viewingProductId} onClose={() => setViewingProductId(null)} />
+      )}
+      {viewingCashierId && (
+        <CashierQuickViewModal cashierId={viewingCashierId} onClose={() => setViewingCashierId(null)} />
       )}
     </div>
   )
