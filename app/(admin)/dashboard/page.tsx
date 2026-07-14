@@ -7,11 +7,28 @@ import LowStockList from '@/components/admin/LowStockList'
 
 export const revalidate = 60
 
+// The canteen operates in America/New_York. This is a Server Component (no
+// browser local time available), and Vercel's Node runtime defaults to UTC —
+// so building "today" from `now.getUTCDate()` etc. computed the wrong calendar
+// day for most of the actual business day (same bug class as the Reports/
+// Accounts UTC-vs-local fix, but those are client components that could just
+// read the browser's local time; this one has to hardcode the zone instead).
+const CANTEEN_TZ = 'America/New_York'
+
+function getZonedTodayBounds(timeZone: string, now: Date) {
+  const zonedNow = new Date(now.toLocaleString('en-US', { timeZone }))
+  const utcNow = new Date(now.toLocaleString('en-US', { timeZone: 'UTC' }))
+  const offsetMs = zonedNow.getTime() - utcNow.getTime()
+  const y = zonedNow.getFullYear(), m = zonedNow.getMonth(), d = zonedNow.getDate()
+  const todayStart = new Date(Date.UTC(y, m, d) - offsetMs)
+  const pad = (n: number) => String(n).padStart(2, '0')
+  const todayDateStr = `${y}-${pad(m + 1)}-${pad(d)}`
+  return { todayStart, todayDateStr }
+}
+
 async function getStats(supabase: any) {
-  // Use UTC midnight so date boundaries are consistent with stored timestamps
   const now = new Date()
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const todayDateStr = today.toISOString().split('T')[0]
+  const { todayStart: today, todayDateStr } = getZonedTodayBounds(CANTEEN_TZ, now)
   const weekAgo = new Date(today); weekAgo.setUTCDate(weekAgo.getUTCDate() - 7)
   const twoWeeksAgo = new Date(today); twoWeeksAgo.setUTCDate(twoWeeksAgo.getUTCDate() - 14)
   const monthAgo = new Date(today); monthAgo.setUTCMonth(monthAgo.getUTCMonth() - 1)
