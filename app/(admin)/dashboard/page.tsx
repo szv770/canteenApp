@@ -59,10 +59,12 @@ async function getStats(supabase: any) {
     supabase.from('expense_entries').select('amount').gte('date', todayDateStr).lte('date', todayDateStr),
     // Today's wastage
     supabase.from('wastage_log').select('unit_cost, quantity').gte('created_at', today.toISOString()),
-    // Today's COGS from completed order items
+    // Today's COGS from completed order items — live join to products.cost_price
+    // (matches how Reports computes COGS) rather than order_items.cost_price,
+    // which the checkout route never populated, so this always summed to $0.
     supabase
       .from('order_items')
-      .select('cost_price, quantity, orders!inner(created_at, status)')
+      .select('quantity, products(cost_price), orders!inner(created_at, status)')
       .eq('orders.status', 'completed')
       .gte('orders.created_at', today.toISOString()),
   ])
@@ -99,7 +101,7 @@ async function getStats(supabase: any) {
   const todayWastage = (todayWastageRes.data || []).reduce((s: number, w: any) => s + Number(w.unit_cost || 0) * Number(w.quantity), 0)
   let todayCOGS = 0
   for (const item of (todayCOGSRes.data || []) as any[]) {
-    todayCOGS += Number(item.cost_price || 0) * Number(item.quantity)
+    todayCOGS += Number(item.products?.cost_price || 0) * Number(item.quantity)
   }
 
   return {

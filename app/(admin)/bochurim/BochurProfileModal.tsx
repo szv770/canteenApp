@@ -125,6 +125,7 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
   const [banCustomDate, setBanCustomDate] = useState('')
   const [banReason, setBanReason] = useState('')
   const [banning, setBanning] = useState(false)
+  const [editingBan, setEditingBan] = useState(false)
 
   // account settings
   const [settingsForm, setSettingsForm] = useState({
@@ -160,6 +161,7 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
       supabase
         .from('orders')
         .select('id, order_number, created_at, total, status, order_items(product_name, quantity)')
+        .eq('order_items.is_bundle_component', false)
         .eq('bochur_id', bochur.id)
         .order('created_at', { ascending: false })
         .limit(15),
@@ -223,6 +225,9 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
     return () => window.removeEventListener('keydown', handler)
   }, [onClose])
 
+  // Reset ban-editing mode whenever a different bochur is shown
+  useEffect(() => { setEditingBan(false) }, [bochur.id])
+
   // ── Actions ────────────────────────────────────────────────────────────────
 
   async function toggleFreeze() {
@@ -260,11 +265,21 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
       .update({ banned_until: until.toISOString(), ban_reason: banReason.trim() })
       .eq('id', bochur.id)
     if (error) { toast.error(error.message); setBanning(false); return }
-    toast.success('Timed ban applied')
+    toast.success(editingBan ? 'Ban updated' : 'Timed ban applied')
     setBochur(b => ({ ...b, banned_until: until.toISOString(), ban_reason: banReason.trim() }))
     setBanReason('')
     setBanning(false)
+    setEditingBan(false)
     onUpdated()
+  }
+
+  function startEditBan() {
+    setBanReason(bochur.ban_reason || '')
+    if (bochur.banned_until) {
+      setBanDuration('custom')
+      setBanCustomDate(new Date(bochur.banned_until).toISOString().slice(0, 16))
+    }
+    setEditingBan(true)
   }
 
   async function liftBan() {
@@ -422,7 +437,7 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
 
             {/* ── Timed Ban section ────────────────────────────────────────── */}
             <div className="admin-card overflow-hidden">
-              {isBanned ? (
+              {isBanned && !editingBan && (
                 <div className="p-4 space-y-3">
                   <div className="flex items-start justify-between gap-3">
                     <div className="flex items-start gap-2 min-w-0">
@@ -437,16 +452,25 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
                         )}
                       </div>
                     </div>
-                    <button
-                      onClick={liftBan}
-                      disabled={banning}
-                      className="shrink-0 px-3 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 text-xs font-semibold transition-colors disabled:opacity-50"
-                    >
-                      {banning ? 'Lifting...' : 'Lift Ban'}
-                    </button>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button
+                        onClick={startEditBan}
+                        className="px-3 py-1.5 rounded-lg bg-slate-100 hover:bg-slate-200 text-slate-700 text-xs font-semibold transition-colors"
+                      >
+                        Edit
+                      </button>
+                      <button
+                        onClick={liftBan}
+                        disabled={banning}
+                        className="px-3 py-1.5 rounded-lg bg-orange-50 hover:bg-orange-100 text-orange-700 border border-orange-200 text-xs font-semibold transition-colors disabled:opacity-50"
+                      >
+                        {banning ? 'Lifting...' : 'Lift Ban'}
+                      </button>
+                    </div>
                   </div>
                 </div>
-              ) : (
+              )}
+              {(!isBanned || editingBan) && (
                 <div className="p-4 space-y-3">
                   <h3 className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
                     <Clock className="w-4 h-4 text-slate-400" /> Timed Ban
@@ -483,13 +507,23 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
                     value={banReason}
                     onChange={e => setBanReason(e.target.value)}
                   />
-                  <button
-                    onClick={applyBan}
-                    disabled={banning || !banReason.trim()}
-                    className="w-full px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition-colors disabled:opacity-50"
-                  >
-                    {banning ? 'Applying...' : 'Apply Timed Ban'}
-                  </button>
+                  <div className="flex gap-2">
+                    {editingBan && (
+                      <button
+                        onClick={() => setEditingBan(false)}
+                        className="btn-secondary flex-1"
+                      >
+                        Cancel
+                      </button>
+                    )}
+                    <button
+                      onClick={applyBan}
+                      disabled={banning || !banReason.trim()}
+                      className={`${editingBan ? 'flex-1' : 'w-full'} px-4 py-2 rounded-xl bg-orange-500 hover:bg-orange-600 text-white text-sm font-semibold transition-colors disabled:opacity-50`}
+                    >
+                      {banning ? 'Applying...' : editingBan ? 'Save Changes' : 'Apply Timed Ban'}
+                    </button>
+                  </div>
                 </div>
               )}
             </div>

@@ -221,6 +221,11 @@ export default function BochurimPage() {
                             Frozen
                           </span>
                         )}
+                        {!!b.banned_until && new Date(b.banned_until) > new Date() && (
+                          <span className="inline-flex items-center px-1.5 py-0.5 rounded-full bg-orange-100 text-orange-600 text-xs font-semibold border border-orange-200">
+                            Banned
+                          </span>
+                        )}
                       </div>
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500">{b.grade || '—'}</td>

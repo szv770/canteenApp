@@ -63,39 +63,51 @@ function daysAgoStr(n: number) {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 function fmtDate(d: Date) {
-  return `${d.getUTCFullYear()}-${String(d.getUTCMonth() + 1).padStart(2, '0')}-${String(d.getUTCDate()).padStart(2, '0')}`
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
+// Builds day boundaries from the browser's LOCAL calendar date, not UTC. Using
+// Date.UTC(now.getUTCFullYear(), ...) here was a real bug: it rolls the "today"
+// boundary over at UTC midnight, which is hours before/after local midnight
+// depending on timezone, so "Today" silently excluded most of the actual local
+// business day (only orders from the last few UTC-hours of the local day showed
+// up). `new Date(y, m, d)` interprets its arguments as LOCAL time and computes
+// the correct underlying UTC instant automatically, so .toISOString() below still
+// serializes correctly for the `created_at` (timestamptz) comparison regardless
+// of the browser/server timezone.
 function getDateRange(range: Exclude<DateRange, 'custom'>): { from: Date; to: Date } {
   const now = new Date()
-  const today = new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), now.getUTCDate()))
-  const tomorrow = new Date(today); tomorrow.setUTCDate(tomorrow.getUTCDate() + 1)
-  const dow = (now.getUTCDay() + 6) % 7 // 0=Mon, 6=Sun
+  const today = new Date(now.getFullYear(), now.getMonth(), now.getDate())
+  const tomorrow = new Date(today); tomorrow.setDate(tomorrow.getDate() + 1)
+  const dow = (now.getDay() + 6) % 7 // 0=Mon, 6=Sun
   if (range === 'today') return { from: today, to: tomorrow }
   if (range === 'yesterday') {
-    const y = new Date(today); y.setUTCDate(y.getUTCDate() - 1)
+    const y = new Date(today); y.setDate(y.getDate() - 1)
     return { from: y, to: today }
   }
   if (range === 'this_week') {
-    const from = new Date(today); from.setUTCDate(today.getUTCDate() - dow)
+    const from = new Date(today); from.setDate(today.getDate() - dow)
     return { from, to: tomorrow }
   }
   if (range === 'last_week') {
-    const thisMonday = new Date(today); thisMonday.setUTCDate(today.getUTCDate() - dow)
-    const lastMonday = new Date(thisMonday); lastMonday.setUTCDate(thisMonday.getUTCDate() - 7)
+    const thisMonday = new Date(today); thisMonday.setDate(today.getDate() - dow)
+    const lastMonday = new Date(thisMonday); lastMonday.setDate(thisMonday.getDate() - 7)
     return { from: lastMonday, to: thisMonday }
   }
-  if (range === 'this_month') return { from: new Date(Date.UTC(now.getUTCFullYear(), now.getUTCMonth(), 1)), to: tomorrow }
-  if (range === 'this_summer') return { from: new Date(Date.UTC(now.getUTCFullYear(), 5, 1)), to: tomorrow }
+  if (range === 'this_month') return { from: new Date(now.getFullYear(), now.getMonth(), 1), to: tomorrow }
+  if (range === 'this_summer') return { from: new Date(now.getFullYear(), 5, 1), to: tomorrow }
   // last_30
-  const from = new Date(today); from.setUTCDate(from.getUTCDate() - 30)
+  const from = new Date(today); from.setDate(from.getDate() - 30)
   return { from, to: tomorrow }
 }
 
-// Navigate current custom range by N days (used for prev/next arrows)
+// Navigate current custom range by N days (used for prev/next arrows). Local-date
+// arithmetic throughout, matching fmtDate/getDateRange above.
 function shiftDays(from: string, to: string, days: number): { from: string; to: string } {
-  const f = new Date(from + 'T00:00:00Z'); f.setUTCDate(f.getUTCDate() + days)
-  const t = new Date(to + 'T00:00:00Z'); t.setUTCDate(t.getUTCDate() + days)
+  const [fy, fm, fd] = from.split('-').map(Number)
+  const [ty, tm, td] = to.split('-').map(Number)
+  const f = new Date(fy, fm - 1, fd + days)
+  const t = new Date(ty, tm - 1, td + days)
   return { from: fmtDate(f), to: fmtDate(t) }
 }
 
@@ -214,8 +226,20 @@ export default function ReportsPage() {
   const [bochurimInRange, setBochurimInRange] = useState<Set<string>>(new Set())
 
   // ── Resolve ISO range ────────────────────────────────────────────────────
+  // customFrom/customTo are local "YYYY-MM-DD" calendar dates (from <input type="date">
+  // and the Today/N-days-ago string helpers above, both local-time-based). Building the
+  // boundary with `+'T00:00:00.000Z'` treated that local date as if it were already UTC —
+  // same class of bug as getDateRange below. `new Date(y, m-1, d)` interprets its
+  // arguments as LOCAL time and computes the correct UTC instant automatically.
   function resolveISO(): { fromISO: string; toISO: string } {
-    if (range === 'custom') return { fromISO: customFrom + 'T00:00:00.000Z', toISO: customTo + 'T23:59:59.999Z' }
+    if (range === 'custom') {
+      const [fy, fm, fd] = customFrom.split('-').map(Number)
+      const [ty, tm, td] = customTo.split('-').map(Number)
+      return {
+        fromISO: new Date(fy, fm - 1, fd).toISOString(),
+        toISO: new Date(ty, tm - 1, td + 1).toISOString(), // exclusive: start of the day after `to`
+      }
+    }
     const { from, to } = getDateRange(range as Exclude<DateRange, 'custom'>)
     return { fromISO: from.toISOString(), toISO: to.toISOString() }
   }
@@ -225,7 +249,7 @@ export default function ReportsPage() {
     const { from, to } = getDateRange(preset)
     setRange(preset)
     setCustomFrom(fmtDate(from))
-    const todisplay = new Date(to); todisplay.setUTCDate(todisplay.getUTCDate() - 1)
+    const todisplay = new Date(to); todisplay.setDate(todisplay.getDate() - 1)
     setCustomTo(fmtDate(todisplay))
   }
 
@@ -391,15 +415,17 @@ export default function ReportsPage() {
   const { fromISO: _fi, toISO: _ti } = useMemo(() => resolveISO(), [range, customFrom, customTo])
 
   const dailyRevenue = useMemo(() => {
+    // Bucket by LOCAL calendar date — created_at.split('T')[0] would use the UTC
+    // date instead, silently shifting evening orders onto the next day's bar.
     const map: Record<string, number> = {}
-    for (const o of completedOrders) { const k = o.created_at.split('T')[0]; map[k] = (map[k] || 0) + Number(o.total) }
+    for (const o of completedOrders) { const k = fmtDate(new Date(o.created_at)); map[k] = (map[k] || 0) + Number(o.total) }
     const result: { date: string; revenue: number }[] = []
     const cur = new Date(_fi); const end = new Date(_ti)
     while (cur < end) {
-      const key = cur.toISOString().split('T')[0]
-      const label = new Date(key + 'T00:00:00Z').toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
+      const key = fmtDate(cur)
+      const label = cur.toLocaleDateString('en-US', { month: 'short', day: 'numeric' })
       result.push({ date: label, revenue: map[key] || 0 })
-      cur.setUTCDate(cur.getUTCDate() + 1)
+      cur.setDate(cur.getDate() + 1)
     }
     return result
   }, [completedOrders, _fi, _ti])
@@ -407,14 +433,14 @@ export default function ReportsPage() {
   const hourlyData = useMemo(() => {
     const map: Record<number, { revenue: number; count: number }> = {}
     for (let h = 0; h < 24; h++) map[h] = { revenue: 0, count: 0 }
-    for (const o of completedOrders) { const h = new Date(o.created_at).getUTCHours(); map[h].revenue += Number(o.total); map[h].count += 1 }
+    for (const o of completedOrders) { const h = new Date(o.created_at).getHours(); map[h].revenue += Number(o.total); map[h].count += 1 }
     return Array.from({ length: 24 }, (_, i) => ({ label: HOUR_LABELS[i], revenue: map[i].revenue, count: map[i].count }))
   }, [completedOrders])
 
   const dowData = useMemo(() => {
     const map: Record<number, { revenue: number; count: number }> = {}
     for (let i = 0; i < 7; i++) map[i] = { revenue: 0, count: 0 }
-    for (const o of completedOrders) { const d = new Date(o.created_at).getUTCDay(); map[d].revenue += Number(o.total); map[d].count += 1 }
+    for (const o of completedOrders) { const d = new Date(o.created_at).getDay(); map[d].revenue += Number(o.total); map[d].count += 1 }
     return [1, 2, 3, 4, 5, 6, 0].map(i => ({ day: DOW_LABELS[i], revenue: map[i].revenue, avg: map[i].count > 0 ? map[i].revenue / map[i].count : 0 }))
   }, [completedOrders])
 
