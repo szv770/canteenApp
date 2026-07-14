@@ -7,6 +7,7 @@ import { formatCurrency } from '@/lib/utils'
 import toast from 'react-hot-toast'
 import type { Product, ProductBundle, BundleItem, ProductBundleWithItems } from '@/types/database'
 import TableSkeleton from '@/components/admin/TableSkeleton'
+import ProductQuickViewModal from '@/components/admin/ProductQuickViewModal'
 
 const EMOJIS = ['🍕','🌮','🌯','🥗','🍔','🍟','🍦','🧁','🍰','🍩','🍪','🥤','☕','🧃','🍫','🍬','🍭','🧇','🥞','🌽','🍿','🧀','🥨','🫐','🍓','🍎','🍌','🍉','🍑','🍒','🎁','⭐','🔥','💎','🎯']
 
@@ -17,6 +18,7 @@ export default function BundlesPage() {
   const [loading, setLoading] = useState(true)
   const [editBundle, setEditBundle] = useState<ProductBundleWithItems | null>(null)
   const [showAdd, setShowAdd] = useState(false)
+  const [viewProductId, setViewProductId] = useState<string | null>(null)
 
   useEffect(() => { loadData() }, [])
 
@@ -106,11 +108,16 @@ export default function BundlesPage() {
                         {b.bundle_items.length === 0
                           ? <span className="text-xs text-slate-300">No items</span>
                           : b.bundle_items.map(item => (
-                            <span key={item.id} className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100">
+                            <button
+                              key={item.id}
+                              type="button"
+                              onClick={() => setViewProductId(item.product_id)}
+                              className="inline-flex items-center px-2 py-0.5 rounded-full text-xs font-medium bg-amber-50 text-amber-700 border border-amber-100 hover:bg-amber-100 hover:underline transition-colors"
+                            >
                               {item.quantity > 1 && <span className="mr-0.5">{item.quantity}x</span>}
                               {item.products?.icon && <span className="mr-0.5">{item.products.icon}</span>}
                               {item.products?.name || 'Unknown'}
-                            </span>
+                            </button>
                           ))
                         }
                       </div>
@@ -159,6 +166,9 @@ export default function BundlesPage() {
           onClose={() => { setShowAdd(false); setEditBundle(null) }}
           onSaved={() => { setShowAdd(false); setEditBundle(null); loadData() }}
         />
+      )}
+      {viewProductId && (
+        <ProductQuickViewModal productId={viewProductId} onClose={() => setViewProductId(null)} />
       )}
     </div>
   )
