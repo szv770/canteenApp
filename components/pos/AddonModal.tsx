@@ -8,18 +8,20 @@ import type { Product, ProductAddon } from '@/types/database'
 
 interface Props {
   product: Product
+  preloadedAddons?: ProductAddon[]
   onConfirm: (selectedAddons: ProductAddon[]) => void
   onSkip: () => void
   onClose: () => void
 }
 
-export default function AddonModal({ product, onConfirm, onSkip, onClose }: Props) {
-  const [addons, setAddons] = useState<ProductAddon[]>([])
+export default function AddonModal({ product, preloadedAddons, onConfirm, onSkip, onClose }: Props) {
+  const [addons, setAddons] = useState<ProductAddon[]>(preloadedAddons ?? [])
   const [selected, setSelected] = useState<Set<string>>(new Set())
-  const [loading, setLoading] = useState(true)
+  const [loading, setLoading] = useState(!preloadedAddons)
   const supabase = createClient()
 
   useEffect(() => {
+    if (preloadedAddons) return
     setLoading(true)
     supabase
       .from('product_addons')

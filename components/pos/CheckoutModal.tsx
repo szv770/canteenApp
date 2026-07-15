@@ -2,7 +2,7 @@
 
 import { useState, useCallback, useRef } from 'react'
 import { X, DollarSign, CreditCard, Wallet, Check, Search, User, UserPlus, ExternalLink } from 'lucide-react'
-import { formatCurrency, roundCash, calcCCFee, applyDiscount } from '@/lib/utils'
+import { formatCurrency, roundCash, calcCCFee, applyDiscount, quickCashOptions } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import toast from 'react-hot-toast'
 import type { CartItem, BochurWithId } from '@/types/database'
@@ -17,8 +17,6 @@ interface Props {
 }
 
 type PayMethod = 'balance' | 'cash' | 'credit_card'
-
-const QUICK_CASH = [1, 5, 10, 20, 50, 100]
 
 export default function CheckoutModal({ cart, loadedBochur: initialBochur, settings, cashierName, onClose, onSuccess }: Props) {
   const [selectedBochur, setSelectedBochur] = useState<BochurWithId | null>(initialBochur)
@@ -429,13 +427,13 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
                   autoFocus
                 />
                 <div className="grid grid-cols-3 sm:grid-cols-6 gap-1.5">
-                  {QUICK_CASH.map(amt => (
+                  {quickCashOptions(displayTotal).map((amt, idx) => (
                     <button
                       key={amt}
                       onClick={() => setCashTendered(String(amt))}
                       className="py-2.5 min-h-[44px] bg-pos-bg hover:bg-pos-hover border border-pos-border rounded-xl text-sm font-medium text-pos-text transition-colors"
                     >
-                      ${amt}
+                      {idx === 0 ? formatCurrency(amt) : `$${amt}`}
                     </button>
                   ))}
                 </div>

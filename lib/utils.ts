@@ -28,6 +28,21 @@ export function calcChange(tendered: number, total: number): number {
   return Math.max(0, Math.round((tendered - total) * 100) / 100)
 }
 
+// Contextual cash-tendered quick buttons: the exact total, the next whole
+// dollar, and round-ups to common bill sizes — instead of a fixed
+// $1/$5/$10/$20/$50/$100 row that rarely matches the actual total.
+export function quickCashOptions(total: number): number[] {
+  const t = Math.max(0.01, Math.round(total * 100) / 100)
+  const opts = new Set<number>()
+  opts.add(t)
+  opts.add(Math.ceil(t))
+  ;[5, 10, 20, 50, 100].forEach(mult => opts.add(Math.ceil(t / mult) * mult))
+  return Array.from(opts)
+    .filter(v => v > 0)
+    .sort((a, b) => a - b)
+    .slice(0, 6)
+}
+
 export function applyDiscount(
   price: number,
   discountType: 'percentage' | 'cost_price' | 'fixed' | 'none',

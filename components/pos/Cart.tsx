@@ -1,9 +1,9 @@
 'use client'
 
 import { useState } from 'react'
-import { ShoppingCart, Trash2, Plus, Minus, X, Zap } from 'lucide-react'
+import { ShoppingCart, Trash2, Plus, Minus, X, Zap, Sparkles } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import type { CartItem, BochurWithId } from '@/types/database'
+import type { CartItem, BochurWithId, Product } from '@/types/database'
 
 interface Props {
   cart: CartItem[]
@@ -15,9 +15,12 @@ interface Props {
   quickCharging?: boolean
   mobileOpen?: boolean
   onMobileClose?: () => void
+  upsellProduct?: Product | null
+  onAddUpsell?: () => void
+  onDismissUpsell?: () => void
 }
 
-export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, onQuickCharge, quickCharging, mobileOpen, onMobileClose }: Props) {
+export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, onQuickCharge, quickCharging, mobileOpen, onMobileClose, upsellProduct, onAddUpsell, onDismissUpsell }: Props) {
   function updateQtyByIndex(index: number, qty: number) {
     if (qty <= 0) {
       setCart(prev => prev.filter((_, i) => i !== index))
@@ -120,6 +123,31 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
           </div>
         )}
       </div>
+
+      {/* Frequently-bought-together suggestion */}
+      {upsellProduct && onAddUpsell && onDismissUpsell && (
+        <div className="mx-3 mb-2 shrink-0 flex items-center gap-2 px-3 py-2.5 rounded-xl bg-amber-50 border border-amber-200">
+          {upsellProduct.icon && <span className="text-lg shrink-0">{upsellProduct.icon}</span>}
+          <div className="flex-1 min-w-0">
+            <p className="text-[11px] font-medium text-amber-600 flex items-center gap-1">
+              <Sparkles className="w-3 h-3" /> Goes with this order
+            </p>
+            <p className="text-sm font-semibold text-slate-800 truncate">{upsellProduct.name}</p>
+          </div>
+          <button
+            onClick={onAddUpsell}
+            className="shrink-0 px-3 py-1.5 rounded-lg bg-amber-500 hover:bg-amber-600 text-white text-xs font-semibold transition-colors"
+          >
+            + Add
+          </button>
+          <button
+            onClick={onDismissUpsell}
+            className="shrink-0 p-1 rounded-lg text-amber-400 hover:bg-amber-100 hover:text-amber-600 transition-colors"
+          >
+            <X className="w-3.5 h-3.5" />
+          </button>
+        </div>
+      )}
 
       {/* Footer */}
       <div className="border-t border-slate-100 p-4 space-y-3 shrink-0">

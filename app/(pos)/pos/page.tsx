@@ -1,6 +1,6 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { LogOut, Settings, ShoppingCart, Wallet, Trash2, BarChart2, Bell, X } from 'lucide-react'
 import { useRouter } from 'next/navigation'
@@ -25,6 +25,72 @@ interface NotifItem {
   created_at: string
 }
 
+const UNDO_WINDOW_SECONDS = 8
+
+function ChargeUndoToast({ t, bochurName, amount, orderId, onUndone }: {
+  t: { id: string }
+  bochurName: string
+  amount: number
+  orderId: string
+  onUndone: () => void
+}) {
+  const [remaining, setRemaining] = useState(UNDO_WINDOW_SECONDS)
+  const [undoing, setUndoing] = useState(false)
+
+  useEffect(() => {
+    const interval = setInterval(() => setRemaining(r => r - 1), 1000)
+    return () => clearInterval(interval)
+  }, [])
+
+  useEffect(() => {
+    if (remaining <= 0) toast.dismiss(t.id)
+  }, [remaining, t.id])
+
+  async function handleUndo() {
+    if (undoing) return
+    setUndoing(true)
+    try {
+      const res = await fetch('/api/pos/self-void', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ order_id: orderId }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Undo failed')
+      toast.dismiss(t.id)
+      toast.success(`Undone — ${formatCurrency(json.refunded ?? amount)} refunded to ${bochurName}`)
+      onUndone()
+    } catch (err: any) {
+      toast.dismiss(t.id)
+      toast.error(err?.message || 'Could not undo — void it from Transactions instead')
+    } finally {
+      setUndoing(false)
+    }
+  }
+
+  return (
+    <div style={{
+      display: 'flex', alignItems: 'center', gap: '12px',
+      background: '#ecfdf5', color: '#065f46', border: '1px solid #6ee7b7',
+      fontWeight: 500, fontSize: '14px', padding: '10px 12px', borderRadius: '12px',
+      maxWidth: '380px', boxShadow: '0 4px 16px rgba(0,0,0,0.12)',
+    }}>
+      <span style={{ flex: 1 }}>Charged {formatCurrency(amount)} to {bochurName}</span>
+      <button
+        onClick={handleUndo}
+        disabled={undoing || remaining <= 0}
+        style={{
+          background: '#059669', border: 'none', borderRadius: '8px',
+          padding: '6px 12px', color: 'white', fontWeight: 700, cursor: 'pointer',
+          flexShrink: 0, fontSize: '13px', whiteSpace: 'nowrap', opacity: undoing ? 0.6 : 1,
+        }}
+      >
+        {undoing ? 'Undoing…' : `Undo (${remaining}s)`}
+      </button>
+    </div>
+  )
+}
+
 export default function PosPage() {
   const supabaseRef = useRef(createClient())
   const supabase = supabaseRef.current
@@ -43,6 +109,9 @@ export default function PosPage() {
   const [showCheckout, setShowCheckout] = useState(false)
   const [quickCharging, setQuickCharging] = useState(false)
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({})
+  const [productAddonsMap, setProductAddonsMap] = useState<Record<string, ProductAddon[]>>({})
+  const [fbtMap, setFbtMap] = useState<Record<string, { partnerId: string; count: number }>>({})
+  const [dismissedUpsellIds, setDismissedUpsellIds] = useState<Set<string>>(new Set())
   const [variantProduct, setVariantProduct] = useState<Product | null>(null)
   const [addonProduct, setAddonProduct] = useState<Product | null>(null)
   const [addonVariant, setAddonVariant] = useState<ProductVariant | undefined>(undefined)
@@ -246,13 +315,21 @@ export default function PosPage() {
   }, [])
 
   async function loadData() {
-    const [cats, prods, setts, catLinks, allVariants, allBundles] = await Promise.all([
+    const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
+    const [cats, prods, setts, catLinks, allVariants, allBundles, allAddons, fbtItems] = await Promise.all([
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('settings').select('*'),
       supabase.from('product_categories').select('product_id,category_id'),
       supabase.from('product_variants').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('product_bundles').select('*, bundle_items(id, product_id, quantity, products(name, icon))').eq('is_active', true).order('sort_order'),
+      supabase.from('product_addons').select('*').eq('is_active', true).order('sort_order'),
+      supabase.from('order_items')
+        .select('order_id, product_id, orders!inner(status, created_at)')
+        .eq('is_bundle_component', false)
+        .not('product_id', 'is', null)
+        .eq('orders.status', 'completed')
+        .gte('orders.created_at', thirtyDaysAgo),
     ])
     if (cats.data) setCategories(cats.data)
     if (prods.data) setProducts(prods.data)
@@ -278,6 +355,44 @@ export default function PosPage() {
       setProductVariantsMap(vMap)
     }
     if (allBundles.data) setBundles(allBundles.data as ProductBundleWithItems[])
+    if (allAddons.data) {
+      const aMap: Record<string, ProductAddon[]> = {}
+      allAddons.data.forEach((a: ProductAddon) => {
+        if (!aMap[a.product_id]) aMap[a.product_id] = []
+        aMap[a.product_id].push(a)
+      })
+      setProductAddonsMap(aMap)
+    }
+    if (fbtItems.data) {
+      // "Frequently bought together": count how often each pair of products
+      // appears in the same order over the last 30 days, then keep only each
+      // product's single strongest partner (signal must clear a small floor
+      // so a one-off coincidence doesn't become a permanent suggestion).
+      const orderProducts: Record<string, Set<string>> = {}
+      ;(fbtItems.data as any[]).forEach(row => {
+        if (!orderProducts[row.order_id]) orderProducts[row.order_id] = new Set()
+        orderProducts[row.order_id].add(row.product_id)
+      })
+      const pairCounts: Record<string, number> = {}
+      Object.values(orderProducts).forEach(set => {
+        const ids = Array.from(set)
+        for (let i = 0; i < ids.length; i++) {
+          for (let j = i + 1; j < ids.length; j++) {
+            const key = [ids[i], ids[j]].sort().join('|')
+            pairCounts[key] = (pairCounts[key] || 0) + 1
+          }
+        }
+      })
+      const best: Record<string, { partnerId: string; count: number }> = {}
+      const MIN_PAIR_COUNT = 3
+      Object.entries(pairCounts).forEach(([key, count]) => {
+        if (count < MIN_PAIR_COUNT) return
+        const [a, b] = key.split('|')
+        if (!best[a] || best[a].count < count) best[a] = { partnerId: b, count }
+        if (!best[b] || best[b].count < count) best[b] = { partnerId: a, count }
+      })
+      setFbtMap(best)
+    }
     setLoading(false)
   }
 
@@ -304,10 +419,19 @@ export default function PosPage() {
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Charge failed')
-      toast.success(`Charged ${formatCurrency(total)} to ${loadedBochur.name}`)
+      const chargedName = loadedBochur.name
+      if (json.order_id) {
+        toast.custom(
+          (t) => <ChargeUndoToast t={t} bochurName={chargedName} amount={total} orderId={json.order_id} onUndone={loadData} />,
+          { duration: UNDO_WINDOW_SECONDS * 1000, id: `undo-${json.order_id}` }
+        )
+      } else {
+        toast.success(`Charged ${formatCurrency(total)} to ${chargedName}`)
+      }
       setCart([])
       setLoadedBochur(null)
       setMobileCartOpen(false)
+      setDismissedUpsellIds(new Set())
       loadData()
     } catch (err: any) {
       const msg = err?.message || ''
@@ -388,14 +512,8 @@ export default function PosPage() {
     })
   }
 
-  async function checkAndShowAddonModal(product: Product, variant?: ProductVariant) {
-    const { data } = await supabase
-      .from('product_addons')
-      .select('id')
-      .eq('product_id', product.id)
-      .eq('is_active', true)
-      .limit(1)
-    if (data && data.length > 0) {
+  function checkAndShowAddonModal(product: Product, variant?: ProductVariant) {
+    if ((productAddonsMap[product.id]?.length ?? 0) > 0) {
       setAddonProduct(product)
       setAddonVariant(variant)
     } else {
@@ -457,6 +575,27 @@ export default function PosPage() {
   const outOfStockBehavior = settings['out_of_stock_behavior'] || 'warn'
   const coinRounding = settings['coin_rounding'] === 'true'
   const cartItemCount = cart.reduce((sum, i) => sum + i.quantity, 0)
+
+  // Best "goes with this order" suggestion: the strongest FBT partner of any
+  // item already in the cart, skipping anything already in the cart, already
+  // dismissed this order, sold out, or no longer active.
+  const upsellProduct = useMemo(() => {
+    if (cart.length === 0) return null
+    const cartProductIds = new Set(cart.map(i => i.product_id))
+    let best: { partnerId: string; count: number } | null = null
+    for (const item of cart) {
+      const candidate = fbtMap[item.product_id]
+      if (!candidate) continue
+      if (cartProductIds.has(candidate.partnerId)) continue
+      if (dismissedUpsellIds.has(candidate.partnerId)) continue
+      if (!best || candidate.count > best.count) best = candidate
+    }
+    if (!best) return null
+    const product = products.find(p => p.id === best!.partnerId)
+    if (!product || !product.is_active) return null
+    if (!product.has_variants && product.stock_quantity !== null && product.stock_quantity <= 0) return null
+    return product
+  }, [cart, fbtMap, products, dismissedUpsellIds])
 
   return (
     <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
@@ -675,6 +814,9 @@ export default function PosPage() {
           quickCharging={quickCharging}
           mobileOpen={mobileCartOpen}
           onMobileClose={() => setMobileCartOpen(false)}
+          upsellProduct={upsellProduct}
+          onAddUpsell={() => upsellProduct && handleProductTap(upsellProduct)}
+          onDismissUpsell={() => upsellProduct && setDismissedUpsellIds(prev => new Set(prev).add(upsellProduct.id))}
         />
       </div>
 
@@ -694,6 +836,7 @@ export default function PosPage() {
       {addonProduct && (
         <AddonModal
           product={addonProduct}
+          preloadedAddons={productAddonsMap[addonProduct.id]}
           onConfirm={(selectedAddons) => {
             addToCart(addonProduct, addonVariant, selectedAddons)
             setAddonProduct(null)
@@ -770,6 +913,7 @@ export default function PosPage() {
             setShowCheckout(false)
             setLoadedBochur(null)
             setMobileCartOpen(false)
+            setDismissedUpsellIds(new Set())
             if (loadedBochur) loadData()
             toast.success('Order completed!')
           }}
