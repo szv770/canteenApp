@@ -46,6 +46,11 @@ const SETTINGS_CONFIG: SettingRow[] = [
   ]},
 ]
 
+const CASHIER_TOPUP_SETTINGS: SettingRow[] = [
+  { key: 'cashier_topup_auto_approve_enabled', label: 'Auto-Approve Cashier Top-ups', description: 'Let cashiers credit a balance top-up instantly from the POS, without waiting for admin approval. Only applies to top-ups a cashier enters in person — parent online requests always require approval.', type: 'toggle' },
+  { key: 'cashier_topup_auto_approve_max', label: 'Auto-Approve Up To ($)', description: 'Cashier top-ups at or under this amount credit instantly. Anything above still goes to the admin approval queue as usual.', type: 'number' },
+]
+
 const PAYMENT_SETTINGS: SettingRow[] = [
   { key: 'canteen_name', label: 'Canteen Name', description: 'Shown on the parent landing page', type: 'text' },
   { key: 'canteen_tagline', label: 'Tagline', description: 'Subtitle shown below the canteen name', type: 'text' },
@@ -240,7 +245,7 @@ function GeneralSettingsContent() {
     })
   }, [])
 
-  const ALL_CONFIG = [...SETTINGS_CONFIG, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS, ...EMAIL_IDENTITY_SETTINGS, ...EMAIL_RECEIVED_SETTINGS, ...EMAIL_APPROVED_SETTINGS, ...EMAIL_REJECTED_SETTINGS]
+  const ALL_CONFIG = [...SETTINGS_CONFIG, ...CASHIER_TOPUP_SETTINGS, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS, ...EMAIL_IDENTITY_SETTINGS, ...EMAIL_RECEIVED_SETTINGS, ...EMAIL_APPROVED_SETTINGS, ...EMAIL_REJECTED_SETTINGS]
 
   function parseSettingValue(key: string, raw: string): unknown {
     const config = ALL_CONFIG.find(s => s.key === key)
@@ -284,6 +289,13 @@ function GeneralSettingsContent() {
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">POS Behavior</h2>
           <div className="space-y-3">
             {SETTINGS_CONFIG.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Cashier Top-ups (POS)</h2>
+          <div className="space-y-3">
+            {CASHIER_TOPUP_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
           </div>
         </section>
 
