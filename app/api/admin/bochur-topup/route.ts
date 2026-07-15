@@ -13,7 +13,7 @@ import { createAdminClient } from '@/lib/supabase/admin'
 
 const MAX_TOPUP = 50_000
 const MIN_TOPUP = 0.01
-const ALLOWED_METHODS = ['cash', 'zelle', 'venmo', 'paypal', 'manual'] as const
+const ALLOWED_METHODS = ['cash', 'zelle', 'venmo', 'paypal', 'manual', 'other_internal'] as const
 
 async function requireCashier() {
   const supabase = createClient()
@@ -60,7 +60,7 @@ export async function POST(req: NextRequest) {
   const method = methodRaw as typeof ALLOWED_METHODS[number]
 
   const noteRaw = typeof body.note === 'string' ? body.note.trim().slice(0, 500) : ''
-  const note = noteRaw || `${method} top-up`
+  const note = noteRaw || (method === 'other_internal' ? 'Other/Internal adjustment (no real money)' : `${method} top-up`)
 
   const admin = createAdminClient()
 
@@ -92,6 +92,11 @@ export async function POST(req: NextRequest) {
     bochur_id: bochurId,
     amount: sanitizedAmount,
     type: 'topup',
+    // Recorded so Accounts can tell a real cash/Zelle/etc. receipt from an
+    // `other_internal` comp/correction with no real money — was previously
+    // dropped from this insert entirely, making every Add Funds entry
+    // indistinguishable regardless of the method chosen above.
+    method,
     note,
     cashier_id: auth.user.id,
   })

@@ -145,6 +145,47 @@ export async function PATCH(req: NextRequest) {
     return NextResponse.json({ ok: true, amount: tipAmount })
   }
 
+  // Special action: payout_tips_cash — cashier has no linked bochur account,
+  // so the tip pool is handed to them as physical cash. Previously this just
+  // zeroed tip_balance with zero record anywhere; now it also logs a
+  // withdrawal so the cash leaving the register shows up in Accounts.
+  if (body.action === 'payout_tips_cash') {
+    const { data: cashierRow, error: cashierFetchErr } = await admin
+      .from('cashier_profiles')
+      .select('name, tip_balance')
+      .eq('id', id)
+      .single()
+    if (cashierFetchErr || !cashierRow) {
+      return NextResponse.json({ error: 'Cashier not found' }, { status: 404 })
+    }
+    const tipAmount = Number(cashierRow.tip_balance || 0)
+    if (tipAmount <= 0) {
+      return NextResponse.json({ error: 'No tips to pay out' }, { status: 400 })
+    }
+
+    // Local (America/New_York) calendar date, not the server's UTC date —
+    // this route runs on Vercel's Node runtime (defaults to UTC), and a
+    // plain `.toISOString().slice(0,10)` would misdate evening payouts by a
+    // day (same UTC-vs-local class of bug as gotcha #19/#25).
+    const nowInTz = new Date(new Date().toLocaleString('en-US', { timeZone: 'America/New_York' }))
+    const pad = (n: number) => String(n).padStart(2, '0')
+    const todayLocal = `${nowInTz.getFullYear()}-${pad(nowInTz.getMonth() + 1)}-${pad(nowInTz.getDate())}`
+
+    await admin.from('withdrawal_log').insert({
+      account: 'cash',
+      amount: tipAmount,
+      date: todayLocal,
+      reason: 'other',
+      note: `Tip payout to ${cashierRow.name} (no linked student account)`,
+      recorded_by: caller.id,
+    })
+
+    const { error: balErr } = await admin.from('cashier_profiles').update({ tip_balance: 0 }).eq('id', id)
+    if (balErr) return NextResponse.json({ error: balErr.message }, { status: 500 })
+
+    return NextResponse.json({ ok: true, amount: tipAmount })
+  }
+
   const profileUpdate: Record<string, unknown> = {}
   if (name !== undefined && typeof name === 'string') profileUpdate.name = name.trim()
   if (role !== undefined) profileUpdate.role = role

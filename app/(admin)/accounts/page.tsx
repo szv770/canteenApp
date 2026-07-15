@@ -152,10 +152,23 @@ export default function AccountsPage() {
   // independent of whatever range is picked for the headline cards above.
   async function loadNetBalances() {
     setLoadingNet(true)
-    const [{ data: payments }, { data: topups }, { data: allWithdrawals }] = await Promise.all([
+    const [{ data: payments }, { data: topups }, { data: allWithdrawals }, { data: ledgerRows }] = await Promise.all([
       supabase.from('payments').select('method, amount'),
       supabase.from('balance_topups').select('method, amount').eq('status', 'confirmed'),
       supabase.from('withdrawal_log').select('account, amount'),
+      // Only rows that carry a `method` are relevant here — topup-confirm's and
+      // cashier auto-approve's ledger side-effects deliberately leave method
+      // null (their money is already counted via balance_topups above), so
+      // this can never double-count those. What's left is real money that
+      // never touches `payments`/`balance_topups` at all:
+      //  - type=topup, method=cash_change: cash kept in the drawer instead of
+      //    handed back as change (checkout route)
+      //  - type=topup, method=cash/zelle/venmo/paypal: Add Funds entries
+      //    tagged with a real payment method (method=manual/other_internal
+      //    intentionally excluded — unspecified or explicitly no real money)
+      //  - type=refund, method=cash/zelle/cc: money paid back out of that
+      //    account to a student (bochur profile refund flow)
+      supabase.from('balance_ledger').select('type, method, amount').in('type', ['topup', 'refund']).not('method', 'is', null),
     ])
 
     const received: Record<string, number> = { cash: 0, zelle: 0, stripe: 0, venmo: 0, paypal: 0, cashapp: 0 }
@@ -174,14 +187,30 @@ export default function AccountsPage() {
       else if (t.method === 'paypal') received.paypal += amt
       else if (t.method === 'cashapp') received.cashapp += amt
     }
-    setNetReceived(received)
 
     const withdrawn: Record<string, number> = {}
     for (const w of (allWithdrawals || []) as any[]) {
       withdrawn[w.account] = (withdrawn[w.account] || 0) + Number(w.amount)
     }
-    setNetWithdrawn(withdrawn)
 
+    for (const l of (ledgerRows || []) as any[]) {
+      const amt = Math.abs(Number(l.amount))
+      if (l.type === 'topup') {
+        if (l.method === 'cash_change' || l.method === 'cash') received.cash += amt
+        else if (l.method === 'zelle') received.zelle += amt
+        else if (l.method === 'venmo') received.venmo += amt
+        else if (l.method === 'paypal') received.paypal += amt
+        // method === 'manual' or 'other_internal': intentionally not counted
+      } else if (l.type === 'refund') {
+        if (l.method === 'cash') withdrawn.cash = (withdrawn.cash || 0) + amt
+        else if (l.method === 'zelle') withdrawn.zelle = (withdrawn.zelle || 0) + amt
+        else if (l.method === 'cc') withdrawn.stripe = (withdrawn.stripe || 0) + amt
+        // method === 'void': balance-only reversal, no real account affected
+      }
+    }
+
+    setNetReceived(received)
+    setNetWithdrawn(withdrawn)
     setLoadingNet(false)
   }
 
@@ -427,8 +456,11 @@ export default function AccountsPage() {
         <div>
           <h2 className="text-lg font-semibold text-slate-700">Net Account Balances</h2>
           <p className="text-sm text-slate-400 mt-0.5">
-            All-time money received minus all-time withdrawals logged below, per account —
-            what should actually be sitting in that account right now. Not affected by the date range above.
+            All-time money in minus all-time money out, per account — what should actually be sitting there right now.
+            Counts POS payments, top-ups, cash kept as change-to-balance, tagged Add Funds entries, refunds paid back
+            to students, and the withdrawal log below. Not affected by the date range above. Excludes voided
+            cash/credit-card orders&rsquo; original payment — voiding doesn&rsquo;t track whether cash was physically
+            handed back, so log a withdrawal separately if it was.
           </p>
         </div>
 
