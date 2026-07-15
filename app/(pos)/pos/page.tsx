@@ -61,6 +61,15 @@ export default function PosPage() {
   const [notifPanelOpen, setNotifPanelOpen] = useState(false)
   const [viewingNotif, setViewingNotif] = useState<NotifItem | null>(null)
   const notifPanelRef = useRef<HTMLDivElement>(null)
+  // Persists across reloads/logins — a notification only ever pops a toast once per
+  // browser; after that it just sits in the bell panel (until explicitly dismissed).
+  const shownToastIdsRef = useRef<Set<string> | null>(null)
+  if (shownToastIdsRef.current === null) {
+    try {
+      const stored = localStorage.getItem('pos_shown_toast_notifs')
+      shownToastIdsRef.current = new Set(stored ? JSON.parse(stored) : [])
+    } catch { shownToastIdsRef.current = new Set() }
+  }
 
   const unreadNotifCount = notifHistory.filter(n => !dismissedIds.has(n.id)).length
 
@@ -125,17 +134,21 @@ export default function PosPage() {
       .subscribe()
 
     // Admin → cashier notifications
-    const seen = new Set<string>()
-
     function showNotif(n: { id: string; message: string; type: string; is_active: boolean; expires_at: string | null; created_at?: string }) {
-      if (!n.is_active || seen.has(n.id)) return
+      if (!n.is_active) return
       if (n.expires_at && new Date(n.expires_at) < new Date()) return
-      seen.add(n.id)
 
+      // Always recorded so the bell panel/badge reflects it, even if the toast itself
+      // was already shown in a previous session and won't pop again below.
       setNotifHistory(prev => {
         if (prev.find(h => h.id === n.id)) return prev
         return [{ id: n.id, message: n.message, type: n.type, created_at: n.created_at || new Date().toISOString() }, ...prev]
       })
+
+      const shown = shownToastIdsRef.current!
+      if (shown.has(n.id)) return
+      shown.add(n.id)
+      try { localStorage.setItem('pos_shown_toast_notifs', JSON.stringify(Array.from(shown))) } catch {}
 
       const toastId = n.id
       if (n.type === 'urgent') {
