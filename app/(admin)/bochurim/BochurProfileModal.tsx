@@ -906,8 +906,16 @@ function InlineTopupModal({ bochur, onClose, onSaved }: {
           <select className="input-admin" value={method} onChange={e => setMethod(e.target.value)}>
             <option value="cash">Cash</option>
             <option value="zelle">Zelle</option>
-            <option value="manual">Manual Adjustment</option>
+            <option value="venmo">Venmo</option>
+            <option value="paypal">PayPal</option>
+            <option value="manual">Manual (unspecified real payment)</option>
+            <option value="other_internal">Other / Internal (no real money)</option>
           </select>
+          {method === 'other_internal' && (
+            <p className="text-xs text-slate-400 mt-1">
+              Use this for comps, corrections, or gifts where no real money changed hands — excluded from Accounts&rsquo; cash/Zelle/etc. totals.
+            </p>
+          )}
         </div>
         <div>
           <label className="block text-sm font-medium text-slate-700 mb-1">Note (optional)</label>

@@ -21,14 +21,39 @@ interface WithdrawalRow {
   amount: number
   date: string
   note: string | null
+  reason: string | null
   created_at: string
 }
 
 const ACCOUNT_LABELS: Record<string, string> = {
   zelle: 'Zelle',
-  stripe: 'Stripe / CC',
+  stripe: 'Credit Card',
   cash: 'Cash',
+  venmo: 'Venmo',
+  paypal: 'PayPal',
+  cashapp: 'Cash App',
 }
+
+// Fixed display order for account-related lists/cards below.
+const ACCOUNT_ORDER = ['cash', 'zelle', 'stripe', 'venmo', 'paypal', 'cashapp']
+
+const ACCOUNT_BADGE_COLORS: Record<string, string> = {
+  cash: 'bg-green-100 text-green-700',
+  zelle: 'bg-purple-100 text-purple-700',
+  stripe: 'bg-blue-100 text-blue-700',
+  venmo: 'bg-sky-100 text-sky-700',
+  paypal: 'bg-indigo-100 text-indigo-700',
+  cashapp: 'bg-emerald-100 text-emerald-700',
+}
+
+const REASON_OPTIONS: { value: string; label: string }[] = [
+  { value: 'owner_draw', label: 'Owner draw' },
+  { value: 'bank_deposit', label: 'Bank deposit' },
+  { value: 'supplies', label: 'Supplies purchase' },
+  { value: 'refund_reimbursement', label: 'Refund reimbursement' },
+  { value: 'other', label: 'Other' },
+]
+const REASON_LABELS: Record<string, string> = Object.fromEntries(REASON_OPTIONS.map(r => [r.value, r.label]))
 
 export default function AccountsPage() {
   const supabase = createClient()
@@ -45,19 +70,26 @@ export default function AccountsPage() {
   // ── Top-up deposit totals ─────────────────────────────────────────────────
   const [topupByMethod, setTopupByMethod] = useState<Record<string, number>>({})
 
-  // ── Withdrawal log ───────────────────────────────────────────────────────
+  // ── Withdrawal log (filtered to the same date range as the balance cards) ─
   const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([])
   const [loadingLog, setLoadingLog] = useState(false)
 
+  // ── Net account balances (all-time, independent of the date range) ───────
+  const [netReceived, setNetReceived] = useState<Record<string, number>>({})
+  const [netWithdrawn, setNetWithdrawn] = useState<Record<string, number>>({})
+  const [loadingNet, setLoadingNet] = useState(false)
+
   // ── New withdrawal form ──────────────────────────────────────────────────
-  const [fAccount, setFAccount] = useState<'zelle' | 'stripe' | 'cash'>('cash')
+  const [fAccount, setFAccount] = useState<'zelle' | 'stripe' | 'cash' | 'venmo' | 'paypal' | 'cashapp'>('cash')
   const [fAmount, setFAmount] = useState('')
   const [fDate, setFDate] = useState(todayStr())
+  const [fReason, setFReason] = useState('')
   const [fNote, setFNote] = useState('')
   const [saving, setSaving] = useState(false)
 
   useEffect(() => { loadPayments() }, [from, to])
-  useEffect(() => { loadWithdrawals() }, [])
+  useEffect(() => { loadWithdrawals() }, [from, to])
+  useEffect(() => { loadNetBalances() }, [])
 
   async function loadPayments() {
     setLoadingPayments(true)
@@ -106,6 +138,8 @@ export default function AccountsPage() {
     const { data, error } = await supabase
       .from('withdrawal_log')
       .select('*')
+      .gte('date', from)
+      .lte('date', to)
       .order('date', { ascending: false })
       .order('created_at', { ascending: false })
     if (error) toast.error('Failed to load withdrawal log')
@@ -113,10 +147,78 @@ export default function AccountsPage() {
     setLoadingLog(false)
   }
 
+  // All-time (not date-filtered) received-vs-withdrawn per account, so the
+  // page can show "what should actually be sitting in this account right now"
+  // independent of whatever range is picked for the headline cards above.
+  async function loadNetBalances() {
+    setLoadingNet(true)
+    const [{ data: payments }, { data: topups }, { data: allWithdrawals }, { data: ledgerRows }] = await Promise.all([
+      supabase.from('payments').select('method, amount'),
+      supabase.from('balance_topups').select('method, amount').eq('status', 'confirmed'),
+      supabase.from('withdrawal_log').select('account, amount'),
+      // Only rows that carry a `method` are relevant here — topup-confirm's and
+      // cashier auto-approve's ledger side-effects deliberately leave method
+      // null (their money is already counted via balance_topups above), so
+      // this can never double-count those. What's left is real money that
+      // never touches `payments`/`balance_topups` at all:
+      //  - type=topup, method=cash_change: cash kept in the drawer instead of
+      //    handed back as change (checkout route)
+      //  - type=topup, method=cash/zelle/venmo/paypal: Add Funds entries
+      //    tagged with a real payment method (method=manual/other_internal
+      //    intentionally excluded — unspecified or explicitly no real money)
+      //  - type=refund, method=cash/zelle/cc: money paid back out of that
+      //    account to a student (bochur profile refund flow)
+      supabase.from('balance_ledger').select('type, method, amount').in('type', ['topup', 'refund']).not('method', 'is', null),
+    ])
+
+    const received: Record<string, number> = { cash: 0, zelle: 0, stripe: 0, venmo: 0, paypal: 0, cashapp: 0 }
+    for (const p of (payments || []) as any[]) {
+      const amt = Number(p.amount)
+      if (p.method === 'cash') received.cash += amt
+      else if (p.method === 'zelle') received.zelle += amt
+      else if (p.method === 'credit_card' || p.method === 'card' || p.method === 'stripe_terminal') received.stripe += amt
+    }
+    for (const t of (topups || []) as any[]) {
+      const amt = Number(t.amount)
+      if (t.method === 'cash') received.cash += amt
+      else if (t.method === 'zelle') received.zelle += amt
+      else if (t.method === 'credit_card' || t.method === 'card') received.stripe += amt
+      else if (t.method === 'venmo') received.venmo += amt
+      else if (t.method === 'paypal') received.paypal += amt
+      else if (t.method === 'cashapp') received.cashapp += amt
+    }
+
+    const withdrawn: Record<string, number> = {}
+    for (const w of (allWithdrawals || []) as any[]) {
+      withdrawn[w.account] = (withdrawn[w.account] || 0) + Number(w.amount)
+    }
+
+    for (const l of (ledgerRows || []) as any[]) {
+      const amt = Math.abs(Number(l.amount))
+      if (l.type === 'topup') {
+        if (l.method === 'cash_change' || l.method === 'cash') received.cash += amt
+        else if (l.method === 'zelle') received.zelle += amt
+        else if (l.method === 'venmo') received.venmo += amt
+        else if (l.method === 'paypal') received.paypal += amt
+        // method === 'manual' or 'other_internal': intentionally not counted
+      } else if (l.type === 'refund') {
+        if (l.method === 'cash') withdrawn.cash = (withdrawn.cash || 0) + amt
+        else if (l.method === 'zelle') withdrawn.zelle = (withdrawn.zelle || 0) + amt
+        else if (l.method === 'cc') withdrawn.stripe = (withdrawn.stripe || 0) + amt
+        // method === 'void': balance-only reversal, no real account affected
+      }
+    }
+
+    setNetReceived(received)
+    setNetWithdrawn(withdrawn)
+    setLoadingNet(false)
+  }
+
   async function addWithdrawal(e: React.FormEvent) {
     e.preventDefault()
     const amt = parseFloat(fAmount)
     if (!fAmount || isNaN(amt) || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (!fReason) { toast.error('Select a reason'); return }
 
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
@@ -124,16 +226,19 @@ export default function AccountsPage() {
       account: fAccount,
       amount: amt,
       date: fDate,
+      reason: fReason,
       note: fNote.trim() || null,
       recorded_by: user?.id ?? null,
     })
     if (error) { toast.error('Failed to save: ' + error.message); setSaving(false); return }
     toast.success('Withdrawal logged')
     setFAmount('')
+    setFReason('')
     setFNote('')
     setFDate(todayStr())
     setSaving(false)
     loadWithdrawals()
+    loadNetBalances()
   }
 
   async function deleteWithdrawal(id: string) {
@@ -142,6 +247,7 @@ export default function AccountsPage() {
     if (error) { toast.error('Delete failed: ' + error.message); return }
     toast.success('Deleted')
     setWithdrawals(prev => prev.filter(w => w.id !== id))
+    loadNetBalances()
   }
 
   // Which quick-filter (if any) matches the currently loaded range — drives the
@@ -172,6 +278,17 @@ export default function AccountsPage() {
     .filter(([k]) => !['cash', 'zelle', 'credit_card', 'card', 'balance'].includes(k))
     .reduce((s, [, v]) => s + v, 0) + topupOther
   const grandTotal = cash + zelle + cc + balance + other
+
+  // Net balance = all-time received minus all-time withdrawn, per account —
+  // independent of the from/to range above. Only surfaced for accounts that
+  // have ever seen activity, so venmo/paypal/cashapp stay hidden until used.
+  const netRows = ACCOUNT_ORDER
+    .map(key => {
+      const received = netReceived[key] || 0
+      const withdrawn = netWithdrawn[key] || 0
+      return { key, label: ACCOUNT_LABELS[key], received, withdrawn, net: received - withdrawn }
+    })
+    .filter(r => r.received !== 0 || r.withdrawn !== 0)
 
   const PayCard = ({
     label, amount, icon: Icon, color,
@@ -334,9 +451,46 @@ export default function AccountsPage() {
         )}
       </section>
 
+      {/* ── Section 1c: Net Account Balances (all-time) ── */}
+      <section className="space-y-4">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-700">Net Account Balances</h2>
+          <p className="text-sm text-slate-400 mt-0.5">
+            All-time money in minus all-time money out, per account — what should actually be sitting there right now.
+            Counts POS payments, top-ups, cash kept as change-to-balance, tagged Add Funds entries, refunds paid back
+            to students, and the withdrawal log below. Not affected by the date range above. Excludes voided
+            cash/credit-card orders&rsquo; original payment — voiding doesn&rsquo;t track whether cash was physically
+            handed back, so log a withdrawal separately if it was.
+          </p>
+        </div>
+
+        {loadingNet ? (
+          <div className="text-sm text-slate-400">Loading…</div>
+        ) : netRows.length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 text-sm text-slate-400 text-center">
+            No account activity yet.
+          </div>
+        ) : (
+          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
+            {netRows.map(r => (
+              <div key={r.key} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{r.label}</p>
+                <p className={`text-xl font-bold mt-0.5 ${r.net < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                  {formatCurrency(r.net)}
+                </p>
+                <p className="text-xs text-slate-400 mt-1">
+                  {formatCurrency(r.received)} in &minus; {formatCurrency(r.withdrawn)} out
+                </p>
+              </div>
+            ))}
+          </div>
+        )}
+      </section>
+
       {/* ── Section 2: Withdrawal Log ── */}
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-slate-700">Withdrawal Log</h2>
+        <p className="text-sm text-slate-400 -mt-2">Filtered to the date range selected above.</p>
 
         {/* New withdrawal form */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">
@@ -344,18 +498,21 @@ export default function AccountsPage() {
             <Plus className="w-4 h-4 text-emerald-600" />
             Log a Withdrawal
           </h3>
-          <form onSubmit={addWithdrawal} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-4">
+          <form onSubmit={addWithdrawal} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
             {/* Account */}
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1.5">Account</label>
               <select
                 value={fAccount}
-                onChange={e => setFAccount(e.target.value as 'zelle' | 'stripe' | 'cash')}
+                onChange={e => setFAccount(e.target.value as 'zelle' | 'stripe' | 'cash' | 'venmo' | 'paypal' | 'cashapp')}
                 className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               >
                 <option value="cash">Cash</option>
                 <option value="zelle">Zelle</option>
-                <option value="stripe">Stripe / CC</option>
+                <option value="stripe">Credit Card</option>
+                <option value="venmo">Venmo</option>
+                <option value="paypal">PayPal</option>
+                <option value="cashapp">Cash App</option>
               </select>
             </div>
 
@@ -384,20 +541,35 @@ export default function AccountsPage() {
               />
             </div>
 
+            {/* Reason */}
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Reason</label>
+              <select
+                value={fReason}
+                onChange={e => setFReason(e.target.value)}
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              >
+                <option value="" disabled>Select a reason…</option>
+                {REASON_OPTIONS.map(r => (
+                  <option key={r.value} value={r.value}>{r.label}</option>
+                ))}
+              </select>
+            </div>
+
             {/* Note */}
             <div>
-              <label className="block text-xs font-medium text-slate-500 mb-1.5">Note</label>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Note <span className="text-slate-300">(optional)</span></label>
               <input
                 type="text"
                 value={fNote}
                 onChange={e => setFNote(e.target.value)}
-                placeholder="What was it for?"
+                placeholder="Any extra detail"
                 className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
               />
             </div>
 
             {/* Submit */}
-            <div className="sm:col-span-2 lg:col-span-4 flex justify-end">
+            <div className="sm:col-span-2 lg:col-span-5 flex justify-end">
               <button
                 type="submit"
                 disabled={saving}
@@ -424,6 +596,7 @@ export default function AccountsPage() {
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Date</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Account</th>
                     <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Reason</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Note</th>
                     <th className="px-5 py-3" />
                   </tr>
@@ -435,18 +608,15 @@ export default function AccountsPage() {
                         {format(new Date(w.date + 'T12:00:00'), 'MMM d, yyyy')}
                       </td>
                       <td className="px-5 py-3.5">
-                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${
-                          w.account === 'cash'
-                            ? 'bg-green-100 text-green-700'
-                            : w.account === 'zelle'
-                            ? 'bg-purple-100 text-purple-700'
-                            : 'bg-blue-100 text-blue-700'
-                        }`}>
+                        <span className={`inline-flex items-center px-2.5 py-0.5 rounded-full text-xs font-medium ${ACCOUNT_BADGE_COLORS[w.account] ?? 'bg-slate-100 text-slate-700'}`}>
                           {ACCOUNT_LABELS[w.account] ?? w.account}
                         </span>
                       </td>
                       <td className="px-5 py-3.5 text-right font-semibold text-slate-800 whitespace-nowrap">
                         {formatCurrency(w.amount)}
+                      </td>
+                      <td className="px-5 py-3.5 text-slate-600 whitespace-nowrap">
+                        {w.reason ? (REASON_LABELS[w.reason] ?? w.reason) : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-5 py-3.5 text-slate-600 max-w-xs truncate">
                         {w.note || <span className="text-slate-300">—</span>}
