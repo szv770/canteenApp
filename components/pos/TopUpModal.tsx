@@ -88,7 +88,12 @@ export default function TopUpModal({ onClose, onSuccess, settings }: Props) {
       const json = await res.json()
       if (!res.ok) throw new Error(json.error || 'Failed to submit')
 
-      toast.success(`Top-up request submitted — pending admin approval`, { duration: 4000 })
+      toast.success(
+        json.auto_approved
+          ? `$${amt.toFixed(2)} added to balance instantly!`
+          : `Top-up request submitted — pending admin approval`,
+        { duration: 4000 }
+      )
       onSuccess?.()
       onClose()
     } catch (err: any) {

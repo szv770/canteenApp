@@ -11,12 +11,12 @@ import ProductGrid from '@/components/pos/ProductGrid'
 import BundleGrid from '@/components/pos/BundleGrid'
 import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
-import QuickChargeModal from '@/components/pos/QuickChargeModal'
 import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
 import TopUpModal from '@/components/pos/TopUpModal'
 import WastageModal from '@/components/pos/WastageModal'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
+import { formatCurrency } from '@/lib/utils'
 
 interface NotifItem {
   id: string
@@ -41,7 +41,7 @@ export default function PosPage() {
   const [cart, setCart] = useState<CartItem[]>([])
   const [loadedBochur, setLoadedBochur] = useState<BochurWithId | null>(null)
   const [showCheckout, setShowCheckout] = useState(false)
-  const [showQuickCharge, setShowQuickCharge] = useState(false)
+  const [quickCharging, setQuickCharging] = useState(false)
   const [productVariantsMap, setProductVariantsMap] = useState<Record<string, ProductVariant[]>>({})
   const [variantProduct, setVariantProduct] = useState<Product | null>(null)
   const [addonProduct, setAddonProduct] = useState<Product | null>(null)
@@ -266,6 +266,46 @@ export default function PosPage() {
     }
     if (allBundles.data) setBundles(allBundles.data as ProductBundleWithItems[])
     setLoading(false)
+  }
+
+  async function quickCharge() {
+    if (!loadedBochur || quickCharging || cart.length === 0) return
+    const total = Math.round(cart.reduce((sum, i) => sum + (i.price + (i.addon_total || 0)) * i.quantity, 0) * 100) / 100
+    setQuickCharging(true)
+    try {
+      const res = await fetch('/api/pos/checkout', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          method: 'balance',
+          bochur_id: loadedBochur.id,
+          tip_amount: 0,
+          items: cart.map(item => ({
+            product_id: item.product_id,
+            variant_id: item.variant_id,
+            quantity: item.quantity,
+            addon_ids: item.addon_ids ?? [],
+            bundle_id: item.bundle_id ?? null,
+          })),
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error || 'Charge failed')
+      toast.success(`Charged ${formatCurrency(total)} to ${loadedBochur.name}`)
+      setCart([])
+      setLoadedBochur(null)
+      setMobileCartOpen(false)
+      loadData()
+    } catch (err: any) {
+      const msg = err?.message || ''
+      if (msg.toLowerCase().includes('fetch') || msg.toLowerCase().includes('network')) {
+        toast.error('Network error — please check your connection and try again', { duration: 5000 })
+      } else {
+        toast.error(msg || 'Charge failed — please try again')
+      }
+    } finally {
+      setQuickCharging(false)
+    }
   }
 
   async function loadCashier() {
@@ -618,7 +658,8 @@ export default function PosPage() {
           loadedBochur={loadedBochur}
           settings={settings}
           onCheckout={() => setShowCheckout(true)}
-          onQuickCharge={() => setShowQuickCharge(true)}
+          onQuickCharge={quickCharge}
+          quickCharging={quickCharging}
           mobileOpen={mobileCartOpen}
           onMobileClose={() => setMobileCartOpen(false)}
         />
@@ -653,21 +694,6 @@ export default function PosPage() {
           onClose={() => {
             setAddonProduct(null)
             setAddonVariant(undefined)
-          }}
-        />
-      )}
-
-      {showQuickCharge && loadedBochur && (
-        <QuickChargeModal
-          cart={cart}
-          loadedBochur={loadedBochur}
-          onClose={() => setShowQuickCharge(false)}
-          onSuccess={() => {
-            setCart([])
-            setShowQuickCharge(false)
-            setLoadedBochur(null)
-            setMobileCartOpen(false)
-            loadData()
           }}
         />
       )}

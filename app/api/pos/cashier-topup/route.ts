@@ -1,7 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { createAdminClient } from '@/lib/supabase/admin'
-import { sendTopupReceived, buildEmailSettings } from '@/lib/email'
+import { sendTopupReceived, sendTopupApproved, buildEmailSettings } from '@/lib/email'
 
 const ALLOWED_METHODS = ['cash', 'zelle', 'venmo', 'paypal', 'cashapp', 'credit_card', 'manual'] as const
 
@@ -52,6 +52,15 @@ export async function POST(req: NextRequest) {
     .single()
   if (!bochur) return NextResponse.json({ error: 'Bochur not found' }, { status: 404 })
 
+  const { data: settingsRows } = await admin.from('settings').select('key, value')
+  const rawSettings: Record<string, string> = {}
+  settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
+  const emailSettings = buildEmailSettings(rawSettings)
+
+  const autoApproveEnabled = rawSettings['cashier_topup_auto_approve_enabled'] === 'true'
+  const autoApproveMax = parseFloat(rawSettings['cashier_topup_auto_approve_max'] || '0')
+  const wantsAutoApprove = autoApproveEnabled && sanitizedAmount <= autoApproveMax
+
   const { data: inserted, error } = await admin.from('balance_topups').insert({
     bochur_id: bochurId,
     student_name: studentName || bochur.name,
@@ -69,27 +78,89 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Failed to submit top-up request' }, { status: 500 })
   }
 
-  // Send "received" confirmation email if parent email provided; stamp timestamp on success.
+  // Under the admin-configured threshold: claim + credit immediately, same
+  // atomic status-claim pattern as /api/admin/topup-confirm (guards against
+  // ever double-crediting). On any failure it falls back to leaving the row
+  // pending rather than silently losing the credit.
+  let autoApproved = false
+  let newBalance = 0
+
+  if (wantsAutoApprove) {
+    const { data: claimed } = await admin
+      .from('balance_topups')
+      .update({
+        status: 'confirmed',
+        confirmed_by: user.id,
+        confirmed_at: new Date().toISOString(),
+        payment_received_date: new Date().toISOString().slice(0, 10),
+      })
+      .eq('id', inserted.id)
+      .eq('status', 'pending')
+      .select('id')
+
+    if (claimed && claimed.length > 0) {
+      const { data: bochurRow, error: bochurErr } = await admin
+        .from('bochurim')
+        .select('balance')
+        .eq('id', bochurId)
+        .single()
+
+      if (!bochurErr && bochurRow) {
+        newBalance = Math.round((bochurRow.balance + sanitizedAmount) * 100) / 100
+        const { error: balErr } = await admin.from('bochurim').update({ balance: newBalance }).eq('id', bochurId)
+        if (!balErr) {
+          await admin.from('balance_ledger').insert({
+            bochur_id: bochurId,
+            amount: sanitizedAmount,
+            type: 'topup',
+            note: `${method} top-up from ${profile.name || 'Cashier'} (auto-approved, under $${autoApproveMax.toFixed(2)} threshold)`,
+            cashier_id: user.id,
+          })
+          autoApproved = true
+        } else {
+          console.error('[cashier-topup] auto-approve balance update failed:', balErr.message)
+        }
+      } else {
+        console.error('[cashier-topup] auto-approve bochur fetch failed:', bochurErr?.message)
+      }
+
+      if (!autoApproved) {
+        await admin.from('balance_topups').update({
+          status: 'pending', confirmed_by: null, confirmed_at: null, payment_received_date: null,
+        }).eq('id', inserted.id)
+      }
+    }
+  }
+
+  // Send parent notification email if an address was provided; stamp timestamp on success.
   // Awaited — fire-and-forget on Vercel freezes the function mid-send and delays delivery.
   if (process.env.RESEND_API_KEY && parentEmail) {
     try {
-      const { data: settingsRows } = await admin.from('settings').select('key, value')
-      const rawSettings: Record<string, string> = {}
-      settingsRows?.forEach((r: any) => { rawSettings[r.key] = r.value == null ? '' : String(r.value) })
-      const emailSettings = buildEmailSettings(rawSettings)
-      const sent = await sendTopupReceived({
-        parentEmail,
-        parentName: studentName || bochur.name,
-        studentName: studentName || bochur.name,
-        amount: sanitizedAmount,
-        method: method!,
-        emailSettings,
-      })
-      if (sent) await admin.from('balance_topups').update({ received_email_sent_at: new Date().toISOString() }).eq('id', inserted.id)
+      if (autoApproved) {
+        const sent = await sendTopupApproved({
+          parentEmail,
+          parentName: studentName || bochur.name,
+          studentName: studentName || bochur.name,
+          amount: sanitizedAmount,
+          newBalance,
+          emailSettings,
+        })
+        if (sent) await admin.from('balance_topups').update({ approved_email_sent_at: new Date().toISOString() }).eq('id', inserted.id)
+      } else {
+        const sent = await sendTopupReceived({
+          parentEmail,
+          parentName: studentName || bochur.name,
+          studentName: studentName || bochur.name,
+          amount: sanitizedAmount,
+          method: method!,
+          emailSettings,
+        })
+        if (sent) await admin.from('balance_topups').update({ received_email_sent_at: new Date().toISOString() }).eq('id', inserted.id)
+      }
     } catch (e) {
       console.error('[cashier-topup] Email error:', e)
     }
   }
 
-  return NextResponse.json({ ok: true }, { status: 201 })
+  return NextResponse.json({ ok: true, auto_approved: autoApproved, new_balance: autoApproved ? newBalance : undefined }, { status: 201 })
 }

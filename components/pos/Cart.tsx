@@ -12,11 +12,12 @@ interface Props {
   settings: Record<string, string>
   onCheckout: () => void
   onQuickCharge?: () => void
+  quickCharging?: boolean
   mobileOpen?: boolean
   onMobileClose?: () => void
 }
 
-export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, onQuickCharge, mobileOpen, onMobileClose }: Props) {
+export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, onQuickCharge, quickCharging, mobileOpen, onMobileClose }: Props) {
   function updateQtyByIndex(index: number, qty: number) {
     if (qty <= 0) {
       setCart(prev => prev.filter((_, i) => i !== index))
@@ -55,6 +56,12 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
   const balanceColor = loadedBochur
     ? (loadedBochur.balance >= subtotal ? 'text-emerald-600' : 'text-red-500')
     : 'text-slate-500'
+
+  const frozen = loadedBochur?.is_frozen ?? false
+  const allowNegative = loadedBochur?.allow_negative ?? false
+  const maxNeg = loadedBochur?.max_negative_balance ?? 0
+  const balanceAfterCharge = loadedBochur ? Math.round((loadedBochur.balance - subtotal) * 100) / 100 : 0
+  const blocked = !!loadedBochur && balanceAfterCharge < 0 && (!allowNegative || -balanceAfterCharge > maxNeg)
 
   const cartBody = (
     <div className="w-full flex flex-col h-full bg-white">
@@ -129,13 +136,33 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
           </div>
         )}
         {loadedBochur && onQuickCharge && cart.length > 0 && (
-          <button
-            onClick={onQuickCharge}
-            className="w-full min-h-[52px] rounded-xl bg-emerald-500 hover:bg-emerald-600 text-white font-semibold text-base flex items-center justify-center gap-2 transition-colors shadow-sm"
-          >
-            <Zap className="w-5 h-5" />
-            Charge to Account · {formatCurrency(subtotal)}
-          </button>
+          <>
+            {frozen && (
+              <p className="text-xs font-medium text-red-500 text-center">This account is frozen and cannot be charged.</p>
+            )}
+            {!frozen && blocked && (
+              <p className="text-xs font-medium text-red-500 text-center">Charge would exceed the account&apos;s negative balance limit — use cash or card instead.</p>
+            )}
+            <button
+              onClick={onQuickCharge}
+              disabled={quickCharging || frozen || blocked}
+              className={`w-full min-h-[52px] rounded-xl text-white font-semibold text-base flex items-center justify-center gap-2 transition-colors shadow-sm ${
+                frozen || blocked ? 'bg-slate-200 text-slate-400' : 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-75'
+              }`}
+            >
+              {quickCharging ? (
+                <>
+                  <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
+                  Charging...
+                </>
+              ) : (
+                <>
+                  <Zap className="w-5 h-5" />
+                  Charge to Account · {formatCurrency(subtotal)}
+                </>
+              )}
+            </button>
+          </>
         )}
         <button
           onClick={onCheckout}
