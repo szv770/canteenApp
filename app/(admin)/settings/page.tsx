@@ -7,14 +7,16 @@ import toast from 'react-hot-toast'
 import CashiersPage from '../cashiers/page'
 import NotificationsPage from '../notifications/page'
 import MenuPage from '../menu/page'
+import SederSchedulePage from '../seder-schedule/page'
 
-type SettingsTab = 'general' | 'cashiers' | 'notifications' | 'menu'
+type SettingsTab = 'general' | 'cashiers' | 'notifications' | 'menu' | 'seder'
 
 const SETTINGS_TABS: { key: SettingsTab; label: string }[] = [
   { key: 'general', label: 'General' },
   { key: 'cashiers', label: 'Cashiers' },
   { key: 'notifications', label: 'Notifications' },
   { key: 'menu', label: 'Menu' },
+  { key: 'seder', label: 'Seder Schedule' },
 ]
 
 interface SettingRow {
@@ -222,6 +224,7 @@ export default function SettingsPage() {
       {settingsTab === 'cashiers' && <CashiersPage />}
       {settingsTab === 'notifications' && <NotificationsPage />}
       {settingsTab === 'menu' && <MenuPage />}
+      {settingsTab === 'seder' && <SederSchedulePage />}
     </div>
   )
 }

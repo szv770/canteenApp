@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { ShoppingCart, Trash2, Plus, Minus, X, Zap, Sparkles } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 import type { CartItem, BochurWithId, Product } from '@/types/database'
@@ -18,9 +18,32 @@ interface Props {
   upsellProduct?: Product | null
   onAddUpsell?: () => void
   onDismissUpsell?: () => void
+  sederActive?: boolean
+  sederName?: string
 }
 
-export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, onQuickCharge, quickCharging, mobileOpen, onMobileClose, upsellProduct, onAddUpsell, onDismissUpsell }: Props) {
+const SEDER_ARM_TIMEOUT_MS = 5000
+
+export default function CartPanel({ cart, setCart, loadedBochur, settings, onCheckout, onQuickCharge, quickCharging, mobileOpen, onMobileClose, upsellProduct, onAddUpsell, onDismissUpsell, sederActive, sederName }: Props) {
+  const [sederArmed, setSederArmed] = useState(false)
+  const armTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
+
+  useEffect(() => {
+    setSederArmed(false)
+  }, [cart, loadedBochur, sederActive])
+
+  function handleQuickChargeClick() {
+    if (!onQuickCharge) return
+    if (sederActive && !sederArmed) {
+      setSederArmed(true)
+      clearTimeout(armTimeoutRef.current)
+      armTimeoutRef.current = setTimeout(() => setSederArmed(false), SEDER_ARM_TIMEOUT_MS)
+      return
+    }
+    setSederArmed(false)
+    onQuickCharge()
+  }
+
   function updateQtyByIndex(index: number, qty: number) {
     if (qty <= 0) {
       setCart(prev => prev.filter((_, i) => i !== index))
@@ -171,11 +194,18 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
             {!frozen && blocked && (
               <p className="text-xs font-medium text-red-500 text-center">Charge would exceed the account&apos;s negative balance limit — use cash or card instead.</p>
             )}
+            {sederActive && !sederArmed && (
+              <p className="text-xs font-medium text-red-500 text-center">{sederName} is in session — tap again to confirm.</p>
+            )}
             <button
-              onClick={onQuickCharge}
+              onClick={handleQuickChargeClick}
               disabled={quickCharging || frozen || blocked}
               className={`w-full min-h-[52px] rounded-xl text-white font-semibold text-base flex items-center justify-center gap-2 transition-colors shadow-sm ${
-                frozen || blocked ? 'bg-slate-200 text-slate-400' : 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-75'
+                frozen || blocked
+                  ? 'bg-slate-200 text-slate-400'
+                  : sederActive && !sederArmed
+                  ? 'bg-red-500 hover:bg-red-600'
+                  : 'bg-emerald-500 hover:bg-emerald-600 disabled:opacity-75'
               }`}
             >
               {quickCharging ? (
@@ -183,6 +213,10 @@ export default function CartPanel({ cart, setCart, loadedBochur, settings, onChe
                   <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                   Charging...
                 </>
+              ) : sederActive && !sederArmed ? (
+                <>Seder in session — Order Anyway?</>
+              ) : sederActive ? (
+                <>Confirm — Charge {formatCurrency(subtotal)}</>
               ) : (
                 <>
                   <Zap className="w-5 h-5" />

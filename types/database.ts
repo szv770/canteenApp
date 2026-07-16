@@ -214,3 +214,15 @@ export interface BundleItem {
 export interface ProductBundleWithItems extends ProductBundle {
   bundle_items: BundleItem[]
 }
+
+export interface SederScheduleRow {
+  id: string
+  name: string
+  days_of_week: number[]
+  start_time: string
+  end_time: string
+  reminder_minutes_before: number
+  skip_dates: string[]
+  is_active: boolean
+  created_at: string
+}

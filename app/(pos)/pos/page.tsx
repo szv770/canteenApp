@@ -15,8 +15,11 @@ import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
 import TopUpModal from '@/components/pos/TopUpModal'
 import WastageModal from '@/components/pos/WastageModal'
+import SederReminderBanner from '@/components/pos/SederReminderBanner'
+import SederNowOverlay from '@/components/pos/SederNowOverlay'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
 import { formatCurrency } from '@/lib/utils'
+import { getActiveSeder, getUpcomingSeder, localDateStr, type SederSchedule } from '@/lib/pos/seder'
 
 interface NotifItem {
   id: string
@@ -112,6 +115,26 @@ export default function PosPage() {
   const [productAddonsMap, setProductAddonsMap] = useState<Record<string, ProductAddon[]>>({})
   const [fbtMap, setFbtMap] = useState<Record<string, { partnerId: string; count: number }>>({})
   const [dismissedUpsellIds, setDismissedUpsellIds] = useState<Set<string>>(new Set())
+  const [sederSchedules, setSederSchedules] = useState<SederSchedule[]>([])
+  const [sederNow, setSederNow] = useState(() => new Date())
+  // Keyed by `${seder.id}_${localDateStr}` — persisted so a page reload mid-seder
+  // doesn't force the cashier through the same gate twice for the same occurrence.
+  const [dismissedReminderKey, setDismissedReminderKey] = useState<string | null>(() => {
+    try { return localStorage.getItem('pos_seder_reminder_dismissed') } catch { return null }
+  })
+  const [ackedOverlayKey, setAckedOverlayKey] = useState<string | null>(() => {
+    try { return localStorage.getItem('pos_seder_overlay_acked') } catch { return null }
+  })
+
+  function dismissReminder(key: string) {
+    setDismissedReminderKey(key)
+    try { localStorage.setItem('pos_seder_reminder_dismissed', key) } catch {}
+  }
+
+  function ackSederOverlay(key: string) {
+    setAckedOverlayKey(key)
+    try { localStorage.setItem('pos_seder_overlay_acked', key) } catch {}
+  }
   const [variantProduct, setVariantProduct] = useState<Product | null>(null)
   const [addonProduct, setAddonProduct] = useState<Product | null>(null)
   const [addonVariant, setAddonVariant] = useState<ProductVariant | undefined>(undefined)
@@ -314,9 +337,15 @@ export default function PosPage() {
     }
   }, [])
 
+  // Ticking clock so the seder reminder/overlay transition without a page reload
+  useEffect(() => {
+    const interval = setInterval(() => setSederNow(new Date()), 15000)
+    return () => clearInterval(interval)
+  }, [])
+
   async function loadData() {
     const thirtyDaysAgo = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString()
-    const [cats, prods, setts, catLinks, allVariants, allBundles, allAddons, fbtItems] = await Promise.all([
+    const [cats, prods, setts, catLinks, allVariants, allBundles, allAddons, fbtItems, sedorim] = await Promise.all([
       supabase.from('categories').select('*').eq('is_active', true).order('sort_order'),
       supabase.from('products').select('*').eq('is_active', true).order('name'),
       supabase.from('settings').select('*'),
@@ -330,7 +359,9 @@ export default function PosPage() {
         .not('product_id', 'is', null)
         .eq('orders.status', 'completed')
         .gte('orders.created_at', thirtyDaysAgo),
+      supabase.from('seder_schedule').select('*').eq('is_active', true),
     ])
+    if (sedorim.data) setSederSchedules(sedorim.data as SederSchedule[])
     if (cats.data) setCategories(cats.data)
     if (prods.data) setProducts(prods.data)
     if (setts.data) {
@@ -597,6 +628,13 @@ export default function PosPage() {
     return product
   }, [cart, fbtMap, products, dismissedUpsellIds])
 
+  const activeSeder = useMemo(() => getActiveSeder(sederSchedules, sederNow), [sederSchedules, sederNow])
+  const upcomingSeder = useMemo(() => getUpcomingSeder(sederSchedules, sederNow), [sederSchedules, sederNow])
+  const activeSederKey = activeSeder ? `${activeSeder.id}_${localDateStr(sederNow)}` : null
+  const upcomingSederKey = upcomingSeder ? `${upcomingSeder.seder.id}_${localDateStr(sederNow)}` : null
+  const showSederOverlay = !!activeSeder && activeSederKey !== ackedOverlayKey
+  const showSederReminder = !!upcomingSeder && upcomingSederKey !== dismissedReminderKey
+
   return (
     <div className="h-screen bg-slate-50 flex flex-col overflow-hidden">
       {/* Header */}
@@ -755,6 +793,15 @@ export default function PosPage() {
         </div>
       </header>
 
+      {/* Seder reminder banner */}
+      {showSederReminder && upcomingSeder && (
+        <SederReminderBanner
+          sederName={upcomingSeder.seder.name}
+          minutesUntil={upcomingSeder.minutesUntil}
+          onDismiss={() => upcomingSederKey && dismissReminder(upcomingSederKey)}
+        />
+      )}
+
       {/* Category tabs */}
       <CategoryTabs
         categories={categories}
@@ -817,6 +864,8 @@ export default function PosPage() {
           upsellProduct={upsellProduct}
           onAddUpsell={() => upsellProduct && handleProductTap(upsellProduct)}
           onDismissUpsell={() => upsellProduct && setDismissedUpsellIds(prev => new Set(prev).add(upsellProduct.id))}
+          sederActive={!!activeSeder}
+          sederName={activeSeder?.name}
         />
       </div>
 
@@ -907,6 +956,8 @@ export default function PosPage() {
           loadedBochur={loadedBochur}
           settings={settings}
           cashierName={cashierName}
+          sederActive={!!activeSeder}
+          sederName={activeSeder?.name}
           onClose={() => setShowCheckout(false)}
           onSuccess={() => {
             setCart([])
@@ -917,6 +968,14 @@ export default function PosPage() {
             if (loadedBochur) loadData()
             toast.success('Order completed!')
           }}
+        />
+      )}
+
+      {showSederOverlay && activeSeder && (
+        <SederNowOverlay
+          sederName={activeSeder.name}
+          endTime={activeSeder.end_time}
+          onOrderAnyway={() => activeSederKey && ackSederOverlay(activeSederKey)}
         />
       )}
     </div>

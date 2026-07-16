@@ -12,17 +12,23 @@ interface Props {
   loadedBochur: BochurWithId | null
   settings: Record<string, string>
   cashierName: string
+  sederActive?: boolean
+  sederName?: string
   onClose: () => void
   onSuccess: () => void
 }
 
 type PayMethod = 'balance' | 'cash' | 'credit_card'
 
-export default function CheckoutModal({ cart, loadedBochur: initialBochur, settings, cashierName, onClose, onSuccess }: Props) {
+const SEDER_ARM_TIMEOUT_MS = 5000
+
+export default function CheckoutModal({ cart, loadedBochur: initialBochur, settings, cashierName, sederActive, sederName, onClose, onSuccess }: Props) {
   const [selectedBochur, setSelectedBochur] = useState<BochurWithId | null>(initialBochur)
   const [method, setMethod] = useState<PayMethod>(initialBochur ? 'balance' : 'cash')
   const [linkDismissed, setLinkDismissed] = useState(false)
   const [stripeOpened, setStripeOpened] = useState(false)
+  const [sederArmed, setSederArmed] = useState(false)
+  const sederArmTimeoutRef = useRef<ReturnType<typeof setTimeout>>()
 
   // Inline camper linking (only when checkout opened without a loaded bochur)
   const supabaseRef = useRef(createClient())
@@ -178,6 +184,17 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
       }
       setProcessing(false)
     }
+  }
+
+  function handleCompleteClick() {
+    if (sederActive && !sederArmed) {
+      setSederArmed(true)
+      clearTimeout(sederArmTimeoutRef.current)
+      sederArmTimeoutRef.current = setTimeout(() => setSederArmed(false), SEDER_ARM_TIMEOUT_MS)
+      return
+    }
+    setSederArmed(false)
+    processOrder()
   }
 
   const tabs: { id: PayMethod; label: string; icon: React.ReactNode }[] = [
@@ -526,21 +543,26 @@ export default function CheckoutModal({ cart, loadedBochur: initialBochur, setti
 
         {/* Footer - sticky at bottom */}
         <div className="px-4 sm:px-5 pb-5 pt-3 border-t border-pos-border shrink-0">
+          {sederActive && !sederArmed && (
+            <p className="text-xs font-medium text-red-500 text-center mb-2">{sederName} is in session — tap again to confirm.</p>
+          )}
           <button
-            onClick={processOrder}
+            onClick={handleCompleteClick}
             disabled={processing || (method === 'balance' && !!balanceBlocked) || (method === 'cash' && tendered < displayTotal)}
-            className="btn-brand-lg min-h-[56px]"
+            className={sederActive && !sederArmed ? 'w-full min-h-[56px] rounded-xl font-semibold text-base bg-red-500 hover:bg-red-600 text-white transition-colors disabled:opacity-50' : 'btn-brand-lg min-h-[56px]'}
           >
             {processing ? (
               <span className="flex items-center justify-center gap-2">
                 <div className="w-4 h-4 border-2 border-white/40 border-t-white rounded-full animate-spin" />
                 Processing...
               </span>
+            ) : sederActive && !sederArmed ? (
+              <span>Seder in session — Order Anyway?</span>
             ) : (
               <span className="flex flex-col items-center justify-center leading-tight">
                 <span className="flex items-center gap-2 font-semibold">
                   <Check className="w-5 h-5" />
-                  Complete Order · {formatCurrency(method === 'credit_card' ? grandTotal : displayTotal)}
+                  {sederActive ? 'Confirm — ' : ''}Complete Order · {formatCurrency(method === 'credit_card' ? grandTotal : displayTotal)}
                 </span>
                 {tipAmount > 0 && <span className="text-white/70 text-xs mt-0.5">includes {formatCurrency(tipAmount)} tip</span>}
               </span>
