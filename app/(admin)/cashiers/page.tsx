@@ -129,11 +129,11 @@ export default function CashiersPage() {
       const res = await fetch('/api/admin/cashier', {
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ id: cashier.id, tip_balance: 0 }),
+        body: JSON.stringify({ id: cashier.id, action: 'payout_tips_cash' }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error); return }
-      toast.success(`Marked ${formatCurrency(amount)} tips as paid out (cash)`)
+      toast.success(`Marked ${formatCurrency(amount)} tips as paid out (cash) — logged in Accounts`)
     }
     loadCashiers()
   }

@@ -606,6 +606,11 @@ export async function POST(req: NextRequest) {
         bochur_id: bochurId,
         amount: changeToBalance,
         type: 'topup',
+        // Distinct from a plain topup's null method — this is real cash that
+        // stayed in the drawer (never handed back as change), so Accounts
+        // needs to add it to the cash total even though `payments.amount`
+        // only ever recorded the order subtotal, not the tendered amount.
+        method: 'cash_change',
         note: `Cash change credited to balance (Order #${order.id.slice(-6)})`,
       })
     }
