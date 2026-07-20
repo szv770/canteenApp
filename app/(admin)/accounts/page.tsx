@@ -3,10 +3,11 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import { Wallet, Plus, Trash2, RefreshCw, DollarSign, CreditCard, Smartphone, Banknote, Users, CheckCircle2, Clock, X } from 'lucide-react'
+import { Wallet, Plus, Trash2, RefreshCw, DollarSign, CreditCard, Smartphone, Banknote, Users, CheckCircle2, Clock, X, Download } from 'lucide-react'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import AccountTransactionsModal from '@/components/admin/AccountTransactionsModal'
+import { fetchAccountTransactions, KIND_LABELS, ACCOUNT_KEYS } from '@/lib/accountTransactions'
 
 // Local calendar date as "YYYY-MM-DD" — `.toISOString().slice(0,10)` reads the UTC
 // date instead, which silently rolls "today" over to tomorrow for anyone west of
@@ -104,6 +105,9 @@ export default function AccountsPage() {
   // ── Drill-down / confirmation modals ──────────────────────────────────────
   const [selectedAccountKey, setSelectedAccountKey] = useState<string | null>(null)
   const [confirmingWithdrawal, setConfirmingWithdrawal] = useState<WithdrawalRow | null>(null)
+
+  // ── CSV export (all-time, all accounts) ───────────────────────────────────
+  const [exportingCSV, setExportingCSV] = useState(false)
 
   useEffect(() => { loadPayments() }, [from, to])
   useEffect(() => { loadWithdrawals() }, [from, to])
@@ -287,6 +291,49 @@ export default function AccountsPage() {
     loadNetBalances()
   }
 
+  // One CSV across every account, all-time — open it directly in Google Sheets
+  // (File > Import > Upload) or Excel to share with a bookkeeper/partner.
+  async function exportCSV() {
+    setExportingCSV(true)
+    try {
+      const perAccount = await Promise.all(ACCOUNT_KEYS.map(key => fetchAccountTransactions(supabase, key)))
+      const rows = perAccount.flat().sort((a, b) => new Date(b.date).getTime() - new Date(a.date).getTime())
+
+      const escape = (v: string | number | null | undefined) => {
+        const s = v === null || v === undefined ? '' : String(v)
+        return /[",\n]/.test(s) ? `"${s.replace(/"/g, '""')}"` : s
+      }
+      const header = ['Date', 'Account', 'Type', 'Who / Paid To', 'Detail', 'Reason', 'Amount', 'Confirmed', 'Confirmation Method']
+      const lines = [header.join(',')]
+      for (const r of rows) {
+        lines.push([
+          escape(r.date.slice(0, 10)),
+          escape(ACCOUNT_LABELS[r.account] ?? r.account),
+          escape(KIND_LABELS[r.kind]),
+          escape(r.who),
+          escape(r.detail),
+          escape(r.reason ? (REASON_LABELS[r.reason] ?? r.reason) : ''),
+          escape(r.amount.toFixed(2)),
+          escape(r.kind === 'withdrawal_out' ? (r.confirmed ? 'Yes' : 'No') : ''),
+          escape(r.confirmationMethod ? (CONFIRMATION_METHOD_LABELS[r.confirmationMethod] ?? r.confirmationMethod) : ''),
+        ].join(','))
+      }
+
+      const blob = new Blob([lines.join('\n')], { type: 'text/csv;charset=utf-8;' })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement('a')
+      a.href = url
+      a.download = `accounts-export-${todayStr()}.csv`
+      a.click()
+      URL.revokeObjectURL(url)
+      toast.success('CSV downloaded — open it in Google Sheets via File > Import')
+    } catch (err: any) {
+      toast.error('Export failed: ' + (err?.message || 'unknown error'))
+    } finally {
+      setExportingCSV(false)
+    }
+  }
+
   // Which quick-filter (if any) matches the currently loaded range — drives the
   // active/highlighted button style below (previously "Today" was hardcoded green
   // regardless of the actual range shown).
@@ -344,14 +391,25 @@ export default function AccountsPage() {
   return (
     <div className="p-6 max-w-5xl mx-auto space-y-8">
       {/* Header */}
-      <div className="flex items-center gap-3">
-        <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-sm">
-          <Wallet className="w-5 h-5 text-white" />
+      <div className="flex items-center justify-between gap-3">
+        <div className="flex items-center gap-3">
+          <div className="w-10 h-10 bg-emerald-500 rounded-xl flex items-center justify-center shadow-sm">
+            <Wallet className="w-5 h-5 text-white" />
+          </div>
+          <div>
+            <h1 className="text-2xl font-bold text-slate-800">Accounts</h1>
+            <p className="text-sm text-slate-500">Payment balances & withdrawal tracking</p>
+          </div>
         </div>
-        <div>
-          <h1 className="text-2xl font-bold text-slate-800">Accounts</h1>
-          <p className="text-sm text-slate-500">Payment balances & withdrawal tracking</p>
-        </div>
+        <button
+          onClick={exportCSV}
+          disabled={exportingCSV}
+          title="Download every transaction across all accounts as a CSV — open it in Google Sheets via File > Import, or in Excel"
+          className="flex items-center gap-2 px-4 py-2 bg-white border border-slate-200 hover:border-emerald-300 hover:text-emerald-700 text-slate-600 text-sm font-medium rounded-xl shadow-sm transition-colors disabled:opacity-50"
+        >
+          <Download className={`w-4 h-4 ${exportingCSV ? 'animate-bounce' : ''}`} />
+          {exportingCSV ? 'Exporting…' : 'Export CSV'}
+        </button>
       </div>
 
       {/* ── Section 1: Payment Account Balances ── */}
