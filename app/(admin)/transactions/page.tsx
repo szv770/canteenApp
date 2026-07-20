@@ -75,6 +75,8 @@ function OrdersContent() {
   const [orders, setOrders] = useState<any[]>([])
   const [search, setSearch] = useState('')
   const [statusFilter, setStatusFilter] = useState('all')
+  const [products, setProducts] = useState<{ id: string; name: string }[]>([])
+  const [productFilter, setProductFilter] = useState('')
   const [loading, setLoading] = useState(true)
   const [viewOrder, setViewOrder] = useState<any | null>(null)
   const [refundOrder, setRefundOrder] = useState<any | null>(null)
@@ -82,22 +84,50 @@ function OrdersContent() {
   const [viewCashierId, setViewCashierId] = useState<string | null>(null)
   const [viewBochurId, setViewBochurId] = useState<string | null>(null)
 
-  useEffect(() => { loadOrders() }, [statusFilter])
+  useEffect(() => { loadOrders() }, [statusFilter, productFilter])
 
   useEffect(() => {
     supabase.from('account_types').select('*').eq('is_active', true).order('name')
       .then(({ data }) => setAccountTypes((data || []) as AccountType[]))
+    supabase.from('products').select('id, name').order('name')
+      .then(({ data }) => setProducts((data || []) as { id: string; name: string }[]))
   }, [])
 
   async function loadOrders() {
     setLoading(true)
+
+    // When filtering by product, look up which orders actually contain it
+    // first (any order_items row for that product_id, bundle component or
+    // not — a bundle purchase still means that product was bought/consumed)
+    // — then fetch exactly those orders, ignoring the usual recency cap so a
+    // product search covers the full history, not just the latest 200.
+    let matchedOrderIds: string[] | null = null
+    let qtyByOrderId: Record<string, number> = {}
+    if (productFilter) {
+      const { data: items, error: itemsErr } = await supabase
+        .from('order_items')
+        .select('order_id, quantity')
+        .eq('product_id', productFilter)
+      if (itemsErr) toast.error('Failed to search by product: ' + itemsErr.message)
+      for (const i of (items || []) as any[]) {
+        qtyByOrderId[i.order_id] = (qtyByOrderId[i.order_id] || 0) + Number(i.quantity)
+      }
+      matchedOrderIds = Object.keys(qtyByOrderId)
+      if (matchedOrderIds.length === 0) {
+        setOrders([])
+        setLoading(false)
+        return
+      }
+    }
+
     // Fetch orders without bochurim join so walk-in orders (null bochur_id) are never filtered out
     let q = supabase
       .from('orders')
       .select('*, cashier_profiles!cashier_id(name)')
       .order('created_at', { ascending: false })
-      .limit(200)
 
+    if (matchedOrderIds) q = q.in('id', matchedOrderIds)
+    else q = q.limit(200)
     if (statusFilter !== 'all') q = q.eq('status', statusFilter)
 
     const { data: ordersData, error } = await q
@@ -119,6 +149,7 @@ function OrdersContent() {
     const merged = (ordersData || []).map((o: any) => ({
       ...o,
       bochurim: o.bochur_id ? (bochurMap[o.bochur_id] ?? null) : null,
+      matchedQty: qtyByOrderId[o.id],
     }))
 
     setOrders(merged)
@@ -130,6 +161,7 @@ function OrdersContent() {
     (o.cashier_profiles?.name || '').toLowerCase().includes(search.toLowerCase()) ||
     (o.bochurim?.name || '').toLowerCase().includes(search.toLowerCase())
   )
+  const productFilterName = products.find(p => p.id === productFilter)?.name
 
   async function voidOrder(order: any) {
     if (!confirm(`Void order #${order.order_number}? Any balance payment will be refunded.`)) return
@@ -188,6 +220,12 @@ function OrdersContent() {
           <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
           <input value={search} onChange={e => setSearch(e.target.value)} placeholder="Search orders..." className="input-admin pl-9" />
         </div>
+        <select value={productFilter} onChange={e => setProductFilter(e.target.value)} className="input-admin sm:w-48">
+          <option value="">All products</option>
+          {products.map(p => (
+            <option key={p.id} value={p.id}>{p.name}</option>
+          ))}
+        </select>
         <select value={statusFilter} onChange={e => setStatusFilter(e.target.value)} className="input-admin sm:w-36">
           <option value="all">All status</option>
           <option value="completed">Completed</option>
@@ -195,6 +233,15 @@ function OrdersContent() {
           <option value="refunded">Refunded</option>
         </select>
       </div>
+
+      {productFilter && (
+        <div className="mb-4 flex items-center justify-between bg-indigo-50 border border-indigo-100 rounded-xl px-4 py-2.5 text-sm">
+          <span className="text-indigo-700">
+            Showing every order that included <span className="font-semibold">{productFilterName}</span> — {filtered.length} order{filtered.length === 1 ? '' : 's'}
+          </span>
+          <button onClick={() => setProductFilter('')} className="text-indigo-500 hover:text-indigo-700 font-medium">Clear</button>
+        </div>
+      )}
 
       <div className="admin-card overflow-hidden">
         <div className="overflow-x-auto">
@@ -206,15 +253,18 @@ function OrdersContent() {
               <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Cashier</th>
               <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Bochur</th>
               <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Status</th>
+              {productFilter && (
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Qty</th>
+              )}
               <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Total</th>
               <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-5 py-3">Actions</th>
             </tr>
           </thead>
           <tbody>
             {loading ? (
-              <tr><td colSpan={7} className="px-5 py-12 text-center text-slate-400 text-sm">Loading...</td></tr>
+              <tr><td colSpan={productFilter ? 8 : 7} className="px-5 py-12 text-center text-slate-400 text-sm">Loading...</td></tr>
             ) : filtered.length === 0 ? (
-              <tr><td colSpan={7} className="px-5 py-12 text-center text-slate-400 text-sm">No transactions found</td></tr>
+              <tr><td colSpan={productFilter ? 8 : 7} className="px-5 py-12 text-center text-slate-400 text-sm">No transactions found</td></tr>
             ) : filtered.map(o => (
               <tr key={o.id} className="table-row">
                 <td className="px-5 py-3 text-sm font-semibold text-slate-900">#{o.order_number}</td>
@@ -244,6 +294,9 @@ function OrdersContent() {
                 <td className="px-5 py-3 text-center">
                   <span className={`badge ${statusBadge[o.status] || 'bg-slate-100 text-slate-500'}`}>{o.status}</span>
                 </td>
+                {productFilter && (
+                  <td className="px-5 py-3 text-sm font-semibold text-slate-700 text-right">{o.matchedQty}</td>
+                )}
                 <td className="px-5 py-3 text-sm font-bold text-slate-900 text-right">{formatCurrency(o.total)}</td>
                 <td className="px-5 py-3 text-right">
                   <div className="flex items-center justify-end gap-1">
