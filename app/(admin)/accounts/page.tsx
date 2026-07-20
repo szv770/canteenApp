@@ -3,9 +3,10 @@
 import { useEffect, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
-import { Wallet, Plus, Trash2, RefreshCw, DollarSign, CreditCard, Smartphone, Banknote, Users } from 'lucide-react'
+import { Wallet, Plus, Trash2, RefreshCw, DollarSign, CreditCard, Smartphone, Banknote, Users, CheckCircle2, Clock, X } from 'lucide-react'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
+import AccountTransactionsModal from '@/components/admin/AccountTransactionsModal'
 
 // Local calendar date as "YYYY-MM-DD" — `.toISOString().slice(0,10)` reads the UTC
 // date instead, which silently rolls "today" over to tomorrow for anyone west of
@@ -22,6 +23,10 @@ interface WithdrawalRow {
   date: string
   note: string | null
   reason: string | null
+  paid_to: string | null
+  confirmed_received: boolean
+  confirmation_method: string | null
+  confirmed_at: string | null
   created_at: string
 }
 
@@ -55,6 +60,14 @@ const REASON_OPTIONS: { value: string; label: string }[] = [
 ]
 const REASON_LABELS: Record<string, string> = Object.fromEntries(REASON_OPTIONS.map(r => [r.value, r.label]))
 
+const CONFIRMATION_METHOD_OPTIONS: { value: string; label: string }[] = [
+  { value: 'in_person', label: 'Handed in person / counted with them' },
+  { value: 'verbal_text_call', label: 'Verbal, text, or call confirmation' },
+  { value: 'bank_app_confirmation', label: 'Bank/Zelle/app confirmation screen' },
+  { value: 'signed_receipt', label: 'Signed receipt' },
+]
+const CONFIRMATION_METHOD_LABELS: Record<string, string> = Object.fromEntries(CONFIRMATION_METHOD_OPTIONS.map(o => [o.value, o.label]))
+
 export default function AccountsPage() {
   const supabase = createClient()
 
@@ -84,8 +97,13 @@ export default function AccountsPage() {
   const [fAmount, setFAmount] = useState('')
   const [fDate, setFDate] = useState(todayStr())
   const [fReason, setFReason] = useState('')
+  const [fPaidTo, setFPaidTo] = useState('')
   const [fNote, setFNote] = useState('')
   const [saving, setSaving] = useState(false)
+
+  // ── Drill-down / confirmation modals ──────────────────────────────────────
+  const [selectedAccountKey, setSelectedAccountKey] = useState<string | null>(null)
+  const [confirmingWithdrawal, setConfirmingWithdrawal] = useState<WithdrawalRow | null>(null)
 
   useEffect(() => { loadPayments() }, [from, to])
   useEffect(() => { loadWithdrawals() }, [from, to])
@@ -219,6 +237,7 @@ export default function AccountsPage() {
     const amt = parseFloat(fAmount)
     if (!fAmount || isNaN(amt) || amt <= 0) { toast.error('Enter a valid amount'); return }
     if (!fReason) { toast.error('Select a reason'); return }
+    if (!fPaidTo.trim()) { toast.error('Enter who this was paid to'); return }
 
     setSaving(true)
     const { data: { user } } = await supabase.auth.getUser()
@@ -227,18 +246,36 @@ export default function AccountsPage() {
       amount: amt,
       date: fDate,
       reason: fReason,
+      paid_to: fPaidTo.trim(),
       note: fNote.trim() || null,
       recorded_by: user?.id ?? null,
+      // confirmed_received defaults to false — log now, come back and mark it
+      // confirmed once you actually hear back that they received it.
     })
     if (error) { toast.error('Failed to save: ' + error.message); setSaving(false); return }
-    toast.success('Withdrawal logged')
+    toast.success('Withdrawal logged as pending confirmation')
     setFAmount('')
     setFReason('')
+    setFPaidTo('')
     setFNote('')
     setFDate(todayStr())
     setSaving(false)
     loadWithdrawals()
     loadNetBalances()
+  }
+
+  async function markWithdrawalConfirmed(withdrawal: WithdrawalRow, confirmationMethod: string) {
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('withdrawal_log').update({
+      confirmed_received: true,
+      confirmation_method: confirmationMethod,
+      confirmed_at: new Date().toISOString(),
+      confirmed_by: user?.id ?? null,
+    }).eq('id', withdrawal.id)
+    if (error) { toast.error('Failed to save: ' + error.message); return }
+    toast.success('Marked as confirmed')
+    setConfirmingWithdrawal(null)
+    loadWithdrawals()
   }
 
   async function deleteWithdrawal(id: string) {
@@ -460,7 +497,7 @@ export default function AccountsPage() {
             Counts POS payments, top-ups, cash kept as change-to-balance, tagged Add Funds entries, refunds paid back
             to students, and the withdrawal log below. Not affected by the date range above. Excludes voided
             cash/credit-card orders&rsquo; original payment — voiding doesn&rsquo;t track whether cash was physically
-            handed back, so log a withdrawal separately if it was.
+            handed back, so log a withdrawal separately if it was. Click a card to see every transaction behind it.
           </p>
         </div>
 
@@ -473,7 +510,11 @@ export default function AccountsPage() {
         ) : (
           <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
             {netRows.map(r => (
-              <div key={r.key} className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5">
+              <button
+                key={r.key}
+                onClick={() => setSelectedAccountKey(r.key)}
+                className="text-left bg-white rounded-2xl shadow-sm border border-slate-200 p-5 hover:border-emerald-300 hover:shadow-md transition-all cursor-pointer"
+              >
                 <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{r.label}</p>
                 <p className={`text-xl font-bold mt-0.5 ${r.net < 0 ? 'text-red-600' : 'text-slate-800'}`}>
                   {formatCurrency(r.net)}
@@ -481,11 +522,20 @@ export default function AccountsPage() {
                 <p className="text-xs text-slate-400 mt-1">
                   {formatCurrency(r.received)} in &minus; {formatCurrency(r.withdrawn)} out
                 </p>
-              </div>
+                <p className="text-xs text-emerald-600 mt-2 font-medium">View transactions →</p>
+              </button>
             ))}
           </div>
         )}
       </section>
+
+      {selectedAccountKey && (
+        <AccountTransactionsModal
+          accountKey={selectedAccountKey}
+          accountLabel={ACCOUNT_LABELS[selectedAccountKey] ?? selectedAccountKey}
+          onClose={() => setSelectedAccountKey(null)}
+        />
+      )}
 
       {/* ── Section 2: Withdrawal Log ── */}
       <section className="space-y-4">
@@ -498,7 +548,7 @@ export default function AccountsPage() {
             <Plus className="w-4 h-4 text-emerald-600" />
             Log a Withdrawal
           </h3>
-          <form onSubmit={addWithdrawal} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-5 gap-4">
+          <form onSubmit={addWithdrawal} className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-6 gap-4">
             {/* Account */}
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1.5">Account</label>
@@ -556,6 +606,18 @@ export default function AccountsPage() {
               </select>
             </div>
 
+            {/* Paid To */}
+            <div>
+              <label className="block text-xs font-medium text-slate-500 mb-1.5">Paid To</label>
+              <input
+                type="text"
+                value={fPaidTo}
+                onChange={e => setFPaidTo(e.target.value)}
+                placeholder="Who received this?"
+                className="w-full border border-slate-300 rounded-xl px-3 py-2.5 text-sm focus:outline-none focus:ring-2 focus:ring-emerald-500"
+              />
+            </div>
+
             {/* Note */}
             <div>
               <label className="block text-xs font-medium text-slate-500 mb-1.5">Note <span className="text-slate-300">(optional)</span></label>
@@ -569,7 +631,7 @@ export default function AccountsPage() {
             </div>
 
             {/* Submit */}
-            <div className="sm:col-span-2 lg:col-span-5 flex justify-end">
+            <div className="sm:col-span-2 lg:col-span-6 flex justify-end">
               <button
                 type="submit"
                 disabled={saving}
@@ -596,8 +658,10 @@ export default function AccountsPage() {
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Date</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Account</th>
                     <th className="text-right px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Amount</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Paid To</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Reason</th>
                     <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Note</th>
+                    <th className="text-left px-5 py-3 text-xs font-semibold text-slate-500 uppercase tracking-wide">Status</th>
                     <th className="px-5 py-3" />
                   </tr>
                 </thead>
@@ -615,11 +679,31 @@ export default function AccountsPage() {
                       <td className="px-5 py-3.5 text-right font-semibold text-slate-800 whitespace-nowrap">
                         {formatCurrency(w.amount)}
                       </td>
+                      <td className="px-5 py-3.5 text-slate-700 max-w-[140px] truncate">
+                        {w.paid_to || <span className="text-slate-300">—</span>}
+                      </td>
                       <td className="px-5 py-3.5 text-slate-600 whitespace-nowrap">
                         {w.reason ? (REASON_LABELS[w.reason] ?? w.reason) : <span className="text-slate-300">—</span>}
                       </td>
                       <td className="px-5 py-3.5 text-slate-600 max-w-xs truncate">
                         {w.note || <span className="text-slate-300">—</span>}
+                      </td>
+                      <td className="px-5 py-3.5 whitespace-nowrap">
+                        {w.confirmed_received ? (
+                          <span
+                            title={w.confirmed_at ? `Confirmed ${format(new Date(w.confirmed_at), 'MMM d, yyyy')} — ${CONFIRMATION_METHOD_LABELS[w.confirmation_method || ''] ?? w.confirmation_method}` : 'Confirmed'}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-emerald-100 text-emerald-700"
+                          >
+                            <CheckCircle2 className="w-3.5 h-3.5" /> Confirmed
+                          </span>
+                        ) : (
+                          <button
+                            onClick={() => setConfirmingWithdrawal(w)}
+                            className="inline-flex items-center gap-1 px-2.5 py-0.5 rounded-full text-xs font-medium bg-amber-100 text-amber-700 hover:bg-amber-200 transition-colors"
+                          >
+                            <Clock className="w-3.5 h-3.5" /> Pending — mark confirmed
+                          </button>
+                        )}
                       </td>
                       <td className="px-5 py-3.5 text-right">
                         <button
@@ -638,6 +722,62 @@ export default function AccountsPage() {
           )}
         </div>
       </section>
+
+      {confirmingWithdrawal && (
+        <ConfirmWithdrawalModal
+          withdrawal={confirmingWithdrawal}
+          onClose={() => setConfirmingWithdrawal(null)}
+          onConfirm={method => markWithdrawalConfirmed(confirmingWithdrawal, method)}
+        />
+      )}
+    </div>
+  )
+}
+
+function ConfirmWithdrawalModal({
+  withdrawal, onClose, onConfirm,
+}: { withdrawal: WithdrawalRow; onClose: () => void; onConfirm: (method: string) => void }) {
+  const [method, setMethod] = useState('')
+  const [saving, setSaving] = useState(false)
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[80] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-slate-900 text-lg">Confirm Receipt</h3>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
+        <div className="p-3 bg-slate-50 rounded-xl">
+          <p className="text-sm text-slate-600">
+            {formatCurrency(withdrawal.amount)} to <span className="font-semibold text-slate-800">{withdrawal.paid_to || 'Unspecified'}</span>
+          </p>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">How was it confirmed?</label>
+          <select
+            className="input-admin"
+            value={method}
+            onChange={e => setMethod(e.target.value)}
+          >
+            <option value="" disabled>Select…</option>
+            {CONFIRMATION_METHOD_OPTIONS.map(o => (
+              <option key={o.value} value={o.value}>{o.label}</option>
+            ))}
+          </select>
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button
+            onClick={() => { if (!method) return; setSaving(true); onConfirm(method) }}
+            disabled={!method || saving}
+            className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+          >
+            {saving ? 'Saving…' : 'Mark Confirmed'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
