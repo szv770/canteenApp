@@ -11,11 +11,11 @@ import { cn } from '@/lib/utils'
 
 const NAV = [
   { href: '/dashboard', icon: LayoutDashboard, label: 'Dashboard' },
-  { href: '/transactions', icon: Receipt, label: 'Transactions' },
-  { href: '/bochurim', icon: Users, label: 'Students' },
-  { href: '/products', icon: Package, label: 'Products' },
-  { href: '/finance', icon: Wallet, label: 'Finance' },
-  { href: '/settings', icon: Settings, label: 'Settings' },
+  { href: '/transactions/orders', icon: Receipt, label: 'Transactions', activeBase: '/transactions' },
+  { href: '/bochurim/students', icon: Users, label: 'Students', activeBase: '/bochurim' },
+  { href: '/products/products', icon: Package, label: 'Products', activeBase: '/products' },
+  { href: '/finance/topups', icon: Wallet, label: 'Finance', activeBase: '/finance' },
+  { href: '/settings/general', icon: Settings, label: 'Settings', activeBase: '/settings' },
 ]
 
 export default function AdminSidebar() {
@@ -78,7 +78,8 @@ export default function AdminSidebar() {
       {/* Nav */}
       <nav className="flex-1 p-2.5 space-y-0.5 overflow-y-auto">
         {NAV.map(item => {
-          const active = pathname === item.href || pathname.startsWith(item.href + '/')
+          const base = item.activeBase ?? item.href
+          const active = pathname === base || pathname.startsWith(base + '/')
           return (
             <button
               key={item.href}
@@ -92,7 +93,7 @@ export default function AdminSidebar() {
             >
               <item.icon className={cn('w-4 h-4 shrink-0', active ? 'text-amber-400' : '')} />
               <span className={active ? 'text-white font-semibold' : ''}>{item.label}</span>
-              {item.href === '/transactions' && pendingRefunds > 0 && (
+              {item.label === 'Transactions' && pendingRefunds > 0 && (
                 <span className="ml-auto min-w-[20px] h-5 px-1.5 flex items-center justify-center bg-amber-500 text-white text-xs font-bold rounded-full">
                   {pendingRefunds > 9 ? '9+' : pendingRefunds}
                 </span>

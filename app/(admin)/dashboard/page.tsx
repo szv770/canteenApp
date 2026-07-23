@@ -267,7 +267,7 @@ export default async function DashboardPage() {
 
       {/* Analytics link */}
       <a
-        href="/reports"
+        href="/reports/overview"
         className="flex items-center justify-between gap-3 px-5 py-3 bg-white rounded-2xl border border-slate-100 shadow-sm hover:shadow-md hover:border-amber-200 transition-all group"
       >
         <div className="flex items-center gap-3">
