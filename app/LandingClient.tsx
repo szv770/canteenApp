@@ -4,7 +4,7 @@ import { useEffect, useRef, useState, useCallback } from 'react'
 import Script from 'next/script'
 import Link from 'next/link'
 import { Fraunces } from 'next/font/google'
-import { ShoppingBag, Send, Check, ChevronRight, ChevronDown, Smartphone, Copy, ExternalLink, CreditCard, AlertTriangle, X, Megaphone, Info, FileText, Flame, ArrowRight, Wallet } from 'lucide-react'
+import { ShoppingBag, Send, Check, ChevronRight, ChevronDown, Smartphone, Copy, ExternalLink, CreditCard, AlertTriangle, X, Megaphone, Info, FileText, Flame, ArrowRight, Wallet, Truck } from 'lucide-react'
 import toast from 'react-hot-toast'
 
 // Warm serif for the hero heading only — the canteen name now appears exactly once on
@@ -836,6 +836,13 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
           <div className="w-8 h-8 bg-teal-700 rounded-lg flex items-center justify-center shrink-0 shadow-sm shadow-teal-700/20">
             <ShoppingBag className="w-4 h-4 text-white" />
           </div>
+          <Link
+            href="/preorder"
+            className="flex items-center gap-1.5 border border-teal-700/30 text-teal-800 hover:bg-teal-700/10 px-2.5 sm:px-3 py-2 rounded-xl text-sm font-medium transition-colors shrink-0 ml-auto mr-2"
+            title="Order ahead — for staff & Shluchim"
+          >
+            <Truck className="w-4 h-4" /> <span className="hidden sm:inline">Order Ahead</span>
+          </Link>
           {loggedIn ? (
             <Link
               href="/pos"
@@ -1095,9 +1102,6 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
           <div className="w-7 h-7 bg-teal-700 rounded-lg flex items-center justify-center shrink-0 shadow-sm shadow-teal-700/20">
             <ShoppingBag className="w-3.5 h-3.5 text-white" />
           </div>
-          <Link href="/preorder" className="text-xs text-teal-700 hover:underline font-medium">
-            Staff / Shluchim: Order Ahead →
-          </Link>
           <p className="text-xs text-stone-400">
             &copy; {new Date().getFullYear()} · Powered by Canteen POS
           </p>
