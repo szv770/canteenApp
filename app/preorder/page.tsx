@@ -58,12 +58,18 @@ export default function PreorderPage() {
 
   useEffect(() => {
     if (!selected || !forDate) return
+    // Guard against the calendar being flipped again before this request
+    // resolves — without this, a slow response for a date the user has
+    // already navigated away from could land after (and clobber) the
+    // response for the date they're actually looking at now.
+    let cancelled = false
     setLoadingItems(true)
     setDone(null)
     Promise.all([
       fetch(`/api/preorders/public/items?bochur_id=${selected.id}&for_date=${forDate}`).then(r => r.json()),
       fetch(`/api/preorders/public/my-order?bochur_id=${selected.id}&for_date=${forDate}`).then(r => r.json()),
     ]).then(([itemsJson, myOrderJson]) => {
+      if (cancelled) return
       if (itemsJson.error) {
         console.error('Failed to load preorder items:', itemsJson.error)
         toast.error('Could not load items — please refresh and try again')
@@ -81,6 +87,7 @@ export default function PreorderPage() {
       }
       setLoadingItems(false)
     })
+    return () => { cancelled = true }
   }, [selected, forDate])
 
   function setQty(id: string, qty: number) {

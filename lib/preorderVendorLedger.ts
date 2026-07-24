@@ -14,10 +14,14 @@ export interface VendorLedgerSummary {
   paid: number
   balance: number
   accrualMode: VendorAccrualMode
+  // Set when any underlying query failed — callers should surface this so a
+  // DB hiccup doesn't silently read as "vendor is owed $0" (see CLAUDE.md
+  // Preorders task notes on swallowed-error bugs).
+  error?: string
 }
 
 export async function computeVendorLedger(supabase: SupabaseClient): Promise<VendorLedgerSummary> {
-  const { data: modeSetting } = await supabase
+  const { data: modeSetting, error: modeErr } = await supabase
     .from('settings')
     .select('value')
     .eq('key', 'preorder_vendor_debt_accrual_mode')
@@ -27,7 +31,7 @@ export async function computeVendorLedger(supabase: SupabaseClient): Promise<Ven
       ? 'on_confirmed_received'
       : 'on_send'
 
-  const { data: preorders } = await supabase
+  const { data: preorders, error: preordersErr } = await supabase
     .from('preorders')
     .select('status, sent_to_vendor, preorder_items(cost_price, quantity, preorder_source)')
     .neq('status', 'cancelled')
@@ -43,11 +47,17 @@ export async function computeVendorLedger(supabase: SupabaseClient): Promise<Ven
   }
   owed = Math.round(owed * 100) / 100
 
-  const { data: payments } = await supabase
+  const { data: payments, error: paymentsErr } = await supabase
     .from('withdrawal_log')
     .select('amount')
     .eq('reason', 'vendor_payment')
   const paid = Math.round(((payments || []).reduce((sum: number, p: any) => sum + Number(p.amount), 0)) * 100) / 100
 
-  return { owed, paid, balance: Math.round((owed - paid) * 100) / 100, accrualMode }
+  const firstErr = modeErr || preordersErr || paymentsErr
+  if (firstErr) console.error('computeVendorLedger: a query failed, ledger totals may be incomplete', firstErr)
+
+  return {
+    owed, paid, balance: Math.round((owed - paid) * 100) / 100, accrualMode,
+    error: firstErr ? 'Some vendor ledger data failed to load — totals below may be incomplete' : undefined,
+  }
 }

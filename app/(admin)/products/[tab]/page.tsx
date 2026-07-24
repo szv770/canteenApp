@@ -862,7 +862,7 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
                   </div>
                   <p className="text-xs text-slate-400 mt-1">
                     {form.preorder_source === 'vendor'
-                      ? 'Counts toward what you owe the vendor and shows on the "Send to Vendor" list.'
+                      ? 'Counts toward what you owe the vendor and shows on the "Send to Vendor" list. Make sure Cost Price above is set — that\'s what the Vendor Ledger uses to compute what\'s owed; a blank/$0 cost price means this item silently adds nothing to "owed" even after it\'s sent/received.'
                       : 'Shows on the "To prepare" list instead — no vendor cost tracking.'}
                   </p>
                 </div>

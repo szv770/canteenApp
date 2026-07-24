@@ -32,20 +32,22 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient()
 
-  const { data: preorder } = await admin
+  const { data: preorder, error: preorderErr } = await admin
     .from('preorders')
     .select('id, bochur_id, status, total_amount, for_date')
     .eq('id', preorderId)
     .single()
+  if (preorderErr) console.error('preorder-confirm: failed to load order', preorderErr)
   if (!preorder) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (preorder.status === 'received') return NextResponse.json({ error: 'Already confirmed' }, { status: 400 })
   if (preorder.status === 'cancelled') return NextResponse.json({ error: 'This order was cancelled' }, { status: 400 })
 
-  const { data: bochur } = await admin
+  const { data: bochur, error: bochurErr } = await admin
     .from('bochurim')
     .select('id, name, balance, allow_negative, max_negative_balance, is_frozen, banned_until')
     .eq('id', preorder.bochur_id)
     .single()
+  if (bochurErr) console.error('preorder-confirm: failed to load bochur', bochurErr)
   if (!bochur) return NextResponse.json({ error: 'Bochur not found' }, { status: 400 })
   if (bochur.is_frozen) return NextResponse.json({ error: 'This account is frozen. Please contact an admin.' }, { status: 403 })
   if (bochur.banned_until && new Date(bochur.banned_until) > new Date()) {

@@ -43,18 +43,20 @@ export async function placePreorder(admin: SupabaseClient, input: PlacePreorderI
     }
   }
 
-  const { data: cutoffSetting } = await admin.from('settings').select('value').eq('key', 'preorder_cutoff_time').single()
+  const { data: cutoffSetting, error: cutoffErr } = await admin.from('settings').select('value').eq('key', 'preorder_cutoff_time').single()
+  if (cutoffErr) console.error('placePreorder: failed to load cutoff setting, falling back to 20:00', cutoffErr)
   const cutoffTime = String(cutoffSetting?.value ?? '20:00').replace(/"/g, '')
   if (!isBeforeCutoff(forDate, cutoffTime)) {
     return { ok: false, status: 400, error: 'Ordering for this date has closed.' }
   }
 
-  const { data: bochur } = await admin
+  const { data: bochur, error: bochurErr } = await admin
     .from('bochurim')
     .select('id, name, is_frozen, banned_until, archived, account_type_id, account_types(discount_type, discount_value, is_staff_pricing_tier, is_active)')
     .eq('id', bochurId)
     .eq('archived', false)
     .single()
+  if (bochurErr) console.error('placePreorder: failed to load bochur', bochurErr)
   if (!bochur) return { ok: false, status: 400, error: 'Account not found' }
   if (bochur.is_frozen) return { ok: false, status: 403, error: 'This account is frozen. Please contact an admin.' }
   if (bochur.banned_until && new Date(bochur.banned_until) > new Date()) {
@@ -68,10 +70,11 @@ export async function placePreorder(admin: SupabaseClient, input: PlacePreorderI
   } : null
 
   const productIds = Array.from(new Set(items.map(i => i.product_id)))
-  const { data: products } = await admin
+  const { data: products, error: productsErr } = await admin
     .from('products')
     .select('id, name, price, cost_price, staff_price, preorder_source, preorder_daily_cap, allow_preorder, is_active')
     .in('id', productIds)
+  if (productsErr) console.error('placePreorder: failed to load products', productsErr)
   const productMap = new Map((products || []).map((p: any) => [p.id, p]))
 
   for (const item of items) {
@@ -83,11 +86,12 @@ export async function placePreorder(admin: SupabaseClient, input: PlacePreorderI
 
   // If editing, confirm the existing order belongs to this bochur/date and is still pending.
   if (existingPreorderId) {
-    const { data: existing } = await admin
+    const { data: existing, error: existingErr } = await admin
       .from('preorders')
       .select('id, bochur_id, for_date, status')
       .eq('id', existingPreorderId)
       .single()
+    if (existingErr) console.error('placePreorder: failed to load existing order', existingErr)
     if (!existing || existing.bochur_id !== bochurId || existing.for_date !== forDate) {
       return { ok: false, status: 404, error: 'Order not found' }
     }
@@ -102,12 +106,19 @@ export async function placePreorder(admin: SupabaseClient, input: PlacePreorderI
   for (const item of items) {
     const p = productMap.get(item.product_id)
     if (p.preorder_daily_cap == null) continue
-    const { data: existingItems } = await admin
+    const { data: existingItems, error: capErr } = await admin
       .from('preorder_items')
       .select('quantity, preorder_id, preorders!inner(for_date, status)')
       .eq('product_id', item.product_id)
       .eq('preorders.for_date', forDate)
       .neq('preorders.status', 'cancelled')
+    if (capErr) {
+      // Fail closed rather than silently treating a failed lookup as "nothing
+      // committed yet" — that would let a capped item be oversold on a
+      // transient DB error instead of just asking the user to retry.
+      console.error('placePreorder: cap check query failed', capErr)
+      return { ok: false, status: 500, error: 'Could not verify item availability — please try again' }
+    }
     const committed = (existingItems || [])
       .filter((row: any) => row.preorder_id !== existingPreorderId)
       .reduce((sum: number, row: any) => sum + Number(row.quantity), 0)
@@ -168,6 +179,36 @@ export async function placePreorder(admin: SupabaseClient, input: PlacePreorderI
     itemRows.map(row => ({ ...row, preorder_id: preorderId }))
   )
   if (itemsErr) return { ok: false, status: 500, error: 'Failed to save order items' }
+
+  // Re-check capped items after inserting. The pre-insert check above can
+  // still race under two truly simultaneous submissions (see CLAUDE.md
+  // gotcha #32 — no SELECT FOR UPDATE/RPC), but re-verifying immediately
+  // after our own insert lands narrows that window: whichever request's
+  // insert commits second will see the other's row already counted and can
+  // undo itself, instead of leaving two orders both standing over the cap.
+  for (const item of items) {
+    const p = productMap.get(item.product_id)
+    if (p.preorder_daily_cap == null) continue
+    const { data: postInsertItems, error: postCapErr } = await admin
+      .from('preorder_items')
+      .select('quantity, preorders!inner(for_date, status)')
+      .eq('product_id', item.product_id)
+      .eq('preorders.for_date', forDate)
+      .neq('preorders.status', 'cancelled')
+    if (postCapErr) {
+      console.error('placePreorder: post-insert cap re-check failed', postCapErr)
+      continue
+    }
+    const committed = (postInsertItems || []).reduce((sum: number, row: any) => sum + Number(row.quantity), 0)
+    if (committed > p.preorder_daily_cap) {
+      await admin.from('preorders').update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancel_reason: 'Daily cap reached by a concurrent order',
+      }).eq('id', preorderId)
+      return { ok: false, status: 409, error: `"${p.name}" just sold out for that date — remove it or pick another date and try again.` }
+    }
+  }
 
   return { ok: true, status: existingPreorderId ? 200 : 201, preorderId: preorderId!, total, staffPricingApplied }
 }
