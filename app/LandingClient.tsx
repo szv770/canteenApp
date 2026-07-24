@@ -1095,6 +1095,9 @@ export default function LandingClient({ loggedIn, settings, announcement, topSel
           <div className="w-7 h-7 bg-teal-700 rounded-lg flex items-center justify-center shrink-0 shadow-sm shadow-teal-700/20">
             <ShoppingBag className="w-3.5 h-3.5 text-white" />
           </div>
+          <Link href="/preorder" className="text-xs text-teal-700 hover:underline font-medium">
+            Staff / Shluchim: Order Ahead →
+          </Link>
           <p className="text-xs text-stone-400">
             &copy; {new Date().getFullYear()} · Powered by Canteen POS
           </p>

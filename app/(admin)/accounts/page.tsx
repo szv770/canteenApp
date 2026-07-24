@@ -57,6 +57,7 @@ const REASON_OPTIONS: { value: string; label: string }[] = [
   { value: 'bank_deposit', label: 'Bank deposit' },
   { value: 'supplies', label: 'Supplies purchase' },
   { value: 'refund_reimbursement', label: 'Refund reimbursement' },
+  { value: 'vendor_payment', label: 'Preorder vendor payment' },
   { value: 'other', label: 'Other' },
 ]
 const REASON_LABELS: Record<string, string> = Object.fromEntries(REASON_OPTIONS.map(r => [r.value, r.label]))

@@ -135,6 +135,11 @@ export default function AccountTypesPanel() {
                       <span className={`inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border ${badge.cls}`}>
                         {badge.label}
                       </span>
+                      {t.is_staff_pricing_tier && (
+                        <span className="ml-1.5 inline-flex items-center px-2 py-0.5 rounded-full text-xs font-semibold border bg-purple-50 text-purple-700 border-purple-200">
+                          Staff pricing
+                        </span>
+                      )}
                     </td>
                     <td className="px-4 py-3 text-sm text-slate-500">
                       {exclusions.length === 0 ? (
@@ -221,6 +226,7 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
       ? String(accountType.exclusion_discount_value) : ''
   )
   const [isActive, setIsActive] = useState(accountType?.is_active ?? true)
+  const [isStaffTier, setIsStaffTier] = useState(accountType?.is_staff_pricing_tier ?? false)
   const [saving, setSaving] = useState(false)
 
   const hasExclusions = excludedIds.size > 0
@@ -275,6 +281,7 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
       exclusion_discount_value: hasExclusions && exclusionNeedsValue && !isNaN(parsedExclusionValue)
         ? parsedExclusionValue : hasExclusions ? 0 : null,
       is_active: isActive,
+      is_staff_pricing_tier: isStaffTier,
     }
 
     const { error } = isEdit
@@ -491,6 +498,21 @@ function AccountTypeFormModal({ accountType, categories, onClose, onSaved }: {
               className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors ${isActive ? 'bg-amber-500' : 'bg-slate-200'}`}
             >
               <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-sm ${isActive ? 'translate-x-6' : 'translate-x-1'}`} />
+            </button>
+          </div>
+
+          {/* Staff pricing tier (Preorders) */}
+          <div className="flex items-center justify-between p-3 bg-slate-50 border border-slate-200 rounded-xl">
+            <div>
+              <p className="text-sm font-semibold text-slate-700">Staff pricing (Preorders)</p>
+              <p className="text-xs text-slate-400">Bochurim with this account type get each item's Staff Price (set per item on the Products page) instead of the regular Preorders price, when one is set.</p>
+            </div>
+            <button
+              type="button"
+              onClick={() => setIsStaffTier(!isStaffTier)}
+              className={`relative inline-flex h-7 w-12 items-center rounded-full transition-colors shrink-0 ${isStaffTier ? 'bg-amber-500' : 'bg-slate-200'}`}
+            >
+              <span className={`inline-block h-5 w-5 transform rounded-full bg-white transition-transform shadow-sm ${isStaffTier ? 'translate-x-6' : 'translate-x-1'}`} />
             </button>
           </div>
         </div>

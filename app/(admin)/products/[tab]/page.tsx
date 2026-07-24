@@ -439,6 +439,10 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
     sale_price: product?.sale_price != null ? String(product.sale_price) : '',
     sale_label: product?.sale_label || '',
     sale_ends_at: product?.sale_ends_at ? product.sale_ends_at.slice(0, 16) : '',
+    allow_preorder: product?.allow_preorder ?? false,
+    preorder_source: product?.preorder_source || 'vendor',
+    staff_price: product?.staff_price != null ? String(product.staff_price) : '',
+    preorder_daily_cap: product?.preorder_daily_cap != null ? String(product.preorder_daily_cap) : '',
   })
   const [imageUrl, setImageUrl] = useState<string>(product?.image_url || '')
   const [imageUploading, setImageUploading] = useState(false)
@@ -602,6 +606,10 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
       sale_price: salePrice,
       sale_label: form.sale_label.trim() || null,
       sale_ends_at: form.sale_ends_at ? new Date(form.sale_ends_at).toISOString() : null,
+      allow_preorder: form.allow_preorder,
+      preorder_source: form.allow_preorder ? form.preorder_source : null,
+      staff_price: form.allow_preorder && form.staff_price !== '' ? parseFloat(form.staff_price) : null,
+      preorder_daily_cap: form.allow_preorder && form.preorder_daily_cap !== '' ? parseInt(form.preorder_daily_cap) || null : null,
     }
 
     let productId: string
@@ -821,6 +829,51 @@ function ProductModal({ product, categories, initialCategoryIds, onClose, onSave
                     value={form.sale_ends_at}
                     onChange={e => setForm(f => ({ ...f, sale_ends_at: e.target.value }))}
                   />
+                </div>
+              </div>
+            )}
+          </div>
+
+          {/* Preorders */}
+          <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.allow_preorder}
+                onChange={e => setForm(f => ({ ...f, allow_preorder: e.target.checked }))}
+                className="rounded"
+              />
+              <span className="text-sm font-medium text-slate-700">Orderable via Preorders</span>
+            </label>
+            <p className="text-xs text-slate-400 -mt-2">Shows on the Preorders POS screen and public ordering link instead of the regular POS grid.</p>
+            {form.allow_preorder && (
+              <div className="space-y-3 pt-1">
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Source</label>
+                  <div className="flex gap-2">
+                    <button type="button" onClick={() => setForm(f => ({ ...f, preorder_source: 'vendor' }))}
+                      className={`flex-1 px-3 py-2 rounded-xl text-sm font-medium border transition-all ${form.preorder_source === 'vendor' ? 'bg-amber-400 text-white border-amber-400' : 'bg-white text-slate-600 border-slate-200'}`}>
+                      3rd-Party Vendor
+                    </button>
+                    <button type="button" onClick={() => setForm(f => ({ ...f, preorder_source: 'in_house' }))}
+                      className={`flex-1 px-3 py-2 rounded-xl text-sm font-medium border transition-all ${form.preorder_source === 'in_house' ? 'bg-amber-400 text-white border-amber-400' : 'bg-white text-slate-600 border-slate-200'}`}>
+                      In-House (I make it)
+                    </button>
+                  </div>
+                  <p className="text-xs text-slate-400 mt-1">
+                    {form.preorder_source === 'vendor'
+                      ? 'Counts toward what you owe the vendor and shows on the "Send to Vendor" list.'
+                      : 'Shows on the "To prepare" list instead — no vendor cost tracking.'}
+                  </p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Staff Price <span className="text-slate-400 font-normal">(optional override, can be $0)</span></label>
+                  <input type="number" className="input-admin" placeholder="Leave blank to use the account type's normal discount" value={form.staff_price} onChange={e => setForm(f => ({ ...f, staff_price: e.target.value }))} step={0.25} min={0} />
+                  <p className="text-xs text-slate-400 mt-1">Applies only to bochurim whose account type is flagged "Staff pricing" (Students → Account Types). Never shown side-by-side with the camper price.</p>
+                </div>
+                <div>
+                  <label className="block text-sm font-medium text-slate-700 mb-1">Daily Cap <span className="text-slate-400 font-normal">(optional, blank = unlimited)</span></label>
+                  <input type="number" className="input-admin" placeholder="e.g. 50" value={form.preorder_daily_cap} onChange={e => setForm(f => ({ ...f, preorder_daily_cap: e.target.value }))} min={1} />
                 </div>
               </div>
             )}

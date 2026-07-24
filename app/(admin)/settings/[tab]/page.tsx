@@ -87,6 +87,17 @@ const NINE_DAYS_SETTINGS: SettingRow[] = [
   { key: 'nine_days_blurb', label: 'Blurb', description: "Short note about Nine Days alternatives, shown on the home page", type: 'textarea' },
 ]
 
+const PREORDER_SETTINGS: SettingRow[] = [
+  { key: 'preorder_cutoff_time', label: 'Cutoff Time', description: 'Orders for a given day close at this time (24-hour HH:MM) the evening before, camp-local time', type: 'text' },
+  { key: 'preorder_public_link_enabled', label: 'Public Ordering Link', description: 'Turn off to disable the /preorder link for everyone without removing items', type: 'toggle' },
+  { key: 'preorder_vendor_name', label: 'Vendor Name', description: 'Shown on the Preorders → Vendor tab and used as "Paid To" on logged payments', type: 'text' },
+  { key: 'preorder_vendor_phone', label: 'Vendor WhatsApp Number', description: 'Digits only with country code, e.g. 13055551234 — used for the "WhatsApp" button on the Preorders Orders tab', type: 'text' },
+  { key: 'preorder_vendor_debt_accrual_mode', label: 'When Vendor Debt Is Owed', description: 'Whether "what I owe the vendor" counts an order the moment it\'s sent, or only once it\'s confirmed received', type: 'select', options: [
+    { value: 'on_send', label: 'When sent to vendor' },
+    { value: 'on_confirmed_received', label: 'Only once confirmed received' },
+  ]},
+]
+
 const EMAIL_IDENTITY_SETTINGS: SettingRow[] = [
   { key: 'email_sender_name', label: 'Sender Name', description: 'Name parents see in the "From" field, e.g. Miami Mesivta Canteen', type: 'text' },
   { key: 'email_sender_address', label: 'Sender Address', description: 'Must be a verified domain in your Resend account, e.g. canteen@miamimesivta.com. Changing this address requires the new address\'s domain to be verified in Resend or emails will fail.', type: 'text' },
@@ -252,7 +263,7 @@ function GeneralSettingsContent() {
     })
   }, [])
 
-  const ALL_CONFIG = [...SETTINGS_CONFIG, ...CASHIER_TOPUP_SETTINGS, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS, ...EMAIL_IDENTITY_SETTINGS, ...EMAIL_RECEIVED_SETTINGS, ...EMAIL_APPROVED_SETTINGS, ...EMAIL_REJECTED_SETTINGS]
+  const ALL_CONFIG = [...SETTINGS_CONFIG, ...CASHIER_TOPUP_SETTINGS, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS, ...PREORDER_SETTINGS, ...EMAIL_IDENTITY_SETTINGS, ...EMAIL_RECEIVED_SETTINGS, ...EMAIL_APPROVED_SETTINGS, ...EMAIL_REJECTED_SETTINGS]
 
   function parseSettingValue(key: string, raw: string): unknown {
     const config = ALL_CONFIG.find(s => s.key === key)
@@ -338,6 +349,16 @@ function GeneralSettingsContent() {
           <div className="space-y-3">
             {NINE_DAYS_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
             <NineDaysFlyerUpload settings={settings} set={set} />
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Preorders</h2>
+          <p className="text-xs text-gray-400 mb-3">
+            Controls the Preorders POS screen and the public /preorder link. See the Preorders hub for orders and vendor payments.
+          </p>
+          <div className="space-y-3">
+            {PREORDER_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
           </div>
         </section>
 
