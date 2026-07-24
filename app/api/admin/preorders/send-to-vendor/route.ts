@@ -32,11 +32,19 @@ export async function POST(req: NextRequest) {
 
   const admin = createAdminClient()
 
-  const { data: preorders } = await admin
+  const { data: preorders, error: preordersErr } = await admin
     .from('preorders')
     .select('id, is_staff_pricing, preorder_items(product_name, quantity, preorder_source)')
     .eq('for_date', forDate)
     .eq('status', 'pending')
+
+  // A failed query here would otherwise silently produce "(no vendor items
+  // in this batch)" and mark 0 orders sent — indistinguishable from a real
+  // empty day. Surface it instead.
+  if (preordersErr) {
+    console.error('send-to-vendor: failed to load pending preorders', preordersErr)
+    return NextResponse.json({ error: 'Failed to load orders for that date' }, { status: 500 })
+  }
 
   // Only vendor-sourced items go to the vendor; in-house items are a prep
   // list, not something to send anywhere.

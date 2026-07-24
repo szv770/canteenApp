@@ -25,7 +25,7 @@ interface SettingRow {
   key: string
   label: string
   description: string
-  type: 'toggle' | 'number' | 'select' | 'text' | 'textarea'
+  type: 'toggle' | 'number' | 'select' | 'text' | 'textarea' | 'time'
   options?: { value: string; label: string }[]
 }
 
@@ -88,7 +88,7 @@ const NINE_DAYS_SETTINGS: SettingRow[] = [
 ]
 
 const PREORDER_SETTINGS: SettingRow[] = [
-  { key: 'preorder_cutoff_time', label: 'Cutoff Time', description: 'Orders for a given day close at this time (24-hour HH:MM) the evening before, camp-local time', type: 'text' },
+  { key: 'preorder_cutoff_time', label: 'Cutoff Time', description: 'Orders for a given day close at this time the evening before, camp-local time', type: 'time' },
   { key: 'preorder_public_link_enabled', label: 'Public Ordering Link', description: 'Turn off to disable the /preorder link for everyone without removing items', type: 'toggle' },
   { key: 'preorder_vendor_name', label: 'Vendor Name', description: 'Shown on the Preorders → Vendor tab and used as "Paid To" on logged payments', type: 'text' },
   { key: 'preorder_vendor_phone', label: 'Vendor WhatsApp Number', description: 'Digits only with country code, e.g. 13055551234 — used for the "WhatsApp" button on the Preorders Orders tab', type: 'text' },
@@ -152,6 +152,13 @@ function SettingControl({ s, settings, set }: { s: SettingRow; settings: Record<
         )}
         {s.type === 'text' && (
           <input type="text" className="input-admin w-full" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} />
+        )}
+        {s.type === 'time' && (
+          // Native time input instead of freeform text — a malformed value
+          // here (e.g. "8pm" instead of "20:00") silently parses to
+          // midnight in lib/preorderCutoff.ts, which makes every date look
+          // closed. The picker makes that class of typo impossible.
+          <input type="time" className="input-admin w-full sm:w-40" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} />
         )}
         {isTextarea && (
           <textarea rows={4} className="input-admin w-full resize-none" value={settings[s.key] || ''} onChange={e => set(s.key, e.target.value)} />

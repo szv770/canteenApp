@@ -4,8 +4,7 @@ import { useState, useCallback, useRef, useEffect } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { Search, X, User, Plus, Minus, Truck, ChefHat } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
-import type { BochurWithId, Product } from '@/types/database'
-import { computePreorderUnitPrice } from '@/lib/preorderPricing'
+import type { BochurWithId } from '@/types/database'
 import { upcomingOrderableDates } from '@/lib/preorderCutoff'
 import PreorderCalendar from '@/components/PreorderCalendar'
 import toast from 'react-hot-toast'
@@ -15,6 +14,27 @@ interface Props {
   onSuccess?: () => void
 }
 
+interface ItemRow {
+  id: string
+  name: string
+  icon: string | null
+  price: number
+  staff_pricing_applied: boolean
+  preorder_source: 'vendor' | 'in_house'
+  remaining_cap: number | null
+}
+
+// Cashier-facing counterpart to app/preorder/page.tsx (the public link). Items
+// + pricing + daily-cap/"sold out" state are fetched from the exact same
+// /api/preorders/public/items endpoint the public link uses (rather than
+// re-deriving price/cap client-side from a raw, undated product list) so a
+// cashier and a self-service camper/staff member always see the same picture
+// for the same bochur+date. Likewise, an existing pending order for the
+// selected bochur+date is looked up via /api/preorders/public/my-order and
+// edited in place (preorder_id passed through to preorder-place) instead of
+// always creating a new row — without this, placing a second preorder for
+// someone who already has one pending for that date would silently create a
+// duplicate that could get double-charged at "Confirm Received" time.
 export default function PreorderModal({ onClose, onSuccess }: Props) {
   const supabase = createClient()
   const [query, setQuery] = useState('')
@@ -24,47 +44,85 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
   const [selected, setSelected] = useState<BochurWithId | null>(null)
   const debounceRef = useRef<NodeJS.Timeout>()
 
-  const [items, setItems] = useState<Product[]>([])
+  const [items, setItems] = useState<ItemRow[]>([])
   const [loadingItems, setLoadingItems] = useState(true)
   const [cutoffTime, setCutoffTime] = useState('20:00')
   const [dates, setDates] = useState<string[]>([])
   const [forDate, setForDate] = useState('')
   const [qtyMap, setQtyMap] = useState<Record<string, number>>({})
+  const [existingPreorderId, setExistingPreorderId] = useState<string | null>(null)
   const [submitting, setSubmitting] = useState(false)
 
+  // Cutoff config — loaded once, independent of which bochur/date gets picked.
   useEffect(() => {
-    Promise.all([
-      supabase.from('products').select('*').eq('allow_preorder', true).eq('is_active', true).order('name'),
-      supabase.from('settings').select('value').eq('key', 'preorder_cutoff_time').single(),
-    ]).then(([prodRes, cutoffRes]) => {
-      // Surface a failed products query instead of silently rendering an
-      // empty "no items orderable" state — see CLAUDE.md Preorders task notes.
-      if (prodRes.error) {
-        console.error('PreorderModal: failed to load preorder items', prodRes.error)
-        toast.error('Could not load preorder items — try reopening this window')
+    supabase.from('settings').select('value').eq('key', 'preorder_cutoff_time').single().then(({ data, error }) => {
+      if (error) {
+        console.error('PreorderModal: failed to load cutoff setting', error)
+        toast.error('Could not load ordering settings — try reopening this window')
       }
-      setItems(prodRes.data || [])
-      const ct = String(cutoffRes.data?.value ?? '20:00').replace(/"/g, '')
+      const ct = String(data?.value ?? '20:00').replace(/"/g, '')
       setCutoffTime(ct)
       const upcoming = upcomingOrderableDates(ct)
       setDates(upcoming)
       setForDate(upcoming[0] || '')
-      setLoadingItems(false)
+      if (upcoming.length === 0) setLoadingItems(false)
     })
   // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [])
+
+  // Items (with live price/staff-pricing/remaining-cap) + this bochur's
+  // existing pending order for the date, re-fetched any time either changes.
+  useEffect(() => {
+    if (!forDate) return
+    // Guard against the bochur/date being changed again before this request
+    // resolves — without this, a slow response for a selection the cashier
+    // has already moved past could land after (and clobber) the response
+    // for what's actually selected now.
+    let cancelled = false
+    setLoadingItems(true)
+    const bochurParam = selected ? `&bochur_id=${selected.id}` : ''
+    Promise.all([
+      fetch(`/api/preorders/public/items?for_date=${forDate}${bochurParam}`).then(r => r.json()),
+      selected
+        ? fetch(`/api/preorders/public/my-order?bochur_id=${selected.id}&for_date=${forDate}`).then(r => r.json())
+        : Promise.resolve({ order: null }),
+    ]).then(([itemsJson, myOrderJson]) => {
+      if (cancelled) return
+      if (itemsJson.error) {
+        console.error('PreorderModal: failed to load preorder items', itemsJson.error)
+        toast.error('Could not load preorder items — try reopening this window')
+      }
+      setItems(itemsJson.items || [])
+      const existing = myOrderJson?.order
+      if (existing) {
+        setExistingPreorderId(existing.id)
+        const map: Record<string, number> = {}
+        for (const it of existing.preorder_items || []) map[it.product_id] = it.quantity
+        setQtyMap(map)
+      } else {
+        setExistingPreorderId(null)
+        setQtyMap({})
+      }
+      setLoadingItems(false)
+    })
+    return () => { cancelled = true }
+  }, [selected, forDate])
 
   const search = useCallback((q: string) => {
     clearTimeout(debounceRef.current)
     if (!q.trim()) { setResults([]); setOpen(false); return }
     debounceRef.current = setTimeout(async () => {
       setSearching(true)
-      const { data } = await supabase
+      const { data, error } = await supabase
         .from('bochurim_with_id')
         .select('*, account_type:account_types(*)')
         .or(`name.ilike.%${q}%,bochur_id.ilike.%${q}%`)
         .eq('archived', false)
         .limit(6)
+      if (error) {
+        console.error('PreorderModal: bochur search failed', error)
+        toast.error('Search failed — try again')
+      }
       setResults(data || [])
       setOpen(true)
       setSearching(false)
@@ -82,21 +140,9 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
 
   const isStaff = !!selected?.account_type?.is_staff_pricing_tier
 
-  const cartLines = items
-    .filter(p => qtyMap[p.id] > 0)
-    .map(p => {
-      const { unitPrice, staffPricingApplied } = computePreorderUnitPrice(
-        { price: p.price, cost_price: p.cost_price ?? null, staff_price: p.staff_price ?? null },
-        selected?.account_type ? {
-          discount_type: selected.account_type.discount_type,
-          discount_value: selected.account_type.discount_value,
-          is_staff_pricing_tier: selected.account_type.is_staff_pricing_tier,
-        } : null
-      )
-      return { product: p, qty: qtyMap[p.id], unitPrice, staffPricingApplied }
-    })
-  const total = cartLines.reduce((sum, l) => sum + l.unitPrice * l.qty, 0)
-  const anyStaffPricing = cartLines.some(l => l.staffPricingApplied)
+  const cartLines = items.filter(i => qtyMap[i.id] > 0).map(i => ({ item: i, qty: qtyMap[i.id] }))
+  const total = cartLines.reduce((sum, l) => sum + l.item.price * l.qty, 0)
+  const anyStaffPricing = cartLines.some(l => l.item.staff_pricing_applied)
 
   async function submit() {
     if (!selected) { toast.error('Search and select a bochur'); return }
@@ -108,16 +154,31 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
         body: JSON.stringify({
           bochur_id: selected.id,
           for_date: forDate,
-          items: cartLines.map(l => ({ product_id: l.product.id, quantity: l.qty })),
+          items: cartLines.map(l => ({ product_id: l.item.id, quantity: l.qty })),
+          preorder_id: existingPreorderId,
         }),
       })
       const json = await res.json()
       if (!res.ok) { toast.error(json.error || 'Failed to place order'); return }
-      toast.success(`Preorder placed for ${selected.name} — ${formatCurrency(json.total)} due on pickup`)
+      toast.success(`${existingPreorderId ? 'Preorder updated' : 'Preorder placed'} for ${selected.name} — ${formatCurrency(json.total)} due on pickup`)
       onSuccess ? onSuccess() : onClose()
     } finally {
       setSubmitting(false)
     }
+  }
+
+  async function cancelExisting() {
+    if (!selected || !existingPreorderId) return
+    if (!confirm(`Cancel ${selected.name}'s preorder for ${forDate}?`)) return
+    const res = await fetch('/api/preorders/public/cancel', {
+      method: 'POST', headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ preorder_id: existingPreorderId, bochur_id: selected.id }),
+    })
+    const json = await res.json()
+    if (!res.ok) { toast.error(json.error || 'Failed to cancel'); return }
+    toast.success('Order cancelled')
+    setQtyMap({})
+    setExistingPreorderId(null)
   }
 
   return (
@@ -192,7 +253,10 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
 
           {/* Items */}
           <div>
-            <label className="block text-sm font-semibold text-slate-700 mb-1.5">Items</label>
+            <div className="flex items-center justify-between mb-1.5">
+              <label className="block text-sm font-semibold text-slate-700">Items</label>
+              {existingPreorderId && <span className="text-xs text-amber-700 bg-amber-50 border border-amber-100 px-2 py-0.5 rounded-full">Editing existing order</span>}
+            </div>
             {loadingItems ? (
               <p className="text-sm text-slate-400">Loading...</p>
             ) : items.length === 0 ? (
@@ -201,16 +265,24 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
               <div className="space-y-2">
                 {items.map(p => {
                   const qty = qtyMap[p.id] || 0
+                  const soldOut = p.remaining_cap != null && p.remaining_cap <= 0 && qty === 0
                   return (
-                    <div key={p.id} className="flex items-center justify-between p-2.5 border border-slate-100 rounded-xl">
-                      <div className="flex items-center gap-2 min-w-0">
-                        {p.preorder_source === 'vendor' ? <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChefHat className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
-                        <span className="text-sm text-slate-800 truncate">{p.icon} {p.name}</span>
+                    <div key={p.id} className={`flex items-center justify-between p-2.5 border rounded-xl ${soldOut ? 'border-slate-100 opacity-50' : 'border-slate-100'}`}>
+                      <div className="min-w-0">
+                        <div className="flex items-center gap-1.5">
+                          {p.preorder_source === 'vendor' ? <Truck className="w-3.5 h-3.5 text-slate-400 shrink-0" /> : <ChefHat className="w-3.5 h-3.5 text-slate-400 shrink-0" />}
+                          <span className="text-sm text-slate-800 truncate">{p.icon} {p.name}</span>
+                        </div>
+                        <div className="flex items-center gap-1.5 mt-0.5">
+                          <span className="text-xs text-slate-500">{formatCurrency(p.price)}</span>
+                          {p.staff_pricing_applied && <span className="text-xs text-purple-600">Staff discount applied</span>}
+                          {soldOut && <span className="text-xs text-red-500">Sold out for this date</span>}
+                        </div>
                       </div>
                       <div className="flex items-center gap-2 shrink-0">
-                        <button onClick={() => setQty(p.id, Math.max(0, qty - 1))} className="w-7 h-7 flex items-center justify-center bg-slate-100 rounded-lg hover:bg-slate-200"><Minus className="w-3.5 h-3.5" /></button>
+                        <button disabled={soldOut} onClick={() => setQty(p.id, Math.max(0, qty - 1))} className="w-7 h-7 flex items-center justify-center bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-40"><Minus className="w-3.5 h-3.5" /></button>
                         <span className="w-6 text-center text-sm font-semibold">{qty}</span>
-                        <button onClick={() => setQty(p.id, qty + 1)} className="w-7 h-7 flex items-center justify-center bg-slate-100 rounded-lg hover:bg-slate-200"><Plus className="w-3.5 h-3.5" /></button>
+                        <button disabled={soldOut} onClick={() => setQty(p.id, qty + 1)} className="w-7 h-7 flex items-center justify-center bg-slate-100 rounded-lg hover:bg-slate-200 disabled:opacity-40"><Plus className="w-3.5 h-3.5" /></button>
                       </div>
                     </div>
                   )
@@ -230,14 +302,19 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
           )}
         </div>
 
-        <div className="border-t border-slate-100 p-4 shrink-0">
+        <div className="border-t border-slate-100 p-4 shrink-0 space-y-2">
           <button
             onClick={submit}
             disabled={submitting || !selected || cartLines.length === 0 || !forDate}
             className="w-full py-3 bg-amber-500 hover:bg-amber-600 disabled:bg-slate-200 disabled:text-slate-400 text-white font-semibold rounded-xl transition-colors"
           >
-            {submitting ? 'Placing...' : 'Place Preorder'}
+            {submitting ? 'Placing...' : existingPreorderId ? 'Update Preorder' : 'Place Preorder'}
           </button>
+          {existingPreorderId && (
+            <button onClick={cancelExisting} className="w-full py-2 text-red-600 text-sm font-medium hover:underline">
+              Cancel this order
+            </button>
+          )}
         </div>
       </div>
     </div>

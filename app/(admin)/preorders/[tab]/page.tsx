@@ -26,23 +26,57 @@ export default function PreordersPage() {
   const tab: PreorderTab = VALID_TABS.includes(params.tab as PreorderTab) ? (params.tab as PreorderTab) : 'orders'
   return (
     <div>
-      <div className="flex gap-1 px-4 sm:px-6 pt-4 sm:pt-6 border-b border-slate-200 bg-white sticky top-0 z-10">
-        {TABS.map(t => (
-          <Link
-            key={t.key}
-            href={`/preorders/${t.key}`}
-            className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors ${
-              tab === t.key ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'
-            }`}
-          >
-            {t.label}
-          </Link>
-        ))}
+      <div className="flex items-center justify-between gap-2 px-4 sm:px-6 pt-4 sm:pt-6 border-b border-slate-200 bg-white sticky top-0 z-10">
+        <div className="flex gap-1">
+          {TABS.map(t => (
+            <Link
+              key={t.key}
+              href={`/preorders/${t.key}`}
+              className={`px-4 py-2.5 text-sm font-semibold -mb-px border-b-2 transition-colors ${
+                tab === t.key ? 'border-amber-500 text-amber-600' : 'border-transparent text-slate-500 hover:text-slate-700'
+              }`}
+            >
+              {t.label}
+            </Link>
+          ))}
+        </div>
+        <PublicLinkStatusBadge />
       </div>
       {tab === 'orders' && <OrdersTab />}
       {tab === 'vendor' && <VendorTab />}
       {tab === 'items' && <ItemsTab />}
     </div>
+  )
+}
+
+// Whether the /preorder public link is on/off is otherwise only visible by
+// going into Settings → Preorders — surfaced here too so an admin looking at
+// "why isn't anyone ordering online" doesn't have to go hunting for it (same
+// spirit as the Items tab visibility fix).
+function PublicLinkStatusBadge() {
+  const supabase = createClient()
+  const [enabled, setEnabled] = useState<boolean | null>(null)
+
+  useEffect(() => {
+    supabase.from('settings').select('value').eq('key', 'preorder_public_link_enabled').single().then(({ data }) => {
+      setEnabled(String(data?.value ?? 'true').replace(/"/g, '') !== 'false')
+    })
+  }, [])
+
+  if (enabled === null) return null
+
+  return (
+    <Link
+      href="/settings/general"
+      title="Change in Settings → Preorders"
+      className={`shrink-0 mb-2 text-xs font-semibold px-2.5 py-1 rounded-full border transition-colors ${
+        enabled
+          ? 'bg-emerald-50 text-emerald-700 border-emerald-100 hover:bg-emerald-100'
+          : 'bg-red-50 text-red-700 border-red-100 hover:bg-red-100'
+      }`}
+    >
+      Public link: {enabled ? 'On' : 'Off'}
+    </Link>
   )
 }
 
@@ -437,6 +471,7 @@ function VendorTab() {
       supabase.from('withdrawal_log').select('*').eq('reason', 'vendor_payment').order('date', { ascending: false }),
     ])
     setLedger(summary)
+    if (summary.error) toast.error(summary.error)
     setVendorName(String(nameSetting?.value ?? '').replace(/"/g, ''))
     setPayments(paymentRows || [])
     setLoading(false)
