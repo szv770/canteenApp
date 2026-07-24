@@ -2,7 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
-import { LogOut, Settings, ShoppingCart, Wallet, Trash2, BarChart2, Bell, X } from 'lucide-react'
+import { LogOut, Settings, ShoppingCart, Wallet, Trash2, BarChart2, Bell, X, Truck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
 import BochurSearch from '@/components/pos/BochurSearch'
@@ -15,6 +15,7 @@ import AddonModal from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
 import TopUpModal from '@/components/pos/TopUpModal'
 import WastageModal from '@/components/pos/WastageModal'
+import PreorderModal from '@/components/pos/PreorderModal'
 import SederReminderBanner from '@/components/pos/SederReminderBanner'
 import SederNowOverlay from '@/components/pos/SederNowOverlay'
 import type { Category, Product, CartItem, BochurWithId, ProductVariant, ProductAddon, ProductBundleWithItems } from '@/types/database'
@@ -143,6 +144,7 @@ export default function PosPage() {
   const [mobileCartOpen, setMobileCartOpen] = useState(false)
   const [showTopUp, setShowTopUp] = useState(false)
   const [showWastage, setShowWastage] = useState(false)
+  const [showPreorder, setShowPreorder] = useState(false)
   const [notifHistory, setNotifHistory] = useState<NotifItem[]>([])
   const [dismissedIds, setDismissedIds] = useState<Set<string>>(() => {
     try {
@@ -363,7 +365,9 @@ export default function PosPage() {
     ])
     if (sedorim.data) setSederSchedules(sedorim.data as SederSchedule[])
     if (cats.data) setCategories(cats.data)
-    if (prods.data) setProducts(prods.data)
+    // Preorder items (allow_preorder=true) are ordered from the dedicated
+    // Preorders screen, not bought instantly off the regular grid.
+    if (prods.data) setProducts(prods.data.filter((p: any) => !p.allow_preorder))
     if (setts.data) {
       const map: Record<string, string> = {}
       setts.data.forEach((s: any) => { map[s.key] = String(s.value) })
@@ -679,6 +683,14 @@ export default function PosPage() {
             <span className="hidden sm:inline">Wastage</span>
           </button>
           <button
+            onClick={() => setShowPreorder(true)}
+            className="flex items-center gap-1.5 px-2.5 sm:px-3 py-2 min-h-[44px] rounded-xl text-sm font-medium text-slate-600 bg-slate-100 hover:bg-slate-200 transition-all"
+            title="Place a preorder"
+          >
+            <Truck className="w-4 h-4" />
+            <span className="hidden sm:inline">Preorder</span>
+          </button>
+          <button
             onClick={() => router.push('/cashier-dashboard')}
             className="p-2 min-w-[44px] min-h-[44px] flex items-center justify-center rounded-xl text-slate-400 hover:bg-slate-100 hover:text-slate-700 transition-all"
             title="My activity"
@@ -915,6 +927,13 @@ export default function PosPage() {
         <WastageModal
           onClose={() => setShowWastage(false)}
           onSuccess={() => { setShowWastage(false); loadData() }}
+        />
+      )}
+
+      {showPreorder && (
+        <PreorderModal
+          onClose={() => setShowPreorder(false)}
+          onSuccess={() => setShowPreorder(false)}
         />
       )}
 

@@ -11,6 +11,9 @@ export interface AccountType {
   color: string | null
   is_system: boolean
   is_active: boolean
+  // Marks this account type as "staff" for Preorder pricing purposes — lets a
+  // product's staff_price override apply instead of the normal discount rule.
+  is_staff_pricing_tier: boolean
   created_at: string
 }
 
@@ -42,6 +45,12 @@ export interface Product {
   sale_active?: boolean
   sale_label?: string | null
   sale_ends_at?: string | null
+  // Preorders feature — see CLAUDE.md. `allow_preorder` is the single
+  // "orderable right now" toggle; a regular POS product simply never sets it.
+  allow_preorder?: boolean
+  preorder_source?: 'vendor' | 'in_house' | null
+  staff_price?: number | null
+  preorder_daily_cap?: number | null
 }
 
 export interface DiscountCode {
@@ -225,4 +234,39 @@ export interface SederScheduleRow {
   skip_dates: string[]
   is_active: boolean
   created_at: string
+}
+
+export interface Preorder {
+  id: string
+  bochur_id: string
+  for_date: string
+  status: 'pending' | 'received' | 'cancelled'
+  placed_via: 'pos' | 'public_link'
+  cashier_id: string | null
+  is_staff_pricing: boolean
+  total_amount: number
+  sent_to_vendor: boolean
+  sent_to_vendor_at: string | null
+  confirmed_at: string | null
+  confirmed_by: string | null
+  cancelled_at: string | null
+  cancel_reason: string | null
+  created_at: string
+  updated_at: string
+}
+
+export interface PreorderItem {
+  id: string
+  preorder_id: string
+  product_id: string | null
+  product_name: string
+  quantity: number
+  unit_price: number
+  cost_price: number | null
+  preorder_source: 'vendor' | 'in_house'
+}
+
+export interface PreorderWithItems extends Preorder {
+  preorder_items: PreorderItem[]
+  bochur_name?: string
 }
