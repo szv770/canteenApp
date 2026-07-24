@@ -7,6 +7,7 @@ import { formatCurrency } from '@/lib/utils'
 import type { BochurWithId, Product } from '@/types/database'
 import { computePreorderUnitPrice } from '@/lib/preorderPricing'
 import { upcomingOrderableDates } from '@/lib/preorderCutoff'
+import PreorderCalendar from '@/components/PreorderCalendar'
 import toast from 'react-hot-toast'
 
 interface Props {
@@ -36,6 +37,12 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
       supabase.from('products').select('*').eq('allow_preorder', true).eq('is_active', true).order('name'),
       supabase.from('settings').select('value').eq('key', 'preorder_cutoff_time').single(),
     ]).then(([prodRes, cutoffRes]) => {
+      // Surface a failed products query instead of silently rendering an
+      // empty "no items orderable" state — see CLAUDE.md Preorders task notes.
+      if (prodRes.error) {
+        console.error('PreorderModal: failed to load preorder items', prodRes.error)
+        toast.error('Could not load preorder items — try reopening this window')
+      }
       setItems(prodRes.data || [])
       const ct = String(cutoffRes.data?.value ?? '20:00').replace(/"/g, '')
       setCutoffTime(ct)
@@ -176,9 +183,10 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
           {/* Date */}
           <div>
             <label className="block text-sm font-semibold text-slate-700 mb-1.5">For which day</label>
-            <select value={forDate} onChange={e => setForDate(e.target.value)} className="w-full px-3 py-2.5 border border-slate-200 rounded-xl text-sm">
-              {dates.map(d => <option key={d} value={d}>{d}</option>)}
-            </select>
+            <div className="border border-slate-200 rounded-xl p-3">
+              <PreorderCalendar cutoffTime={cutoffTime} selected={forDate} onSelect={setForDate} accent="amber" />
+            </div>
+            {forDate && <p className="text-xs text-slate-400 mt-1.5">Ordering for {forDate}</p>}
             {dates.length === 0 && <p className="text-xs text-red-500 mt-1">No dates currently open — cutoff is {cutoffTime} the evening before.</p>}
           </div>
 
