@@ -3,6 +3,7 @@
 import { useEffect, useState, useCallback, useRef } from 'react'
 import { Search, User, Plus, Minus, Check, X, Truck, ChefHat } from 'lucide-react'
 import toast from 'react-hot-toast'
+import PreorderCalendar from '@/components/PreorderCalendar'
 
 interface SearchResult { id: string; name: string; is_staff: boolean }
 interface ItemRow { id: string; name: string; icon: string | null; image_url: string | null; price: number; staff_pricing_applied: boolean; preorder_source: 'vendor' | 'in_house'; remaining_cap: number | null }
@@ -17,6 +18,7 @@ export default function PreorderPage() {
   const [loadingConfig, setLoadingConfig] = useState(true)
   const [enabled, setEnabled] = useState(true)
   const [dates, setDates] = useState<string[]>([])
+  const [cutoffTime, setCutoffTime] = useState('20:00')
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -36,6 +38,7 @@ export default function PreorderPage() {
     fetch('/api/preorders/public/config').then(r => r.json()).then(json => {
       setEnabled(json.enabled)
       setDates(json.dates || [])
+      setCutoffTime(json.cutoff_time || '20:00')
       setForDate(json.dates?.[0] || '')
       setLoadingConfig(false)
     })
@@ -61,6 +64,10 @@ export default function PreorderPage() {
       fetch(`/api/preorders/public/items?bochur_id=${selected.id}&for_date=${forDate}`).then(r => r.json()),
       fetch(`/api/preorders/public/my-order?bochur_id=${selected.id}&for_date=${forDate}`).then(r => r.json()),
     ]).then(([itemsJson, myOrderJson]) => {
+      if (itemsJson.error) {
+        console.error('Failed to load preorder items:', itemsJson.error)
+        toast.error('Could not load items — please refresh and try again')
+      }
       setItems(itemsJson.items || [])
       const existing = myOrderJson.order
       if (existing) {
@@ -187,12 +194,9 @@ export default function PreorderPage() {
         {selected && (
           <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-2">
             <label className="text-sm font-semibold text-stone-700">For which day</label>
-            {dates.length === 0 ? (
+            <PreorderCalendar cutoffTime={cutoffTime} selected={forDate} onSelect={setForDate} accent="teal" />
+            {dates.length === 0 && (
               <p className="text-sm text-red-500">Ordering is closed for all upcoming dates right now.</p>
-            ) : (
-              <select value={forDate} onChange={e => setForDate(e.target.value)} className={INPUT_CLS}>
-                {dates.map(d => <option key={d} value={d}>{d}</option>)}
-              </select>
             )}
           </div>
         )}

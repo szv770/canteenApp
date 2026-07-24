@@ -30,12 +30,21 @@ export async function GET(req: NextRequest) {
     }
   }
 
-  const { data: products } = await admin
+  const { data: products, error: productsError } = await admin
     .from('products')
     .select('id, name, icon, image_url, price, cost_price, staff_price, preorder_source, preorder_daily_cap')
     .eq('allow_preorder', true)
     .eq('is_active', true)
     .order('name')
+
+  // Surface a failed query as a real error instead of silently returning
+  // `{ items: [] }` — a swallowed error here reads identically to "nothing is
+  // orderable right now" client-side, which is exactly the confusing "my
+  // preorder item isn't showing up" symptom. See CLAUDE.md Preorders task notes.
+  if (productsError) {
+    console.error('preorders/public/items: failed to load products', productsError)
+    return NextResponse.json({ error: 'Failed to load items' }, { status: 500 })
+  }
 
   const productIds = (products || []).map((p: any) => p.id)
   const capMap = new Map<string, number>()

@@ -7,17 +7,18 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import {
   Search, Check, X, Send, Copy, MessageCircle, Truck, ChefHat,
-  Clock, DollarSign,
+  Clock, DollarSign, ExternalLink,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { computeVendorLedger, type VendorLedgerSummary } from '@/lib/preorderVendorLedger'
 import { localDateStrInTz } from '@/lib/preorderCutoff'
 
-type PreorderTab = 'orders' | 'vendor'
-const VALID_TABS: PreorderTab[] = ['orders', 'vendor']
+type PreorderTab = 'orders' | 'vendor' | 'items'
+const VALID_TABS: PreorderTab[] = ['orders', 'vendor', 'items']
 const TABS: { key: PreorderTab; label: string }[] = [
   { key: 'orders', label: 'Orders' },
   { key: 'vendor', label: 'Vendor' },
+  { key: 'items', label: 'Items' },
 ]
 
 export default function PreordersPage() {
@@ -40,6 +41,109 @@ export default function PreordersPage() {
       </div>
       {tab === 'orders' && <OrdersTab />}
       {tab === 'vendor' && <VendorTab />}
+      {tab === 'items' && <ItemsTab />}
+    </div>
+  )
+}
+
+// ─── Items tab ────────────────────────────────────────────────────────────
+// Read-only "is my new item actually live" checklist — every product flagged
+// allow_preorder=true, regardless of active state. Answers the question
+// without requiring a logged-in cashier session (POS Preorder modal) or
+// first picking a name + date (public link). See CLAUDE.md Preorders task
+// notes — this is a visibility fix, not a data/logic fix.
+
+interface PreorderProductRow {
+  id: string
+  name: string
+  icon: string | null
+  price: number
+  staff_price: number | null
+  preorder_source: 'vendor' | 'in_house'
+  preorder_daily_cap: number | null
+  is_active: boolean
+}
+
+function ItemsTab() {
+  const supabase = createClient()
+  const [rows, setRows] = useState<PreorderProductRow[]>([])
+  const [loading, setLoading] = useState(true)
+
+  useEffect(() => { loadData() }, [])
+
+  async function loadData() {
+    setLoading(true)
+    const { data, error } = await supabase
+      .from('products')
+      .select('id, name, icon, price, staff_price, preorder_source, preorder_daily_cap, is_active')
+      .eq('allow_preorder', true)
+      .order('name')
+    if (error) toast.error(error.message)
+    setRows((data || []) as PreorderProductRow[])
+    setLoading(false)
+  }
+
+  return (
+    <div className="p-4 sm:p-6 max-w-4xl mx-auto space-y-5">
+      <div className="flex flex-wrap items-center justify-between gap-3">
+        <div>
+          <h1 className="text-2xl font-bold text-slate-900 tracking-tight">Preorder Items</h1>
+          <p className="text-slate-500 text-sm mt-1">
+            Every product currently flagged "Orderable via Preorders" — confirms what's actually live on the POS Preorder screen and the public link.
+          </p>
+        </div>
+        <Link href="/products/products" className="btn-secondary text-sm">
+          <ExternalLink className="w-4 h-4" /> Manage in Products
+        </Link>
+      </div>
+
+      <div className="admin-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Item</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Source</th>
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Price</th>
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Staff Price</th>
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Daily Cap</th>
+                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400 text-sm">Loading...</td></tr>
+              ) : rows.length === 0 ? (
+                <tr><td colSpan={6} className="px-4 py-10 text-center text-slate-400 text-sm">
+                  No products are flagged "Orderable via Preorders" yet — enable it on a product's edit screen in Products.
+                </td></tr>
+              ) : rows.map(p => (
+                <tr key={p.id} className="table-row">
+                  <td className="px-4 py-3">
+                    <span className="text-sm font-semibold text-slate-900">{p.icon} {p.name}</span>
+                  </td>
+                  <td className="px-4 py-3 text-sm text-slate-600">
+                    <span className="flex items-center gap-1.5">
+                      {p.preorder_source === 'vendor' ? <Truck className="w-3.5 h-3.5 text-slate-400" /> : <ChefHat className="w-3.5 h-3.5 text-slate-400" />}
+                      {p.preorder_source === 'vendor' ? 'Vendor' : 'In-house'}
+                    </span>
+                  </td>
+                  <td className="px-4 py-3 text-sm font-semibold text-slate-900 text-right">{formatCurrency(p.price)}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600 text-right">{p.staff_price != null ? formatCurrency(p.staff_price) : '—'}</td>
+                  <td className="px-4 py-3 text-sm text-slate-600 text-right">{p.preorder_daily_cap != null ? p.preorder_daily_cap : 'Unlimited'}</td>
+                  <td className="px-4 py-3 text-center">
+                    {p.is_active ? (
+                      <span className="badge bg-emerald-50 text-emerald-700 border border-emerald-100">Active</span>
+                    ) : (
+                      <span className="badge bg-slate-100 text-slate-500 border border-slate-200">Inactive</span>
+                    )}
+                  </td>
+                </tr>
+              ))}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   )
 }
