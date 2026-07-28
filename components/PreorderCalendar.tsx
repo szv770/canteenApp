@@ -40,6 +40,9 @@ interface PreorderCalendarProps {
   onSelect: (date: string) => void
   accent?: keyof typeof ACCENT
   monthsAhead?: number // how many months forward the user may navigate
+  // Governs today's own deadline only (Settings → Preorders). Left undefined,
+  // isBeforeCutoff falls back to `cutoffTime` for today too.
+  sameDayCutoffTime?: string
 }
 
 export default function PreorderCalendar({
@@ -48,6 +51,7 @@ export default function PreorderCalendar({
   onSelect,
   accent = 'amber',
   monthsAhead = 3,
+  sameDayCutoffTime,
 }: PreorderCalendarProps) {
   const now = new Date()
   const todayStr = localDateStrInTz(now)
@@ -118,7 +122,7 @@ export default function PreorderCalendar({
       <div className="grid grid-cols-7 gap-1">
         {cells.map((dateStr, i) => {
           if (!dateStr) return <div key={`blank-${i}`} />
-          const openable = isBeforeCutoff(dateStr, cutoffTime, now)
+          const openable = isBeforeCutoff(dateStr, cutoffTime, now, undefined, sameDayCutoffTime)
           const isToday = dateStr === todayStr
           const isSelected = dateStr === selected
           const dayNum = Number(dateStr.split('-')[2])

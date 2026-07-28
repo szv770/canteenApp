@@ -1,17 +1,18 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import Link from 'next/link'
 import { useParams } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import {
   Search, Check, X, Send, Copy, MessageCircle, Truck, ChefHat,
-  Clock, DollarSign, ExternalLink,
+  Clock, DollarSign, ExternalLink, Pin, RefreshCw,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import { computeVendorLedger, type VendorLedgerSummary } from '@/lib/preorderVendorLedger'
 import { localDateStrInTz } from '@/lib/preorderCutoff'
+import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
 
 type PreorderTab = 'orders' | 'vendor' | 'items'
 const VALID_TABS: PreorderTab[] = ['orders', 'vendor', 'items']
@@ -191,8 +192,22 @@ interface PreorderRow {
   is_staff_pricing: boolean
   total_amount: number
   bochur_name: string
-  items: { product_name: string; quantity: number; unit_price: number; preorder_source: 'vendor' | 'in_house' }[]
+  /** Real cart lines only — bundle-component rollup rows filtered out. */
+  items: PreorderItemRow[]
+  /** Every row that actually needs sourcing/preparing (see the tally below). */
+  sourcedItems: PreorderItemRow[]
 }
+
+interface PreorderItemRow {
+  product_name: string
+  quantity: number
+  unit_price: number
+  preorder_source: 'vendor' | 'in_house' | null
+  is_bundle_component: boolean
+  addon_names: string[] | null
+}
+
+const REALTIME_TOAST_ID = 'preorders-orders-updated'
 
 function OrdersTab() {
   const supabase = createClient()
@@ -204,6 +219,9 @@ function OrdersTab() {
   const [vendorSummary, setVendorSummary] = useState<string | null>(null)
   const [vendorPhone, setVendorPhone] = useState('')
   const [confirmingId, setConfirmingId] = useState<string | null>(null)
+  // Changes this tab made itself always trigger their own reload — don't also
+  // prompt the admin to refresh for the echo of their own click.
+  const suppressToastUntilRef = useRef(0)
 
   useEffect(() => { loadData() }, [date])
 
@@ -212,12 +230,39 @@ function OrdersTab() {
       .then(({ data }) => setVendorPhone(String(data?.value ?? '').replace(/"/g, '')))
   }, [])
 
+  // Live-refresh prompt (never a silent refetch — an admin mid-click on
+  // Confirm/Cancel shouldn't have rows reorder underneath them).
+  function promptRefresh() {
+    if (Date.now() < suppressToastUntilRef.current) return
+    toast.custom(t => (
+      <div className="flex items-center gap-3 bg-slate-800 text-white text-sm rounded-xl shadow-lg px-4 py-3">
+        <span>Orders updated</span>
+        <button
+          onClick={() => { toast.dismiss(t.id); loadData() }}
+          className="flex items-center gap-1.5 px-2.5 py-1 bg-white/10 hover:bg-white/20 rounded-lg font-semibold transition-colors"
+        >
+          <RefreshCw className="w-3.5 h-3.5" /> Refresh
+        </button>
+        <button onClick={() => toast.dismiss(t.id)} className="text-white/60 hover:text-white">
+          <X className="w-4 h-4" />
+        </button>
+      </div>
+    ), { id: REALTIME_TOAST_ID, duration: Infinity })
+  }
+
+  useRealtimeRefresh({ table: 'preorders', filter: `for_date=eq.${date}`, onChange: promptRefresh })
+  // preorder_items has no for_date of its own, so this one is table-level —
+  // slightly less targeted, but a prompt (not a refetch) makes that harmless.
+  useRealtimeRefresh({ table: 'preorder_items', onChange: promptRefresh })
+
   async function loadData() {
     setLoading(true)
     setVendorSummary(null)
+    suppressToastUntilRef.current = Date.now() + 2500
+    toast.dismiss(REALTIME_TOAST_ID)
     const { data, error } = await supabase
       .from('preorders')
-      .select('id, status, placed_via, is_staff_pricing, total_amount, bochurim!bochur_id(name), preorder_items(product_name, quantity, unit_price, preorder_source)')
+      .select('id, status, placed_via, is_staff_pricing, total_amount, bochurim!bochur_id(name), preorder_items(product_name, quantity, unit_price, preorder_source, is_bundle_component, addon_names)')
       .eq('for_date', date)
       .order('created_at')
     if (error) toast.error(error.message)
@@ -228,7 +273,16 @@ function OrdersTab() {
       is_staff_pricing: r.is_staff_pricing,
       total_amount: Number(r.total_amount),
       bochur_name: r.bochurim?.name || 'Unknown',
-      items: r.preorder_items || [],
+      // Bundle-component rows are $0 rollup rows for COGS/vendor attribution,
+      // not real line items — they'd otherwise show as phantom extra items in
+      // the per-person list (same rule as order_items, see CLAUDE.md gotcha #22).
+      items: (r.preorder_items || []).filter((i: any) => !i.is_bundle_component),
+      // The tally answers "what do I have to buy/make", so it works off the
+      // opposite cut: every row carrying a real source — direct products AND
+      // bundle *components* (what actually gets sourced), never the bundle
+      // parent row, which is revenue-only and has no source of its own. This
+      // matches what /api/admin/preorders/send-to-vendor sends the vendor.
+      sourcedItems: (r.preorder_items || []).filter((i: any) => i.preorder_source),
     })))
     setLoading(false)
   }
@@ -239,7 +293,8 @@ function OrdersTab() {
   // Aggregate by product, split vendor/in-house and camper/staff counts.
   const tally = new Map<string, { source: 'vendor' | 'in_house'; camper: number; staff: number }>()
   for (const r of active) {
-    for (const item of r.items) {
+    for (const item of r.sourcedItems) {
+      if (!item.preorder_source) continue
       const entry = tally.get(item.product_name) || { source: item.preorder_source, camper: 0, staff: 0 }
       if (r.is_staff_pricing) entry.staff += item.quantity
       else entry.camper += item.quantity
@@ -369,6 +424,8 @@ function OrdersTab() {
         </div>
       </div>
 
+      <DateNoteEditor date={date} />
+
       {/* Per-person list */}
       <div className="relative">
         <Search className="absolute left-3 top-1/2 -translate-y-1/2 w-4 h-4 text-slate-400" />
@@ -399,7 +456,9 @@ function OrdersTab() {
                     {r.is_staff_pricing && <span className="ml-1.5 badge bg-purple-50 text-purple-700 border border-purple-100 text-xs">Staff</span>}
                   </td>
                   <td className="px-4 py-3 text-sm text-slate-600">
-                    {r.items.map(i => `${i.product_name} ×${i.quantity}`).join(', ')}
+                    {r.items.map(i =>
+                      `${i.product_name}${i.addon_names && i.addon_names.length > 0 ? ` (+${i.addon_names.join(', ')})` : ''} ×${i.quantity}`
+                    ).join(', ')}
                   </td>
                   <td className="px-4 py-3 text-sm font-semibold text-slate-900 text-right">{formatCurrency(r.total_amount)}</td>
                   <td className="px-4 py-3 text-center">
@@ -435,6 +494,106 @@ function OrdersTab() {
           </table>
         </div>
       </div>
+    </div>
+  )
+}
+
+// ─── Pinned per-date message ──────────────────────────────────────────────
+// One optional note per for_date, shown to everyone ordering for that date on
+// both the POS Preorder screen and the public link ("ready at 12:30pm", "no
+// meat today"). "No note" is the row being absent, not an empty string — so
+// clearing the box deletes the row rather than saving "".
+
+function DateNoteEditor({ date }: { date: string }) {
+  const supabase = createClient()
+  const [message, setMessage] = useState('')
+  const [savedMessage, setSavedMessage] = useState('')
+  const [loading, setLoading] = useState(true)
+  const [saving, setSaving] = useState(false)
+
+  useEffect(() => {
+    let cancelled = false
+    setLoading(true)
+    supabase.from('preorder_date_notes').select('message').eq('for_date', date).maybeSingle()
+      .then(({ data, error }) => {
+        if (cancelled) return
+        if (error) {
+          console.error('Preorders: failed to load date note', error)
+          toast.error('Could not load this date\'s pinned message')
+        }
+        setMessage(data?.message ?? '')
+        setSavedMessage(data?.message ?? '')
+        setLoading(false)
+      })
+    return () => { cancelled = true }
+  // supabase client is stable across renders
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [date])
+
+  async function save() {
+    const text = message.trim()
+    setSaving(true)
+    if (!text) {
+      const { error } = await supabase.from('preorder_date_notes').delete().eq('for_date', date)
+      setSaving(false)
+      if (error) { toast.error(error.message); return }
+      setMessage('')
+      setSavedMessage('')
+      toast.success('Pinned message cleared')
+      return
+    }
+    const { data: { user } } = await supabase.auth.getUser()
+    const { error } = await supabase.from('preorder_date_notes').upsert({
+      for_date: date,
+      message: text,
+      updated_by: user?.id ?? null,
+      updated_at: new Date().toISOString(),
+    }, { onConflict: 'for_date' })
+    setSaving(false)
+    if (error) { toast.error(error.message); return }
+    setMessage(text)
+    setSavedMessage(text)
+    toast.success('Pinned message saved')
+  }
+
+  const dirty = message.trim() !== savedMessage
+
+  return (
+    <div className="admin-card p-4 space-y-2">
+      <p className="text-sm font-semibold text-slate-700 flex items-center gap-1.5">
+        <Pin className="w-4 h-4 text-slate-400" /> Pinned message for {date}
+      </p>
+      <p className="text-xs text-slate-400 -mt-1">
+        Shown to anyone ordering for this date, on the POS Preorder screen and the public link. Leave blank for none.
+      </p>
+      <textarea
+        value={message}
+        onChange={e => setMessage(e.target.value)}
+        disabled={loading}
+        rows={2}
+        placeholder="e.g. Pizza will be ready at 12:30pm by the office"
+        className="input-admin resize-y"
+      />
+      <div className="flex items-center gap-2">
+        <button onClick={save} disabled={saving || loading || !dirty} className="btn-primary text-sm">
+          {saving ? 'Saving...' : 'Save Message'}
+        </button>
+        {savedMessage && (
+          <button
+            onClick={() => { setMessage(''); }}
+            disabled={saving || loading}
+            className="btn-secondary text-sm"
+          >
+            Clear
+          </button>
+        )}
+      </div>
+      {savedMessage && !dirty && (
+        <p className="text-xs text-emerald-600">Currently pinned for this date.</p>
+      )}
+      {!message.trim() && savedMessage && (
+        <p className="text-xs text-amber-600">Tap Save Message to remove the pinned message.</p>
+      )}
     </div>
   )
 }

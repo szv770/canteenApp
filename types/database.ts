@@ -209,6 +209,9 @@ export interface ProductBundle {
   icon: string | null
   is_active: boolean
   sort_order: number
+  // Preorders feature — mirrors products.allow_preorder: when true this deal
+  // is orderable from the Preorders POS screen / public link.
+  allow_preorder?: boolean
 }
 
 export interface BundleItem {

@@ -12,7 +12,7 @@ import ProductGrid from '@/components/pos/ProductGrid'
 import BundleGrid from '@/components/pos/BundleGrid'
 import CartPanel from '@/components/pos/Cart'
 import CheckoutModal from '@/components/pos/CheckoutModal'
-import AddonModal from '@/components/pos/AddonModal'
+import AddonModal, { type AddonChoice } from '@/components/pos/AddonModal'
 import VariantModal from '@/components/pos/VariantModal'
 import TopUpModal from '@/components/pos/TopUpModal'
 import WastageModal from '@/components/pos/WastageModal'
@@ -541,7 +541,7 @@ export default function PosPage() {
     window.location.href = '/login'
   }
 
-  function addToCart(product: Product, variant?: ProductVariant, addons?: ProductAddon[]) {
+  function addToCart(product: Product, variant?: ProductVariant, addons?: AddonChoice[]) {
     const basePrice = variant ? variant.price : product.price
     const price = !variant && product.sale_active && product.sale_price != null
       ? product.sale_price

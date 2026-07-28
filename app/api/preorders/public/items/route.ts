@@ -82,6 +82,57 @@ export async function GET(req: NextRequest) {
     }
   }
 
+  // Categories, scoped to just the orderable items (so the picker's category
+  // row only ever offers categories that actually have something in them).
+  // Entirely non-fatal: a failure here costs the filter row, never the menu.
+  const categoryIdsByProduct = new Map<string, string[]>()
+  let categories: any[] = []
+  if (productIds.length > 0) {
+    const { data: links, error: linksError } = await admin
+      .from('product_categories')
+      .select('product_id, category_id')
+      .in('product_id', productIds)
+    if (linksError) console.error('preorders/public/items: failed to load category links', linksError)
+    const usedCategoryIds = new Set<string>()
+    for (const l of (links || []) as any[]) {
+      const list = categoryIdsByProduct.get(l.product_id) || []
+      list.push(l.category_id)
+      categoryIdsByProduct.set(l.product_id, list)
+      usedCategoryIds.add(l.category_id)
+    }
+    if (usedCategoryIds.size > 0) {
+      const { data: cats, error: catsError } = await admin
+        .from('categories')
+        .select('id, name, color, parent_id, sort_order, is_active')
+        .eq('is_active', true)
+        .order('sort_order')
+      if (catsError) console.error('preorders/public/items: failed to load categories', catsError)
+      // Keep the categories in use plus their parents, so a subcategory still
+      // renders under the right top-level tab.
+      const all = (cats || []) as any[]
+      const keep = new Set(Array.from(usedCategoryIds))
+      for (const c of all) {
+        if (keep.has(c.id) && c.parent_id) keep.add(c.parent_id)
+      }
+      categories = all.filter(c => keep.has(c.id))
+    }
+  }
+
+  // Combo deals flagged orderable via Preorders. Deliberately selects only
+  // name/icon off each component product — no cost_price/staff_price is ever
+  // exposed publicly (bundles have no staff-pricing concept at all; they always
+  // sell at their flat listed price, same as regular POS checkout).
+  const { data: bundleRows, error: bundlesError } = await admin
+    .from('product_bundles')
+    .select('id, name, description, price, original_price, icon, is_active, sort_order, allow_preorder, bundle_items(id, bundle_id, product_id, quantity, products(name, icon))')
+    .eq('allow_preorder', true)
+    .eq('is_active', true)
+    .order('sort_order')
+  if (bundlesError) {
+    console.error('preorders/public/items: failed to load bundles', bundlesError)
+    return NextResponse.json({ error: 'Failed to load items' }, { status: 500 })
+  }
+
   // Optional pinned message for this specific date ("no meat today", etc.).
   // Non-fatal: a missing note must never block ordering.
   const { data: dateNote, error: dateNoteError } = await admin
@@ -107,8 +158,14 @@ export async function GET(req: NextRequest) {
       preorder_source: p.preorder_source,
       remaining_cap: remaining,
       addons: addonsByProduct.get(p.id) || [],
+      category_ids: categoryIdsByProduct.get(p.id) || [],
     }
   })
 
-  return NextResponse.json({ items, date_note: dateNote?.message ?? null })
+  return NextResponse.json({
+    items,
+    bundles: bundleRows || [],
+    categories,
+    date_note: dateNote?.message ?? null,
+  })
 }

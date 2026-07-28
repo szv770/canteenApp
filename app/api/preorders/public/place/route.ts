@@ -21,9 +21,17 @@ export async function POST(req: NextRequest) {
   const rawItems = Array.isArray(body.items) ? body.items : []
   const existingPreorderId = typeof body.preorder_id === 'string' ? body.preorder_id : null
 
+  // A cart line is either a product (optionally with add-ons) or a bundle.
+  // Forwarded through as-is — placePreorder is the single place that decides
+  // what's actually orderable and what it costs; the client never dictates price.
   const items = rawItems
-    .filter((i: any) => i && typeof i.product_id === 'string')
-    .map((i: any) => ({ product_id: i.product_id, quantity: Number(i.quantity) }))
+    .filter((i: any) => i && (typeof i.product_id === 'string' || typeof i.bundle_id === 'string'))
+    .map((i: any) => ({
+      product_id: typeof i.product_id === 'string' ? i.product_id : null,
+      bundle_id: typeof i.bundle_id === 'string' ? i.bundle_id : null,
+      quantity: Number(i.quantity),
+      addon_ids: Array.isArray(i.addon_ids) ? i.addon_ids.filter((a: any) => typeof a === 'string') : undefined,
+    }))
 
   const result = await placePreorder(admin, {
     bochurId, forDate, items,

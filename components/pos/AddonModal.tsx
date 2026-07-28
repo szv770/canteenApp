@@ -6,16 +6,29 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import type { Product, ProductAddon } from '@/types/database'
 
+// Everything this picker actually needs off an add-on. Kept narrower than the
+// full `ProductAddon` row so the Preorders surfaces can pass the trimmed
+// `{id, name, price_addition}` shape their items endpoint returns; a real
+// `ProductAddon[]` (what the POS preloads) is assignable to this as-is.
+export interface AddonChoice {
+  id: string
+  name: string
+  price_addition: number
+}
+
+// Only the id/name/icon are ever read off `product`, so the type is deliberately
+// narrow — that lets the Preorders surfaces (POS modal + public /preorder link)
+// reuse this picker with their own `ItemRow`-shaped objects instead of forking it.
 interface Props {
-  product: Product
-  preloadedAddons?: ProductAddon[]
-  onConfirm: (selectedAddons: ProductAddon[]) => void
+  product: Pick<Product, 'id' | 'name' | 'icon'>
+  preloadedAddons?: AddonChoice[]
+  onConfirm: (selectedAddons: AddonChoice[]) => void
   onSkip: () => void
   onClose: () => void
 }
 
 export default function AddonModal({ product, preloadedAddons, onConfirm, onSkip, onClose }: Props) {
-  const [addons, setAddons] = useState<ProductAddon[]>(preloadedAddons ?? [])
+  const [addons, setAddons] = useState<AddonChoice[]>(preloadedAddons ?? [])
   const [selected, setSelected] = useState<Set<string>>(new Set())
   const [loading, setLoading] = useState(!preloadedAddons)
   const supabase = createClient()

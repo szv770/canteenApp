@@ -141,6 +141,11 @@ export default function BundlesPage() {
                           : <ToggleLeft className="w-6 h-6 text-slate-300" />
                         }
                       </button>
+                      {b.allow_preorder && (
+                        <p className="mt-0.5">
+                          <span className="badge bg-amber-50 text-amber-700 border border-amber-100 text-[10px]">Preorder</span>
+                        </p>
+                      )}
                     </td>
                     <td className="px-5 py-3 text-right">
                       <div className="flex items-center justify-end gap-1">
@@ -195,6 +200,7 @@ function BundleModal({ bundle, onClose, onSaved }: {
     icon: bundle?.icon || '',
     is_active: bundle?.is_active ?? true,
     sort_order: bundle?.sort_order ?? 0,
+    allow_preorder: bundle?.allow_preorder ?? false,
   })
   const [bundleItems, setBundleItems] = useState<BundleItemDraft[]>(
     bundle?.bundle_items.map(bi => ({
@@ -256,6 +262,7 @@ function BundleModal({ bundle, onClose, onSaved }: {
       icon: form.icon || null,
       is_active: form.is_active,
       sort_order: form.sort_order,
+      allow_preorder: form.allow_preorder,
     }
 
     let bundleId: string
@@ -383,6 +390,27 @@ function BundleModal({ bundle, onClose, onSaved }: {
             />
             <span className="text-sm text-slate-700">Active (visible in POS)</span>
           </label>
+
+          {/* Preorders */}
+          <div className="border border-slate-200 rounded-xl p-4 space-y-3">
+            <label className="flex items-center gap-3 cursor-pointer">
+              <input
+                type="checkbox"
+                checked={form.allow_preorder}
+                onChange={e => setForm(f => ({ ...f, allow_preorder: e.target.checked }))}
+                className="rounded"
+              />
+              <span className="text-sm font-medium text-slate-700">Orderable via Preorders</span>
+            </label>
+            <p className="text-xs text-slate-400 -mt-2">
+              Also offers this deal on the Preorders POS screen and the public ordering link. Preorder deals always sell at the flat bundle price above — no staff pricing or account-type discount is applied.
+            </p>
+            {form.allow_preorder && (
+              <p className="text-xs text-amber-600">
+                Set each item above&apos;s own Preorder Source and Cost Price (in Products) — that&apos;s what routes it to the vendor vs. in-house list and what the Vendor Ledger uses to compute what&apos;s owed. An item with a blank/$0 cost price silently adds nothing to &quot;owed&quot;.
+              </p>
+            )}
+          </div>
 
           {/* Bundle Items */}
           <div className="border border-slate-200 rounded-xl p-4 space-y-3">

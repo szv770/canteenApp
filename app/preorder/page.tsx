@@ -1,14 +1,20 @@
 'use client'
 
-import { useEffect, useState, useCallback, useRef } from 'react'
-import { Search, User, Plus, Minus, Check, X, Truck, ChefHat } from 'lucide-react'
+import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
+import { Search, User, Plus, Minus, Check, X, Pin, RotateCcw } from 'lucide-react'
 import toast from 'react-hot-toast'
 import PreorderCalendar from '@/components/PreorderCalendar'
+import PreorderCutoffCountdown from '@/components/PreorderCutoffCountdown'
+import PreorderItemGrid, { type PreorderGridItem } from '@/components/pos/PreorderItemGrid'
+import BundleGrid from '@/components/pos/BundleGrid'
+import CategoryTabs from '@/components/pos/CategoryTabs'
+import AddonModal, { type AddonChoice } from '@/components/pos/AddonModal'
+import type { Category, ProductBundleWithItems } from '@/types/database'
+import {
+  type CartLine, addCartLine, setLineQuantity, cartLinesToApiItems, cartLinesFromExistingOrder,
+} from '@/lib/preorderCart'
 
 interface SearchResult { id: string; name: string; is_staff: boolean }
-interface ItemRow { id: string; name: string; icon: string | null; image_url: string | null; price: number; staff_pricing_applied: boolean; preorder_source: 'vendor' | 'in_house'; remaining_cap: number | null }
-
-const INPUT_CLS = 'w-full px-3 py-2.5 bg-white border border-stone-200 rounded-xl text-base text-stone-900 placeholder-stone-400 focus:outline-none focus:ring-2 focus:ring-teal-600/25 focus:border-teal-600 transition-all min-h-[44px]'
 
 function money(n: number) {
   return `$${n.toFixed(2)}`
@@ -19,6 +25,7 @@ export default function PreorderPage() {
   const [enabled, setEnabled] = useState(true)
   const [dates, setDates] = useState<string[]>([])
   const [cutoffTime, setCutoffTime] = useState('20:00')
+  const [sameDayCutoffTime, setSameDayCutoffTime] = useState<string | undefined>(undefined)
 
   const [query, setQuery] = useState('')
   const [results, setResults] = useState<SearchResult[]>([])
@@ -27,18 +34,28 @@ export default function PreorderPage() {
   const debounceRef = useRef<NodeJS.Timeout>()
 
   const [forDate, setForDate] = useState('')
-  const [items, setItems] = useState<ItemRow[]>([])
+  const [items, setItems] = useState<PreorderGridItem[]>([])
+  const [bundles, setBundles] = useState<ProductBundleWithItems[]>([])
+  const [categories, setCategories] = useState<Category[]>([])
+  const [dateNote, setDateNote] = useState<string | null>(null)
+  const [fallbackNames, setFallbackNames] = useState<Record<string, string>>({})
   const [loadingItems, setLoadingItems] = useState(false)
-  const [qtyMap, setQtyMap] = useState<Record<string, number>>({})
+  const [lines, setLines] = useState<CartLine[]>([])
   const [existingPreorderId, setExistingPreorderId] = useState<string | null>(null)
+  const [lastOrderLines, setLastOrderLines] = useState<CartLine[] | null>(null)
   const [submitting, setSubmitting] = useState(false)
   const [done, setDone] = useState<{ total: number; staffPricing: boolean } | null>(null)
+
+  const [itemSearch, setItemSearch] = useState('')
+  const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
+  const [addonItem, setAddonItem] = useState<PreorderGridItem | null>(null)
 
   useEffect(() => {
     fetch('/api/preorders/public/config').then(r => r.json()).then(json => {
       setEnabled(json.enabled)
       setDates(json.dates || [])
       setCutoffTime(json.cutoff_time || '20:00')
+      setSameDayCutoffTime(json.same_day_cutoff_time || undefined)
       setForDate(json.dates?.[0] || '')
       setLoadingConfig(false)
     })
@@ -68,43 +85,124 @@ export default function PreorderPage() {
     Promise.all([
       fetch(`/api/preorders/public/items?bochur_id=${selected.id}&for_date=${forDate}`).then(r => r.json()),
       fetch(`/api/preorders/public/my-order?bochur_id=${selected.id}&for_date=${forDate}`).then(r => r.json()),
-    ]).then(([itemsJson, myOrderJson]) => {
+      fetch(`/api/preorders/public/last-order?bochur_id=${selected.id}&exclude_date=${forDate}`).then(r => r.json()),
+    ]).then(([itemsJson, myOrderJson, lastOrderJson]) => {
       if (cancelled) return
       if (itemsJson.error) {
         console.error('Failed to load preorder items:', itemsJson.error)
         toast.error('Could not load items — please refresh and try again')
       }
       setItems(itemsJson.items || [])
+      setBundles((itemsJson.bundles || []) as ProductBundleWithItems[])
+      setCategories((itemsJson.categories || []) as Category[])
+      setDateNote(itemsJson.date_note ?? null)
       const existing = myOrderJson.order
       if (existing) {
         setExistingPreorderId(existing.id)
-        const map: Record<string, number> = {}
-        for (const it of existing.preorder_items || []) map[it.product_id] = it.quantity
-        setQtyMap(map)
+        setLines(cartLinesFromExistingOrder(existing.preorder_items || []))
+        const names: Record<string, string> = {}
+        for (const it of existing.preorder_items || []) {
+          if (it.is_bundle_component) continue
+          const ref = it.bundle_id || it.product_id
+          if (ref && it.product_name) names[ref] = it.product_name
+        }
+        setFallbackNames(names)
       } else {
         setExistingPreorderId(null)
-        setQtyMap({})
+        setLines([])
+        setFallbackNames({})
       }
+      const previous = lastOrderJson?.order
+      setLastOrderLines(previous ? cartLinesFromExistingOrder(previous.preorder_items || []) : null)
       setLoadingItems(false)
     })
     return () => { cancelled = true }
   }, [selected, forDate])
 
-  function setQty(id: string, qty: number) {
-    setQtyMap(prev => {
-      const next = { ...prev }
-      if (qty <= 0) delete next[id]
-      else next[id] = qty
-      return next
-    })
+  const itemsById = useMemo(() => {
+    const m = new Map<string, PreorderGridItem>()
+    items.forEach(i => m.set(i.id, i))
+    return m
+  }, [items])
+  const bundlesById = useMemo(() => {
+    const m = new Map<string, ProductBundleWithItems>()
+    bundles.forEach(b => m.set(b.id, b))
+    return m
+  }, [bundles])
+
+  const filteredItems = useMemo(() => items.filter(i => {
+    if (itemSearch && !i.name.toLowerCase().includes(itemSearch.toLowerCase())) return false
+    if (!selectedCategory) return true
+    const itemCats = i.category_ids || []
+    const selCat = categories.find(c => c.id === selectedCategory)
+    if (selCat && !selCat.parent_id) {
+      const subIds = categories.filter(c => c.parent_id === selectedCategory).map(c => c.id)
+      return itemCats.includes(selectedCategory) || subIds.some(id => itemCats.includes(id))
+    }
+    return itemCats.includes(selectedCategory)
+  }), [items, itemSearch, selectedCategory, categories])
+
+  const quantitiesByRef = useMemo(() => {
+    const q: Record<string, number> = {}
+    lines.forEach(l => { q[l.refId] = (q[l.refId] || 0) + l.quantity })
+    return q
+  }, [lines])
+
+  function addProductLine(item: PreorderGridItem, addons: AddonChoice[] = []) {
+    setLines(prev => addCartLine(prev, {
+      kind: 'product',
+      refId: item.id,
+      addonIds: addons.map(a => a.id),
+      addonNames: addons.map(a => a.name),
+    }))
   }
 
-  const cartLines = items.filter(i => qtyMap[i.id] > 0).map(i => ({ item: i, qty: qtyMap[i.id] }))
-  const total = cartLines.reduce((sum, l) => sum + l.item.price * l.qty, 0)
-  const anyStaffPricing = cartLines.some(l => l.item.staff_pricing_applied)
+  function handleItemTap(item: PreorderGridItem) {
+    if (item.addons.length > 0) { setAddonItem(item); return }
+    addProductLine(item)
+  }
+
+  function handleBundleTap(bundle: ProductBundleWithItems) {
+    setLines(prev => addCartLine(prev, { kind: 'bundle', refId: bundle.id }))
+  }
+
+  // Prefill from the person's most recent order, dropping anything that isn't
+  // orderable for this date any more rather than sending a line the server
+  // would just reject.
+  function reorderLastTime() {
+    if (!lastOrderLines) return
+    const usable = lastOrderLines.filter(l =>
+      l.kind === 'bundle' ? bundlesById.has(l.refId) : itemsById.has(l.refId)
+    )
+    if (usable.length === 0) {
+      toast.error('None of those items are available for this date')
+      return
+    }
+    setLines(usable.map(l => ({ ...l })))
+    if (usable.length < lastOrderLines.length) {
+      toast('Some items from last time aren\'t available for this date')
+    }
+  }
+
+  function lineUnitPrice(line: CartLine): number {
+    if (line.kind === 'bundle') return Number(bundlesById.get(line.refId)?.price ?? 0)
+    const item = itemsById.get(line.refId)
+    if (!item) return 0
+    const addonTotal = line.addonIds.reduce(
+      (sum, id) => sum + Number(item.addons.find(a => a.id === id)?.price_addition ?? 0), 0
+    )
+    return item.price + addonTotal
+  }
+
+  function lineName(line: CartLine): string {
+    if (line.kind === 'bundle') return bundlesById.get(line.refId)?.name ?? fallbackNames[line.refId] ?? 'Deal'
+    return itemsById.get(line.refId)?.name ?? fallbackNames[line.refId] ?? 'Item'
+  }
+
+  const total = lines.reduce((sum, l) => sum + lineUnitPrice(l) * l.quantity, 0)
 
   async function submit() {
-    if (!selected || cartLines.length === 0) return
+    if (!selected || lines.length === 0) return
     setSubmitting(true)
     try {
       const res = await fetch('/api/preorders/public/place', {
@@ -112,7 +210,7 @@ export default function PreorderPage() {
         body: JSON.stringify({
           bochur_id: selected.id,
           for_date: forDate,
-          items: cartLines.map(l => ({ product_id: l.item.id, quantity: l.qty })),
+          items: cartLinesToApiItems(lines),
           preorder_id: existingPreorderId,
         }),
       })
@@ -135,7 +233,7 @@ export default function PreorderPage() {
     const json = await res.json()
     if (!res.ok) { toast.error(json.error || 'Failed to cancel'); return }
     toast.success('Order cancelled')
-    setQtyMap({})
+    setLines([])
     setExistingPreorderId(null)
     setDone(null)
   }
@@ -151,6 +249,10 @@ export default function PreorderPage() {
       </div>
     )
   }
+
+  const showBundles = bundles.length > 0 && !itemSearch && !selectedCategory
+  const showCategoryRow = categories.filter(c => !c.parent_id).length > 1
+  const showReorder = !existingPreorderId && lines.length === 0 && !!lastOrderLines && lastOrderLines.length > 0
 
   return (
     <div className="min-h-screen bg-stone-50 px-4 py-6 sm:py-10">
@@ -201,10 +303,31 @@ export default function PreorderPage() {
         {selected && (
           <div className="bg-white rounded-2xl border border-stone-200 p-4 space-y-2">
             <label className="text-sm font-semibold text-stone-700">For which day</label>
-            <PreorderCalendar cutoffTime={cutoffTime} selected={forDate} onSelect={setForDate} accent="teal" />
+            <PreorderCalendar
+              cutoffTime={cutoffTime}
+              sameDayCutoffTime={sameDayCutoffTime}
+              selected={forDate}
+              onSelect={setForDate}
+              accent="teal"
+            />
+            {forDate && (
+              <PreorderCutoffCountdown
+                forDate={forDate}
+                cutoffTime={cutoffTime}
+                sameDayCutoffTime={sameDayCutoffTime}
+                accent="teal"
+              />
+            )}
             {dates.length === 0 && (
               <p className="text-sm text-red-500">Ordering is closed for all upcoming dates right now.</p>
             )}
+          </div>
+        )}
+
+        {selected && forDate && dateNote && (
+          <div className="flex items-start gap-2 p-3 bg-amber-50 border border-amber-200 rounded-2xl">
+            <Pin className="w-4 h-4 text-amber-600 shrink-0 mt-0.5" />
+            <p className="text-sm text-amber-900 whitespace-pre-wrap">{dateNote}</p>
           </div>
         )}
 
@@ -214,49 +337,90 @@ export default function PreorderPage() {
               <label className="text-sm font-semibold text-stone-700">Items</label>
               {existingPreorderId && <span className="text-xs text-teal-700 bg-teal-50 border border-teal-100 px-2 py-0.5 rounded-full">Editing your order</span>}
             </div>
-            {loadingItems ? (
-              <p className="text-sm text-stone-400">Loading...</p>
-            ) : items.length === 0 ? (
-              <p className="text-sm text-stone-400">Nothing is orderable for this date right now.</p>
-            ) : (
-              <div className="space-y-2">
-                {items.map(it => {
-                  const qty = qtyMap[it.id] || 0
-                  const soldOut = it.remaining_cap != null && it.remaining_cap <= 0 && qty === 0
-                  return (
-                    <div key={it.id} className={`flex items-center justify-between p-2.5 border rounded-xl ${soldOut ? 'border-stone-100 opacity-50' : 'border-stone-100'}`}>
-                      <div className="min-w-0">
-                        <div className="flex items-center gap-1.5">
-                          {it.preorder_source === 'vendor' ? <Truck className="w-3.5 h-3.5 text-stone-400 shrink-0" /> : <ChefHat className="w-3.5 h-3.5 text-stone-400 shrink-0" />}
-                          <span className="text-sm font-medium text-stone-800 truncate">{it.icon} {it.name}</span>
-                        </div>
-                        <div className="flex items-center gap-1.5 mt-0.5">
-                          <span className="text-xs text-stone-500">{money(it.price)}</span>
-                          {it.staff_pricing_applied && <span className="text-xs text-purple-600">Staff discount applied</span>}
-                          {soldOut && <span className="text-xs text-red-500">Sold out for this date</span>}
-                        </div>
-                      </div>
-                      <div className="flex items-center gap-2 shrink-0">
-                        <button disabled={soldOut} onClick={() => setQty(it.id, Math.max(0, qty - 1))} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-lg disabled:opacity-40"><Minus className="w-4 h-4" /></button>
-                        <span className="w-6 text-center text-sm font-semibold">{qty}</span>
-                        <button disabled={soldOut} onClick={() => setQty(it.id, qty + 1)} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-lg disabled:opacity-40"><Plus className="w-4 h-4" /></button>
-                      </div>
-                    </div>
-                  )
-                })}
+
+            {showReorder && (
+              <button
+                onClick={reorderLastTime}
+                className="w-full flex items-center justify-center gap-2 py-2.5 min-h-[44px] border border-teal-200 bg-teal-50 text-teal-800 text-sm font-semibold rounded-xl hover:bg-teal-100 transition-colors"
+              >
+                <RotateCcw className="w-4 h-4" /> Order the same as last time
+              </button>
+            )}
+
+            {!loadingItems && items.length > 0 && (
+              <div className="flex items-center gap-2 bg-white border border-stone-200 rounded-xl px-3 py-2.5">
+                <Search className="w-4 h-4 text-stone-400 shrink-0" />
+                <input
+                  type="text"
+                  placeholder="Search items..."
+                  value={itemSearch}
+                  onChange={e => setItemSearch(e.target.value)}
+                  className="flex-1 text-base outline-none"
+                />
+                {itemSearch && (
+                  <button onClick={() => setItemSearch('')} className="text-stone-300 hover:text-stone-500"><X className="w-4 h-4" /></button>
+                )}
               </div>
             )}
 
-            {cartLines.length > 0 && (
-              <div className="p-3 bg-teal-50 border border-teal-100 rounded-xl flex items-center justify-between">
-                <span className="text-sm text-stone-600">Total due on pickup</span>
-                <span className="font-bold text-stone-900 text-lg">{money(total)}</span>
+            {!loadingItems && showCategoryRow && (
+              <div className="-mx-1 rounded-xl overflow-hidden border border-stone-100">
+                <CategoryTabs categories={categories} selected={selectedCategory} onSelect={setSelectedCategory} />
+              </div>
+            )}
+
+            {loadingItems ? (
+              <p className="text-sm text-stone-400">Loading...</p>
+            ) : items.length === 0 && bundles.length === 0 ? (
+              <p className="text-sm text-stone-400">Nothing is orderable for this date right now.</p>
+            ) : (
+              <>
+                <PreorderItemGrid
+                  items={filteredItems}
+                  quantities={quantitiesByRef}
+                  accent="teal"
+                  onTap={handleItemTap}
+                  emptyLabel={itemSearch || selectedCategory ? 'No items match that filter' : 'Nothing is orderable for this date'}
+                />
+                {showBundles && (
+                  <div className="mt-4">
+                    <BundleGrid bundles={bundles} onBundleTap={handleBundleTap} />
+                  </div>
+                )}
+              </>
+            )}
+
+            {lines.length > 0 && (
+              <div className="space-y-2 pt-1">
+                {lines.map(line => (
+                  <div key={line.key} className="flex items-center justify-between p-2.5 border border-stone-100 rounded-xl">
+                    <div className="min-w-0">
+                      <p className="text-sm font-medium text-stone-800 truncate">
+                        {line.kind === 'bundle' && <span className="text-emerald-600 mr-1">Deal</span>}
+                        {lineName(line)}
+                      </p>
+                      {line.addonNames.length > 0 && (
+                        <p className="text-xs text-stone-400 truncate">+ {line.addonNames.join(', ')}</p>
+                      )}
+                      <p className="text-xs text-stone-500">{money(lineUnitPrice(line))} each</p>
+                    </div>
+                    <div className="flex items-center gap-2 shrink-0">
+                      <button onClick={() => setLines(prev => setLineQuantity(prev, line.key, line.quantity - 1))} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-lg"><Minus className="w-4 h-4" /></button>
+                      <span className="w-6 text-center text-sm font-semibold">{line.quantity}</span>
+                      <button onClick={() => setLines(prev => setLineQuantity(prev, line.key, line.quantity + 1))} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-lg"><Plus className="w-4 h-4" /></button>
+                    </div>
+                  </div>
+                ))}
+                <div className="p-3 bg-teal-50 border border-teal-100 rounded-xl flex items-center justify-between">
+                  <span className="text-sm text-stone-600">Total due on pickup</span>
+                  <span className="font-bold text-stone-900 text-lg">{money(total)}</span>
+                </div>
               </div>
             )}
 
             <button
               onClick={submit}
-              disabled={submitting || cartLines.length === 0}
+              disabled={submitting || lines.length === 0}
               className="w-full py-3 bg-orange-700 hover:bg-orange-800 disabled:bg-stone-200 disabled:text-stone-400 text-white font-semibold rounded-xl transition-colors min-h-[44px]"
             >
               {submitting ? 'Placing...' : existingPreorderId ? 'Update Order' : 'Place Order'}
@@ -278,6 +442,16 @@ export default function PreorderPage() {
           </div>
         )}
       </div>
+
+      {addonItem && (
+        <AddonModal
+          product={{ id: addonItem.id, name: addonItem.name, icon: addonItem.icon }}
+          preloadedAddons={addonItem.addons}
+          onConfirm={addons => { addProductLine(addonItem, addons); setAddonItem(null) }}
+          onSkip={() => { addProductLine(addonItem); setAddonItem(null) }}
+          onClose={() => setAddonItem(null)}
+        />
+      )}
     </div>
   )
 }
