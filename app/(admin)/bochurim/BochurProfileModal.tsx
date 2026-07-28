@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
 import {
   X, DollarSign, Pencil, Archive, Snowflake, ChevronDown, ChevronUp,
   TrendingUp, ShoppingCart, BarChart2, Star, AlertTriangle, Clock
@@ -102,6 +103,26 @@ export default function BochurProfileModal({ bochur: initialBochur, accountTypes
 
   // local bochur state so freeze/unfreeze/ban updates reflect immediately
   const [bochur, setBochur] = useState<BochurWithId>(initialBochur)
+
+  // Silent auto-merge: keeps this profile correct when the same student is changed
+  // elsewhere (another admin's tab, a POS top-up) while it's open here. Scalar merge
+  // only — no toast, no refetch of the transaction/ledger lists below.
+  useRealtimeRefresh({
+    table: 'bochurim',
+    event: 'UPDATE',
+    filter: `id=eq.${bochur.id}`,
+    onChange: (payload) => {
+      const row = payload.new as Partial<BochurWithId> & { id?: string }
+      if (!row?.id) return
+      setBochur(prev => {
+        // Defense-in-depth — the filter above already scopes this to one row.
+        if (prev.id !== row.id) return prev
+        // payload.new is the RAW `bochurim` row: no `bochur_id` (view-computed) or
+        // `account_type` (joined object). Absent keys can't clobber prev's values.
+        return { ...prev, ...row }
+      })
+    },
+  })
 
   // data
   const [stats, setStats] = useState<Stats | null>(null)

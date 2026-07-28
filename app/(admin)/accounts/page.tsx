@@ -1,7 +1,8 @@
 'use client'
 
-import { useEffect, useState } from 'react'
+import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
 import { formatCurrency } from '@/lib/utils'
 import { Wallet, Plus, Trash2, RefreshCw, DollarSign, CreditCard, Smartphone, Banknote, Users, CheckCircle2, Clock, X, Download } from 'lucide-react'
 import { format } from 'date-fns'
@@ -113,6 +114,44 @@ export default function AccountsPage() {
   useEffect(() => { loadPayments() }, [from, to])
   useEffect(() => { loadWithdrawals() }, [from, to])
   useEffect(() => { loadNetBalances() }, [])
+
+  // ── Live-data prompt (Tier B: prompt, never silently refetch) ─────────────
+  // Deliberately NOT an auto-refresh: an admin reconciling these numbers against a
+  // bank statement must never have totals shift under them without an explicit tap.
+  // Table-level (no filter) — the page does its own client-side date-range filtering.
+
+  // Bumped right before this page's own writes, so the realtime echo of a change
+  // the admin just made here doesn't prompt them to refresh their own edit.
+  const selfWriteAtRef = useRef(0)
+
+  function promptStale() {
+    if (Date.now() - selfWriteAtRef.current < 4000) return
+    toast(
+      (t) => (
+        <div className="flex items-center gap-3">
+          <span className="text-sm text-slate-700">Account data updated</span>
+          <button
+            onClick={() => {
+              toast.dismiss(t.id)
+              loadPayments()
+              loadWithdrawals()
+              loadNetBalances()
+            }}
+            className="px-2.5 py-1 rounded-lg bg-amber-500 text-white text-xs font-semibold hover:bg-amber-600 transition-colors shrink-0"
+          >
+            Refresh
+          </button>
+        </div>
+      ),
+      // Fixed id — react-hot-toast replaces the existing toast instead of stacking a
+      // new one per change, so a burst of updates can't pile up.
+      { id: 'accounts-stale', duration: 15000 }
+    )
+  }
+
+  useRealtimeRefresh({ table: 'payments', onChange: promptStale })
+  useRealtimeRefresh({ table: 'balance_topups', onChange: promptStale })
+  useRealtimeRefresh({ table: 'withdrawal_log', onChange: promptStale })
 
   async function loadPayments() {
     setLoadingPayments(true)
@@ -265,6 +304,7 @@ export default function AccountsPage() {
     setFNote('')
     setFDate(todayStr())
     setSaving(false)
+    selfWriteAtRef.current = Date.now()
     loadWithdrawals()
     loadNetBalances()
   }
@@ -280,6 +320,7 @@ export default function AccountsPage() {
     if (error) { toast.error('Failed to save: ' + error.message); return }
     toast.success('Marked as confirmed')
     setConfirmingWithdrawal(null)
+    selfWriteAtRef.current = Date.now()
     loadWithdrawals()
   }
 
@@ -289,6 +330,7 @@ export default function AccountsPage() {
     if (error) { toast.error('Delete failed: ' + error.message); return }
     toast.success('Deleted')
     setWithdrawals(prev => prev.filter(w => w.id !== id))
+    selfWriteAtRef.current = Date.now()
     loadNetBalances()
   }
 

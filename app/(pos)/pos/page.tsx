@@ -2,6 +2,7 @@
 
 import { useEffect, useState, useCallback, useRef, useMemo } from 'react'
 import { createClient } from '@/lib/supabase/client'
+import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
 import { LogOut, Settings, ShoppingCart, Wallet, Trash2, BarChart2, Bell, X, Truck, ClipboardCheck } from 'lucide-react'
 import { useRouter } from 'next/navigation'
 import toast from 'react-hot-toast'
@@ -237,7 +238,13 @@ export default function PosPage() {
       // Always recorded so the bell panel/badge reflects it, even if the toast itself
       // was already shown in a previous session and won't pop again below.
       setNotifHistory(prev => {
-        if (prev.find(h => h.id === n.id)) return prev
+        const existing = prev.find(h => h.id === n.id)
+        if (existing) {
+          // Already seen — but an admin may have EDITED the text/type since. Update in
+          // place rather than ignoring it, otherwise the edit never reaches an open tab.
+          if (existing.message === n.message && existing.type === n.type) return prev
+          return prev.map(h => h.id === n.id ? { ...h, message: n.message, type: n.type } : h)
+        }
         return [{ id: n.id, message: n.message, type: n.type, created_at: n.created_at || new Date().toISOString() }, ...prev]
       })
 
@@ -323,14 +330,32 @@ export default function PosPage() {
       .eq('is_active', true)
       .then(({ data }) => { (data || []).forEach(showNotif) })
 
+    // Pulls a notification back off this open tab once an admin deactivates,
+    // expires, or deletes it — the toast may still be on screen (urgent toasts
+    // never auto-dismiss) and the bell badge would otherwise keep counting it.
+    function retractNotif(id: string) {
+      setNotifHistory(prev => prev.filter(h => h.id !== id))
+      toast.dismiss(id)
+    }
+
     const notifChannel = supabase
       .channel('pos_notifications')
       .on('postgres_changes', {
-        event: 'INSERT',
+        // '*' rather than INSERT-only so an admin editing or deactivating an
+        // existing notification also reaches an already-open POS tab.
+        event: '*',
         schema: 'public',
         table: 'cashier_notifications',
       }, (payload) => {
-        showNotif(payload.new as { id: string; message: string; type: string; is_active: boolean; expires_at: string | null })
+        if (payload.eventType === 'DELETE') {
+          const oldId = (payload.old as { id?: string } | null)?.id
+          if (oldId) retractNotif(oldId)
+          return
+        }
+        const n = payload.new as { id: string; message: string; type: string; is_active: boolean; expires_at: string | null }
+        const expired = !!n.expires_at && new Date(n.expires_at) < new Date()
+        if (!n.is_active || expired) { retractNotif(n.id); return }
+        showNotif(n)
       })
       .subscribe()
 
@@ -340,6 +365,28 @@ export default function PosPage() {
       supabase.removeChannel(notifChannel)
     }
   }, [])
+
+  // Silent auto-merge: an admin topping up / freezing / banning the loaded student
+  // reaches this open POS tab without a reload. Scalar-only merge, no toast — the
+  // cashier just sees the correct balance the next time they glance at it.
+  useRealtimeRefresh({
+    table: 'bochurim',
+    event: 'UPDATE',
+    filter: loadedBochur ? `id=eq.${loadedBochur.id}` : undefined,
+    enabled: !!loadedBochur,
+    onChange: (payload) => {
+      const row = payload.new as Partial<BochurWithId> & { id?: string }
+      if (!row?.id) return
+      setLoadedBochur(prev => {
+        // Defense-in-depth — the filter above already scopes this to one row.
+        if (!prev || prev.id !== row.id) return prev
+        // payload.new is the RAW `bochurim` row, so it carries no `bochur_id`
+        // (view-computed) or `account_type` (joined object). A shallow merge is safe:
+        // those keys are simply absent and won't clobber prev's values.
+        return { ...prev, ...row }
+      })
+    },
+  })
 
   // Ticking clock so the seder reminder/overlay transition without a page reload
   useEffect(() => {
