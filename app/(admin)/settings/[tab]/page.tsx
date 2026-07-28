@@ -89,6 +89,7 @@ const NINE_DAYS_SETTINGS: SettingRow[] = [
 
 const PREORDER_SETTINGS: SettingRow[] = [
   { key: 'preorder_cutoff_time', label: 'Cutoff Time', description: 'Orders for a given day close at this time the evening before, camp-local time', type: 'time' },
+  { key: 'preorder_same_day_cutoff_time', label: 'Same-Day Cutoff Time', description: 'Governs today\'s orders only — orders for today close at this time today, camp-local. Leave blank to fall back to the Cutoff Time above. Future dates always keep the evening-before deadline, so the vendor still gets advance notice.', type: 'time' },
   { key: 'preorder_public_link_enabled', label: 'Public Ordering Link', description: 'Turn off to disable the /preorder link for everyone without removing items', type: 'toggle' },
   { key: 'preorder_vendor_name', label: 'Vendor Name', description: 'Shown on the Preorders → Vendor tab and used as "Paid To" on logged payments', type: 'text' },
   { key: 'preorder_vendor_phone', label: 'Vendor WhatsApp Number', description: 'Digits only with country code, e.g. 13055551234 — used for the "WhatsApp" button on the Preorders Orders tab', type: 'text' },

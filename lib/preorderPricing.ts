@@ -28,31 +28,42 @@ export interface PreorderUnitPriceResult {
 //   3. Otherwise the plain product price.
 // 'fixed' account-type discounts are order-level elsewhere in the app and
 // don't apply per preorder line item.
+//
+// `addonTotal` (the summed price_addition of the add-ons this person actually
+// picked, already validated against the product server-side) is added on top
+// of the resolved base price in EVERY branch — including the staff_price
+// override and the at-cost discount. A topping someone explicitly asked for is
+// never free just because the base item is subsidized or sold at cost. This is
+// a deliberate divergence from regular POS checkout, whose cost_price branch
+// collapses add-on revenue into the cost price.
 export function computePreorderUnitPrice(
   product: PreorderPricingProduct,
-  accountType: PreorderPricingAccountType | null
+  accountType: PreorderPricingAccountType | null,
+  addonTotal: number = 0
 ): PreorderUnitPriceResult {
   const isStaff = !!accountType?.is_staff_pricing_tier
+  const addons = Number.isFinite(addonTotal) && addonTotal > 0 ? addonTotal : 0
+  const withAddons = (base: number) => Math.max(0, Math.round((base + addons) * 100) / 100)
 
   if (isStaff && product.staff_price != null) {
-    return { unitPrice: Math.max(0, Math.round(product.staff_price * 100) / 100), staffPricingApplied: true }
+    return { unitPrice: withAddons(Math.max(0, product.staff_price)), staffPricingApplied: true }
   }
 
   if (accountType && accountType.discount_type !== 'none') {
     if (accountType.discount_type === 'percentage' && accountType.discount_value > 0) {
       const discounted = Math.round(product.price * (1 - accountType.discount_value / 100) * 100) / 100
-      return { unitPrice: Math.max(0, discounted), staffPricingApplied: isStaff }
+      return { unitPrice: withAddons(Math.max(0, discounted)), staffPricingApplied: isStaff }
     }
     if (accountType.discount_type === 'cost_price') {
       if (product.cost_price != null && product.cost_price > 0) {
-        return { unitPrice: product.cost_price, staffPricingApplied: isStaff }
+        return { unitPrice: withAddons(product.cost_price), staffPricingApplied: isStaff }
       }
       if (accountType.discount_value > 0) {
         const discounted = Math.round(product.price * (1 - accountType.discount_value / 100) * 100) / 100
-        return { unitPrice: Math.max(0, discounted), staffPricingApplied: isStaff }
+        return { unitPrice: withAddons(Math.max(0, discounted)), staffPricingApplied: isStaff }
       }
     }
   }
 
-  return { unitPrice: product.price, staffPricingApplied: false }
+  return { unitPrice: withAddons(product.price), staffPricingApplied: false }
 }

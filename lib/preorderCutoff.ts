@@ -1,5 +1,7 @@
 // Cutoff math for the Preorders feature. Orders for a given `for_date` close
-// at `cutoffTime` (HH:MM) on the evening before, camp-local time. This runs
+// at `cutoffTime` (HH:MM) on the evening before, camp-local time — except for
+// same-day ("today") orders, which close at `sameDayCutoffTime` on the day
+// itself (see cutoffDeadlineForDate below). This runs
 // both in API routes (Node, defaults to UTC — same issue as the dashboard's
 // getZonedTodayBounds, see CLAUDE.md gotcha #25) and in client components
 // (which could just read the browser's local time, but share this file for
@@ -29,19 +31,49 @@ export function localDateStrInTz(now: Date, timeZone: string = CANTEEN_TZ): stri
 
 // Deadline instant for orders targeting `forDateStr` (YYYY-MM-DD): cutoffTime
 // (HH:MM) on the calendar day before, camp-local.
-export function cutoffDeadlineForDate(forDateStr: string, cutoffTime: string, timeZone: string = CANTEEN_TZ): Date {
+//
+// Same-day exception: when `forDateStr` IS today (camp-local), the
+// evening-before deadline is by definition already in the past, so "today"
+// could never be ordered at all no matter how the cutoff was set. For that one
+// case the deadline is anchored to today's own date, using
+// `sameDayCutoffTime` when one is configured (Settings → Preorders) and
+// falling back to the regular `cutoffTime` otherwise. Every future date keeps
+// the unchanged evening-before behavior — the vendor's advance-notice window
+// is only waived for same-day, never for the rest of the week.
+export function cutoffDeadlineForDate(
+  forDateStr: string,
+  cutoffTime: string,
+  timeZone: string = CANTEEN_TZ,
+  now: Date = new Date(),
+  sameDayCutoffTime?: string
+): Date {
   const [y, m, d] = forDateStr.split('-').map(Number)
-  const dayBefore = new Date(Date.UTC(y, m - 1, d - 1, 12))
-  const [ch, cm] = cutoffTime.split(':').map(Number)
-  return zonedWallTimeToUtcInstant(dayBefore.getUTCFullYear(), dayBefore.getUTCMonth() + 1, dayBefore.getUTCDate(), ch || 0, cm || 0, timeZone)
+  const isToday = forDateStr === localDateStrInTz(now, timeZone)
+  // `||` not `??` — a cleared/blank setting must fall back too, not parse to midnight.
+  const effectiveCutoff = isToday ? (sameDayCutoffTime || cutoffTime) : cutoffTime
+  const anchor = new Date(Date.UTC(y, m - 1, isToday ? d : d - 1, 12))
+  const [ch, cm] = effectiveCutoff.split(':').map(Number)
+  return zonedWallTimeToUtcInstant(anchor.getUTCFullYear(), anchor.getUTCMonth() + 1, anchor.getUTCDate(), ch || 0, cm || 0, timeZone)
 }
 
-export function isBeforeCutoff(forDateStr: string, cutoffTime: string, now: Date = new Date(), timeZone: string = CANTEEN_TZ): boolean {
-  return now.getTime() < cutoffDeadlineForDate(forDateStr, cutoffTime, timeZone).getTime()
+export function isBeforeCutoff(
+  forDateStr: string,
+  cutoffTime: string,
+  now: Date = new Date(),
+  timeZone: string = CANTEEN_TZ,
+  sameDayCutoffTime?: string
+): boolean {
+  return now.getTime() < cutoffDeadlineForDate(forDateStr, cutoffTime, timeZone, now, sameDayCutoffTime).getTime()
 }
 
 // Upcoming calendar dates (YYYY-MM-DD) still orderable right now, for date pickers.
-export function upcomingOrderableDates(cutoffTime: string, daysAhead = 10, now: Date = new Date(), timeZone: string = CANTEEN_TZ): string[] {
+export function upcomingOrderableDates(
+  cutoffTime: string,
+  daysAhead = 10,
+  now: Date = new Date(),
+  timeZone: string = CANTEEN_TZ,
+  sameDayCutoffTime?: string
+): string[] {
   const todayStr = localDateStrInTz(now, timeZone)
   const [ty, tm, td] = todayStr.split('-').map(Number)
   const dates: string[] = []
@@ -49,7 +81,7 @@ export function upcomingOrderableDates(cutoffTime: string, daysAhead = 10, now: 
     const dt = new Date(Date.UTC(ty, tm - 1, td + i, 12))
     const pad = (n: number) => String(n).padStart(2, '0')
     const dateStr = `${dt.getUTCFullYear()}-${pad(dt.getUTCMonth() + 1)}-${pad(dt.getUTCDate())}`
-    if (isBeforeCutoff(dateStr, cutoffTime, now, timeZone)) dates.push(dateStr)
+    if (isBeforeCutoff(dateStr, cutoffTime, now, timeZone, sameDayCutoffTime)) dates.push(dateStr)
   }
   return dates
 }
