@@ -14,13 +14,14 @@ export async function GET(req: NextRequest) {
   }
 
   const admin = createAdminClient()
-  const { data: preorder } = await admin
+  const { data: preorder, error } = await admin
     .from('preorders')
-    .select('id, status, total_amount, preorder_items(product_id, product_name, quantity, unit_price)')
+    .select('id, status, total_amount, preorder_items(product_id, bundle_id, product_name, quantity, unit_price, is_bundle_component, addon_ids, addon_names, addon_total)')
     .eq('bochur_id', bochurId)
     .eq('for_date', forDate)
     .eq('status', 'pending')
     .maybeSingle()
+  if (error) console.error('preorders/public/my-order: failed to load order', error)
 
   return NextResponse.json({ order: preorder || null })
 }

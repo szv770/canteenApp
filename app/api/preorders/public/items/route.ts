@@ -49,16 +49,47 @@ export async function GET(req: NextRequest) {
   const productIds = (products || []).map((p: any) => p.id)
   const capMap = new Map<string, number>()
   if (productIds.length > 0) {
-    const { data: existingItems } = await admin
+    const { data: existingItems, error: capError } = await admin
       .from('preorder_items')
       .select('product_id, quantity, preorders!inner(for_date, status)')
       .in('product_id', productIds)
       .eq('preorders.for_date', forDate)
       .neq('preorders.status', 'cancelled')
+    if (capError) console.error('preorders/public/items: failed to load committed quantities', capError)
     for (const row of (existingItems || []) as any[]) {
       capMap.set(row.product_id, (capMap.get(row.product_id) || 0) + Number(row.quantity))
     }
   }
+
+  // Active add-ons for every orderable product, batched into one query —
+  // mirrors the POS's preloaded-addons pattern rather than a query per product.
+  const addonsByProduct = new Map<string, { id: string; name: string; price_addition: number }[]>()
+  if (productIds.length > 0) {
+    const { data: addons, error: addonsError } = await admin
+      .from('product_addons')
+      .select('id, product_id, name, price_addition')
+      .in('product_id', productIds)
+      .eq('is_active', true)
+      .order('sort_order')
+    if (addonsError) {
+      console.error('preorders/public/items: failed to load add-ons', addonsError)
+      return NextResponse.json({ error: 'Failed to load items' }, { status: 500 })
+    }
+    for (const a of (addons || []) as any[]) {
+      const list = addonsByProduct.get(a.product_id) || []
+      list.push({ id: a.id, name: a.name, price_addition: Number(a.price_addition) })
+      addonsByProduct.set(a.product_id, list)
+    }
+  }
+
+  // Optional pinned message for this specific date ("no meat today", etc.).
+  // Non-fatal: a missing note must never block ordering.
+  const { data: dateNote, error: dateNoteError } = await admin
+    .from('preorder_date_notes')
+    .select('message')
+    .eq('for_date', forDate)
+    .maybeSingle()
+  if (dateNoteError) console.error('preorders/public/items: failed to load date note', dateNoteError)
 
   const items = (products || []).map((p: any) => {
     const { unitPrice, staffPricingApplied } = computePreorderUnitPrice(
@@ -75,8 +106,9 @@ export async function GET(req: NextRequest) {
       staff_pricing_applied: staffPricingApplied,
       preorder_source: p.preorder_source,
       remaining_cap: remaining,
+      addons: addonsByProduct.get(p.id) || [],
     }
   })
 
-  return NextResponse.json({ items })
+  return NextResponse.json({ items, date_note: dateNote?.message ?? null })
 }
