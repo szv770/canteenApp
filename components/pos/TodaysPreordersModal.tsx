@@ -16,7 +16,7 @@ interface Row {
   bochur_name: string
   total_amount: number
   is_staff_pricing: boolean
-  items: { product_name: string; quantity: number; preorder_source: 'vendor' | 'in_house' }[]
+  items: { product_name: string; quantity: number; preorder_source: 'vendor' | 'in_house' | null; addon_names: string[] | null }[]
 }
 
 // Cashier-facing counterpart to the admin Preorders → Orders tab's "Confirm
@@ -38,7 +38,7 @@ export default function TodaysPreordersModal({ onClose }: Props) {
     setLoading(true)
     const { data, error } = await supabase
       .from('preorders')
-      .select('id, is_staff_pricing, total_amount, bochurim!bochur_id(name), preorder_items(product_name, quantity, preorder_source)')
+      .select('id, is_staff_pricing, total_amount, bochurim!bochur_id(name), preorder_items(product_name, quantity, preorder_source, is_bundle_component, addon_names)')
       .eq('for_date', date)
       .eq('status', 'pending')
       .order('created_at')
@@ -52,7 +52,10 @@ export default function TodaysPreordersModal({ onClose }: Props) {
       bochur_name: r.bochurim?.name || 'Unknown',
       total_amount: Number(r.total_amount),
       is_staff_pricing: r.is_staff_pricing,
-      items: r.preorder_items || [],
+      // Skip bundle-component rollup rows — they're $0 attribution rows, not
+      // things handed over separately, and would read as phantom extra items
+      // (same rule as order_items, see CLAUDE.md gotcha #22).
+      items: (r.preorder_items || []).filter((i: any) => !i.is_bundle_component),
     })))
     setLoading(false)
   }
@@ -131,8 +134,14 @@ export default function TodaysPreordersModal({ onClose }: Props) {
               <p className="text-xs text-slate-500 mb-2 flex flex-wrap items-center gap-1">
                 {r.items.map((i, idx) => (
                   <span key={idx} className="inline-flex items-center gap-1">
-                    {i.preorder_source === 'vendor' ? <Truck className="w-3 h-3 text-slate-400" /> : <ChefHat className="w-3 h-3 text-slate-400" />}
-                    {i.product_name} ×{i.quantity}{idx < r.items.length - 1 ? ',' : ''}
+                    {i.preorder_source === 'in_house'
+                      ? <ChefHat className="w-3 h-3 text-slate-400" />
+                      : i.preorder_source === 'vendor'
+                        ? <Truck className="w-3 h-3 text-slate-400" />
+                        : null}
+                    {i.product_name}
+                    {i.addon_names && i.addon_names.length > 0 && ` (+${i.addon_names.join(', ')})`}
+                    {' '}×{i.quantity}{idx < r.items.length - 1 ? ',' : ''}
                   </span>
                 ))}
               </p>
