@@ -34,6 +34,22 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Ordering for this date has closed — contact the canteen to cancel.' }, { status: 400 })
   }
 
-  await admin.from('preorders').update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: 'Cancelled by customer' }).eq('id', preorderId)
+  // Guarded on status AND checked — an unchecked update here would report
+  // "Order cancelled" to the customer while the order stayed pending and got
+  // charged at pickup, which is exactly the kind of failure nobody notices
+  // until the money has moved.
+  const { data: cancelled, error: cancelErr } = await admin
+    .from('preorders')
+    .update({ status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: 'Cancelled by customer' })
+    .eq('id', preorderId)
+    .eq('status', 'pending')
+    .select('id')
+  if (cancelErr) {
+    console.error('preorders/public/cancel: failed to cancel order', cancelErr)
+    return NextResponse.json({ error: 'Could not cancel this order — please try again' }, { status: 500 })
+  }
+  if (!cancelled || cancelled.length === 0) {
+    return NextResponse.json({ error: 'This order can no longer be cancelled' }, { status: 400 })
+  }
   return NextResponse.json({ ok: true })
 }

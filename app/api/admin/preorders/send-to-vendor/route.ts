@@ -63,7 +63,18 @@ export async function POST(req: NextRequest) {
   }
 
   if (ids.length > 0) {
-    await admin.from('preorders').update({ sent_to_vendor: true, sent_to_vendor_at: new Date().toISOString() }).in('id', ids)
+    // Checked, not fire-and-forget: in the default 'on_send' accrual mode this
+    // flag is what makes the vendor ledger start owing money for the batch. A
+    // silently-failed update would report "Marked N orders as sent" while the
+    // ledger kept reading $0 owed for food that was actually ordered.
+    const { error: markErr } = await admin
+      .from('preorders')
+      .update({ sent_to_vendor: true, sent_to_vendor_at: new Date().toISOString() })
+      .in('id', ids)
+    if (markErr) {
+      console.error('send-to-vendor: failed to mark orders sent', markErr)
+      return NextResponse.json({ error: 'Could not mark those orders as sent — please try again' }, { status: 500 })
+    }
   }
 
   const lines: string[] = [`Order for ${forDate}:`]

@@ -2,6 +2,7 @@
 
 import { X } from 'lucide-react'
 import { useEffect, useState } from 'react'
+import toast from 'react-hot-toast'
 import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import type { Product, ProductAddon } from '@/types/database'
@@ -42,7 +43,14 @@ export default function AddonModal({ product, preloadedAddons, onConfirm, onSkip
       .eq('product_id', product.id)
       .eq('is_active', true)
       .order('sort_order')
-      .then(({ data }) => {
+      .then(({ data, error }) => {
+        // A swallowed error here renders as "No add-ons available", which is
+        // indistinguishable from a product that genuinely has none — the
+        // cashier would just add the item without its (paid) extras.
+        if (error) {
+          console.error('AddonModal: failed to load add-ons', error)
+          toast.error('Could not load extras — try again')
+        }
         setAddons(data || [])
         setLoading(false)
       })

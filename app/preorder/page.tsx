@@ -58,6 +58,12 @@ export default function PreorderPage() {
       setSameDayCutoffTime(json.same_day_cutoff_time || undefined)
       setForDate(json.dates?.[0] || '')
       setLoadingConfig(false)
+    }).catch(err => {
+      // Without this the page sits on "Loading..." forever on any network
+      // blip — indistinguishable from a hung app, with nothing to retry.
+      console.error('Preorder: failed to load ordering settings', err)
+      toast.error('Could not load ordering — please refresh and try again')
+      setLoadingConfig(false)
     })
   }, [])
 
@@ -66,10 +72,22 @@ export default function PreorderPage() {
     if (q.trim().length < 2) { setResults([]); return }
     debounceRef.current = setTimeout(async () => {
       setSearching(true)
-      const res = await fetch(`/api/preorders/public/search?q=${encodeURIComponent(q.trim())}`)
-      const json = await res.json()
-      setResults(json.results || [])
-      setSearching(false)
+      try {
+        const res = await fetch(`/api/preorders/public/search?q=${encodeURIComponent(q.trim())}`)
+        const json = await res.json()
+        if (!res.ok) {
+          // Never let a failed lookup read as "your name isn't in the system".
+          toast.error(json.error || 'Search failed — please try again')
+          return
+        }
+        setResults(json.results || [])
+      } catch (err) {
+        // A thrown fetch used to leave the spinner running forever.
+        console.error('Preorder: name search failed', err)
+        toast.error('Search failed — please try again')
+      } finally {
+        setSearching(false)
+      }
     }, 250)
   }, [])
 
@@ -114,6 +132,13 @@ export default function PreorderPage() {
       }
       const previous = lastOrderJson?.order
       setLastOrderLines(previous ? cartLinesFromExistingOrder(previous.preorder_items || []) : null)
+      setLoadingItems(false)
+    }).catch(err => {
+      // Same reasoning as the config fetch above: an unhandled rejection here
+      // leaves the items section stuck on "Loading..." with no way out.
+      if (cancelled) return
+      console.error('Preorder: failed to load items', err)
+      toast.error('Could not load items — please refresh and try again')
       setLoadingItems(false)
     })
     return () => { cancelled = true }
@@ -197,6 +222,15 @@ export default function PreorderPage() {
   function lineName(line: CartLine): string {
     if (line.kind === 'bundle') return bundlesById.get(line.refId)?.name ?? fallbackNames[line.refId] ?? 'Deal'
     return itemsById.get(line.refId)?.name ?? fallbackNames[line.refId] ?? 'Item'
+  }
+
+  // A line rebuilt from a saved order can reference something that's since been
+  // switched off for Preorders / this date. It would otherwise sit in the cart
+  // priced at $0 with no explanation, and the update would fail server-side with
+  // no indication of which line caused it.
+  function lineUnavailable(line: CartLine): boolean {
+    if (loadingItems) return false
+    return line.kind === 'bundle' ? !bundlesById.has(line.refId) : !itemsById.has(line.refId)
   }
 
   const total = lines.reduce((sum, l) => sum + lineUnitPrice(l) * l.quantity, 0)
@@ -402,7 +436,11 @@ export default function PreorderPage() {
                       {line.addonNames.length > 0 && (
                         <p className="text-xs text-stone-400 truncate">+ {line.addonNames.join(', ')}</p>
                       )}
-                      <p className="text-xs text-stone-500">{money(lineUnitPrice(line))} each</p>
+                      {lineUnavailable(line) ? (
+                        <p className="text-xs text-red-500">Not available for this date — remove it to continue</p>
+                      ) : (
+                        <p className="text-xs text-stone-500">{money(lineUnitPrice(line))} each</p>
+                      )}
                     </div>
                     <div className="flex items-center gap-2 shrink-0">
                       <button onClick={() => setLines(prev => setLineQuantity(prev, line.key, line.quantity - 1))} className="w-8 h-8 flex items-center justify-center bg-stone-100 rounded-lg"><Minus className="w-4 h-4" /></button>

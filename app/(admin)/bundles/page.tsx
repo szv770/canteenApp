@@ -24,17 +24,21 @@ export default function BundlesPage() {
 
   async function loadData() {
     setLoading(true)
-    const { data } = await supabase
+    const { data, error } = await supabase
       .from('product_bundles')
       .select('*, bundle_items(*, products(name, icon))')
       .order('sort_order')
       .order('name')
+    if (error) toast.error(error.message)
     setBundles((data as ProductBundleWithItems[]) || [])
     setLoading(false)
   }
 
   async function toggleActive(bundle: ProductBundleWithItems) {
-    await supabase.from('product_bundles').update({ is_active: !bundle.is_active }).eq('id', bundle.id)
+    // Checked before the optimistic flip — otherwise a failed write leaves the
+    // toggle looking switched while the deal is still live in the POS.
+    const { error } = await supabase.from('product_bundles').update({ is_active: !bundle.is_active }).eq('id', bundle.id)
+    if (error) { toast.error(error.message); return }
     setBundles(prev => prev.map(b => b.id === bundle.id ? { ...b, is_active: !b.is_active } : b))
   }
 
@@ -220,7 +224,11 @@ function BundleModal({ bundle, onClose, onSaved }: {
       .select('id, name, icon, price, is_active')
       .eq('is_active', true)
       .order('name')
-      .then(({ data }) => setProducts(data || []))
+      .then(({ data, error }) => {
+        // Otherwise a failed load looks identical to "there are no products".
+        if (error) toast.error(error.message)
+        setProducts(data || [])
+      })
   }, [])
 
   const filteredProducts = products.filter(p =>

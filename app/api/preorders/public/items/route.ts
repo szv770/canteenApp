@@ -18,12 +18,21 @@ export async function GET(req: NextRequest) {
 
   let accountType: { discount_type: 'none' | 'percentage' | 'cost_price' | 'fixed'; discount_value: number; is_staff_pricing_tier: boolean } | null = null
   if (bochurId) {
-    const { data: bochur } = await admin
+    // maybeSingle + a real error check: swallowing a failure here silently
+    // falls back to camper pricing for a staff member (and drops the "Staff
+    // price" badge), so the price shown wouldn't match what placePreorder
+    // actually charges. A transient DB error must read as an error, not as a
+    // different price.
+    const { data: bochur, error: bochurError } = await admin
       .from('bochurim')
       .select('account_types(discount_type, discount_value, is_staff_pricing_tier, is_active)')
       .eq('id', bochurId)
       .eq('archived', false)
-      .single()
+      .maybeSingle()
+    if (bochurError) {
+      console.error('preorders/public/items: failed to load account type', bochurError)
+      return NextResponse.json({ error: 'Failed to load items' }, { status: 500 })
+    }
     const at = (bochur as any)?.account_types
     if (at && at.is_active) {
       accountType = { discount_type: at.discount_type, discount_value: Number(at.discount_value || 0), is_staff_pricing_tier: !!at.is_staff_pricing_tier }
@@ -51,12 +60,19 @@ export async function GET(req: NextRequest) {
   if (productIds.length > 0) {
     const { data: existingItems, error: capError } = await admin
       .from('preorder_items')
-      .select('product_id, quantity, preorders!inner(for_date, status)')
+      .select('product_id, quantity, preorders!inner(for_date, status, bochur_id)')
       .in('product_id', productIds)
       .eq('preorders.for_date', forDate)
       .neq('preorders.status', 'cancelled')
     if (capError) console.error('preorders/public/items: failed to load committed quantities', capError)
     for (const row of (existingItems || []) as any[]) {
+      // This person's own still-pending order for the date is excluded, because
+      // both ordering surfaces edit that order in place — placePreorder's cap
+      // check excludes it too (`row.preorder_id !== existingPreorderId`).
+      // Counting it here instead would show someone their own order as other
+      // people's demand: an item they'd taken the last of would read "Sold out"
+      // and become impossible to re-add after removing it from their own cart.
+      if (bochurId && row.preorders?.bochur_id === bochurId && row.preorders?.status === 'pending') continue
       capMap.set(row.product_id, (capMap.get(row.product_id) || 0) + Number(row.quantity))
     }
   }

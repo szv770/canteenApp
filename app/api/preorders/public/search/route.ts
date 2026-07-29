@@ -14,12 +14,20 @@ export async function GET(req: NextRequest) {
   if (q.length < 2) return NextResponse.json({ results: [] })
 
   const admin = createAdminClient()
-  const { data } = await admin
+  const { data, error } = await admin
     .from('bochurim')
     .select('id, name, account_types(is_staff_pricing_tier)')
     .eq('archived', false)
     .ilike('name', `%${q}%`)
     .limit(8)
+
+  // A swallowed error renders as "no results", which the page explains as
+  // "Don't see your name? Ask the canteen to set up your account first" — i.e.
+  // it sends a real person to go ask about an account they already have.
+  if (error) {
+    console.error('preorders/public/search: name lookup failed', error)
+    return NextResponse.json({ error: 'Search is temporarily unavailable — please try again' }, { status: 500 })
+  }
 
   const results = (data || []).map((b: any) => ({
     id: b.id,
