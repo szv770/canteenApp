@@ -4,11 +4,12 @@ import { useEffect, useRef, useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRealtimeRefresh } from '@/lib/hooks/useRealtimeRefresh'
 import { formatCurrency } from '@/lib/utils'
-import { Wallet, Plus, Trash2, RefreshCw, DollarSign, CreditCard, Smartphone, Banknote, Users, CheckCircle2, Clock, X, Download } from 'lucide-react'
+import { Wallet, Plus, Trash2, RefreshCw, DollarSign, CreditCard, Smartphone, Banknote, Users, CheckCircle2, Clock, X, Download, AlertTriangle } from 'lucide-react'
 import { format } from 'date-fns'
 import toast from 'react-hot-toast'
 import AccountTransactionsModal from '@/components/admin/AccountTransactionsModal'
 import { fetchAccountTransactions, KIND_LABELS, ACCOUNT_KEYS } from '@/lib/accountTransactions'
+import { computeNetAccountBalances } from '@/lib/accountBalances'
 
 // Local calendar date as "YYYY-MM-DD" — `.toISOString().slice(0,10)` reads the UTC
 // date instead, which silently rolls "today" over to tomorrow for anyone west of
@@ -53,6 +54,24 @@ const ACCOUNT_BADGE_COLORS: Record<string, string> = {
   cashapp: 'bg-emerald-100 text-emerald-700',
 }
 
+const ACCOUNT_ICONS: Record<string, React.ElementType> = {
+  cash: Banknote,
+  zelle: Smartphone,
+  stripe: CreditCard,
+  venmo: Smartphone,
+  paypal: Smartphone,
+  cashapp: Smartphone,
+}
+
+const ACCOUNT_ICON_COLORS: Record<string, string> = {
+  cash: 'bg-green-500',
+  zelle: 'bg-purple-500',
+  stripe: 'bg-blue-500',
+  venmo: 'bg-sky-500',
+  paypal: 'bg-indigo-500',
+  cashapp: 'bg-emerald-500',
+}
+
 const REASON_OPTIONS: { value: string; label: string }[] = [
   { value: 'owner_draw', label: 'Owner draw' },
   { value: 'bank_deposit', label: 'Bank deposit' },
@@ -90,10 +109,16 @@ export default function AccountsPage() {
   const [withdrawals, setWithdrawals] = useState<WithdrawalRow[]>([])
   const [loadingLog, setLoadingLog] = useState(false)
 
-  // ── Net account balances (all-time, independent of the date range) ───────
+  // ── Current balance per account (all-time, independent of the date range) ─
   const [netReceived, setNetReceived] = useState<Record<string, number>>({})
   const [netWithdrawn, setNetWithdrawn] = useState<Record<string, number>>({})
   const [loadingNet, setLoadingNet] = useState(false)
+  // Non-null when one of the current-balance queries failed. A silently
+  // swallowed error here is dangerous rather than merely annoying: if the
+  // `withdrawal_log` read fails, every card would happily render the
+  // *un-deducted* received total and look like money that's already been
+  // taken out is still sitting in the account. Fail loudly instead.
+  const [netError, setNetError] = useState<string | null>(null)
 
   // ── New withdrawal form ──────────────────────────────────────────────────
   const [fAccount, setFAccount] = useState<'zelle' | 'stripe' | 'cash' | 'venmo' | 'paypal' | 'cashapp'>('cash')
@@ -163,7 +188,11 @@ export default function AccountsPage() {
     const fromISO = new Date(fy, fm - 1, fd).toISOString()
     const toISO = new Date(ty, tm - 1, td + 1).toISOString() // exclusive: start of the day after `to`
 
-    const [{ data: payments }, { data: bochurim }, { data: allTopups }] = await Promise.all([
+    const [
+      { data: payments, error: payErr },
+      { data: bochurim, error: bochErr },
+      { data: allTopups, error: topupErr },
+    ] = await Promise.all([
       supabase.from('payments').select('method, amount').gte('created_at', fromISO).lt('created_at', toISO),
       supabase.from('bochurim').select('balance').eq('archived', false),
       // Fetch all confirmed topups to filter client-side using payment_received_date (fallback: confirmed_at)
@@ -172,6 +201,11 @@ export default function AccountsPage() {
         .select('method, amount, payment_received_date, confirmed_at')
         .eq('status', 'confirmed'),
     ])
+
+    // Surface rather than swallow — an errored query returns null data, which
+    // otherwise renders identically to "no activity in this range".
+    const rangeErr = payErr || bochErr || topupErr
+    if (rangeErr) toast.error('Failed to load date-range activity: ' + rangeErr.message)
 
     const map: Record<string, number> = {}
     for (const p of payments || []) {
@@ -209,71 +243,28 @@ export default function AccountsPage() {
     setLoadingLog(false)
   }
 
-  // All-time (not date-filtered) received-vs-withdrawn per account, so the
-  // page can show "what should actually be sitting in this account right now"
-  // independent of whatever range is picked for the headline cards above.
-  async function loadNetBalances() {
+  // All-time (not date-filtered) received-vs-withdrawn per account — this is
+  // THE number this page exists to answer: "how much is actually in this
+  // account right now". The computation itself lives in lib/accountBalances.ts
+  // so the Season Close summary reads the exact same numbers — two admin
+  // screens disagreeing about the cash position would be worse than only
+  // having one. Returns the freshly computed figures (as well as setting them
+  // into state) so a caller that just wrote a row can report the resulting
+  // balance without waiting on a re-render.
+  async function loadNetBalances(): Promise<{ received: Record<string, number>; withdrawn: Record<string, number> } | null> {
     setLoadingNet(true)
-    const [{ data: payments }, { data: topups }, { data: allWithdrawals }, { data: ledgerRows }] = await Promise.all([
-      supabase.from('payments').select('method, amount'),
-      supabase.from('balance_topups').select('method, amount').eq('status', 'confirmed'),
-      supabase.from('withdrawal_log').select('account, amount'),
-      // Only rows that carry a `method` are relevant here — topup-confirm's and
-      // cashier auto-approve's ledger side-effects deliberately leave method
-      // null (their money is already counted via balance_topups above), so
-      // this can never double-count those. What's left is real money that
-      // never touches `payments`/`balance_topups` at all:
-      //  - type=topup, method=cash_change: cash kept in the drawer instead of
-      //    handed back as change (checkout route)
-      //  - type=topup, method=cash/zelle/venmo/paypal: Add Funds entries
-      //    tagged with a real payment method (method=manual/other_internal
-      //    intentionally excluded — unspecified or explicitly no real money)
-      //  - type=refund, method=cash/zelle/cc: money paid back out of that
-      //    account to a student (bochur profile refund flow)
-      supabase.from('balance_ledger').select('type, method, amount').in('type', ['topup', 'refund']).not('method', 'is', null),
-    ])
-
-    const received: Record<string, number> = { cash: 0, zelle: 0, stripe: 0, venmo: 0, paypal: 0, cashapp: 0 }
-    for (const p of (payments || []) as any[]) {
-      const amt = Number(p.amount)
-      if (p.method === 'cash') received.cash += amt
-      else if (p.method === 'zelle') received.zelle += amt
-      else if (p.method === 'credit_card' || p.method === 'card' || p.method === 'stripe_terminal') received.stripe += amt
+    const { received, withdrawn, error } = await computeNetAccountBalances(supabase)
+    if (error) {
+      setNetError(error)
+      toast.error(error)
+      setLoadingNet(false)
+      return null
     }
-    for (const t of (topups || []) as any[]) {
-      const amt = Number(t.amount)
-      if (t.method === 'cash') received.cash += amt
-      else if (t.method === 'zelle') received.zelle += amt
-      else if (t.method === 'credit_card' || t.method === 'card') received.stripe += amt
-      else if (t.method === 'venmo') received.venmo += amt
-      else if (t.method === 'paypal') received.paypal += amt
-      else if (t.method === 'cashapp') received.cashapp += amt
-    }
-
-    const withdrawn: Record<string, number> = {}
-    for (const w of (allWithdrawals || []) as any[]) {
-      withdrawn[w.account] = (withdrawn[w.account] || 0) + Number(w.amount)
-    }
-
-    for (const l of (ledgerRows || []) as any[]) {
-      const amt = Math.abs(Number(l.amount))
-      if (l.type === 'topup') {
-        if (l.method === 'cash_change' || l.method === 'cash') received.cash += amt
-        else if (l.method === 'zelle') received.zelle += amt
-        else if (l.method === 'venmo') received.venmo += amt
-        else if (l.method === 'paypal') received.paypal += amt
-        // method === 'manual' or 'other_internal': intentionally not counted
-      } else if (l.type === 'refund') {
-        if (l.method === 'cash') withdrawn.cash = (withdrawn.cash || 0) + amt
-        else if (l.method === 'zelle') withdrawn.zelle = (withdrawn.zelle || 0) + amt
-        else if (l.method === 'cc') withdrawn.stripe = (withdrawn.stripe || 0) + amt
-        // method === 'void': balance-only reversal, no real account affected
-      }
-    }
-
+    setNetError(null)
     setNetReceived(received)
     setNetWithdrawn(withdrawn)
     setLoadingNet(false)
+    return { received, withdrawn }
   }
 
   async function addWithdrawal(e: React.FormEvent) {
@@ -297,7 +288,9 @@ export default function AccountsPage() {
       // confirmed once you actually hear back that they received it.
     })
     if (error) { toast.error('Failed to save: ' + error.message); setSaving(false); return }
-    toast.success('Withdrawal logged as pending confirmation')
+
+    const savedAccount = fAccount
+    const savedDate = fDate
     setFAmount('')
     setFReason('')
     setFPaidTo('')
@@ -305,8 +298,26 @@ export default function AccountsPage() {
     setFDate(todayStr())
     setSaving(false)
     selfWriteAtRef.current = Date.now()
-    loadWithdrawals()
-    loadNetBalances()
+
+    // The log table below is filtered to the page's date range, which defaults
+    // to today only — a withdrawal back-dated (or logged just after local
+    // midnight) would otherwise save correctly and then be invisible, reading
+    // as "it didn't go through". Widen the range so the new row is always
+    // visible; the from/to effects re-run loadWithdrawals() for us.
+    if (savedDate < from) setFrom(savedDate)
+    else if (savedDate > to) setTo(savedDate)
+    else loadWithdrawals()
+
+    // Recompute the current-balance cards immediately and say the resulting
+    // number out loud, so it's unambiguous that the withdrawal came off the
+    // balance (rather than leaving the admin to compare two cards themselves).
+    const net = await loadNetBalances()
+    if (net) {
+      const newBalance = (net.received[savedAccount] || 0) - (net.withdrawn[savedAccount] || 0)
+      toast.success(`Withdrawal logged — ${ACCOUNT_LABELS[savedAccount]} is now ${formatCurrency(newBalance)}`)
+    } else {
+      toast.success('Withdrawal logged')
+    }
   }
 
   async function markWithdrawalConfirmed(withdrawal: WithdrawalRow, confirmationMethod: string) {
@@ -321,6 +332,9 @@ export default function AccountsPage() {
     toast.success('Marked as confirmed')
     setConfirmingWithdrawal(null)
     selfWriteAtRef.current = Date.now()
+    // No loadNetBalances() here on purpose — confirmation is audit metadata
+    // about the recipient acknowledging receipt; the money came off the
+    // balance when the withdrawal was logged, so no total can have changed.
     loadWithdrawals()
   }
 
@@ -406,9 +420,10 @@ export default function AccountsPage() {
     .reduce((s, [, v]) => s + v, 0) + topupOther
   const grandTotal = cash + zelle + cc + balance + other
 
-  // Net balance = all-time received minus all-time withdrawn, per account —
-  // independent of the from/to range above. Only surfaced for accounts that
-  // have ever seen activity, so venmo/paypal/cashapp stay hidden until used.
+  // Current balance = all-time received minus all-time withdrawn, per account —
+  // independent of the from/to range used by the activity section. Only
+  // surfaced for accounts that have ever seen activity, so venmo/paypal/cashapp
+  // stay hidden until used.
   const netRows = ACCOUNT_ORDER
     .map(key => {
       const received = netReceived[key] || 0
@@ -416,6 +431,10 @@ export default function AccountsPage() {
       return { key, label: ACCOUNT_LABELS[key], received, withdrawn, net: received - withdrawn }
     })
     .filter(r => r.received !== 0 || r.withdrawn !== 0)
+
+  const netTotal = netRows.reduce((s, r) => s + r.net, 0)
+  const netWithdrawnTotal = netRows.reduce((s, r) => s + r.withdrawn, 0)
+  const pendingConfirmationCount = withdrawals.filter(w => !w.confirmed_received).length
 
   const PayCard = ({
     label, amount, icon: Icon, color,
@@ -441,7 +460,7 @@ export default function AccountsPage() {
           </div>
           <div>
             <h1 className="text-2xl font-bold text-slate-800">Accounts</h1>
-            <p className="text-sm text-slate-500">Payment balances & withdrawal tracking</p>
+            <p className="text-sm text-slate-500">What&rsquo;s in each account right now &amp; withdrawal tracking</p>
           </div>
         </div>
         <button
@@ -455,14 +474,138 @@ export default function AccountsPage() {
         </button>
       </div>
 
-      {/* ── Section 1: Payment Account Balances ── */}
+      {/* ── Section 1: Money in Each Account Right Now (the headline figure) ──
+          Deliberately first and visually loudest: this is the question the page
+          exists to answer. The date-ranged activity cards below are gross
+          receipts for a period and do NOT subtract withdrawals — keeping them
+          above this section is what let a logged withdrawal look like it never
+          landed. */}
       <section className="space-y-4">
-        <div className="flex items-center justify-between">
-          <h2 className="text-lg font-semibold text-slate-700">Payment Account Balances</h2>
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-bold text-slate-800">Money in Each Account Right Now</h2>
+            <p className="text-sm text-slate-500 mt-0.5">
+              Everything ever received, minus everything ever withdrawn. Every withdrawal you log below is
+              subtracted here straight away &mdash; whether or not it&rsquo;s been marked confirmed.
+            </p>
+          </div>
+          <button
+            onClick={loadNetBalances}
+            disabled={loadingNet}
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors shrink-0"
+          >
+            <RefreshCw className={`w-4 h-4 ${loadingNet ? 'animate-spin' : ''}`} />
+            Refresh
+          </button>
+        </div>
+
+        {netError && (
+          <div className="bg-red-50 border border-red-200 rounded-2xl p-4 flex items-start gap-3">
+            <AlertTriangle className="w-5 h-5 text-red-600 shrink-0 mt-0.5" />
+            <div className="text-sm text-red-700">
+              <p className="font-semibold">These balances couldn&rsquo;t be loaded, so the numbers below may be out of date.</p>
+              <p className="text-red-600 mt-0.5">{netError} — tap Refresh to try again.</p>
+            </div>
+          </div>
+        )}
+
+        {loadingNet ? (
+          <div className="text-sm text-slate-400">Loading…</div>
+        ) : netRows.length === 0 ? (
+          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 text-sm text-slate-400 text-center">
+            No account activity yet.
+          </div>
+        ) : (
+          <>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
+              {netRows.map(r => {
+                const Icon = ACCOUNT_ICONS[r.key] ?? Wallet
+                return (
+                  <button
+                    key={r.key}
+                    onClick={() => setSelectedAccountKey(r.key)}
+                    className="text-left bg-white rounded-2xl shadow-sm border border-slate-200 p-5 hover:border-emerald-300 hover:shadow-md transition-all cursor-pointer"
+                  >
+                    <div className="flex items-center gap-3">
+                      <div className={`w-11 h-11 rounded-xl flex items-center justify-center shrink-0 ${ACCOUNT_ICON_COLORS[r.key] ?? 'bg-slate-700'}`}>
+                        <Icon className="w-5 h-5 text-white" />
+                      </div>
+                      <div className="min-w-0">
+                        <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{r.label}</p>
+                        <p className={`text-2xl font-bold leading-tight ${r.net < 0 ? 'text-red-600' : 'text-slate-800'}`}>
+                          {formatCurrency(r.net)}
+                        </p>
+                      </div>
+                    </div>
+                    <div className="mt-3 pt-3 border-t border-slate-100 flex items-center justify-between text-xs">
+                      <span className="text-slate-500">
+                        {formatCurrency(r.received)} in
+                        {r.withdrawn > 0 && (
+                          <> &nbsp;&minus;&nbsp;<span className="text-red-600 font-medium">{formatCurrency(r.withdrawn)} withdrawn</span></>
+                        )}
+                      </span>
+                      <span className="text-emerald-600 font-medium shrink-0">View →</span>
+                    </div>
+                  </button>
+                )
+              })}
+            </div>
+
+            <div className="bg-slate-800 rounded-2xl p-5 flex items-center gap-4">
+              <div className="w-11 h-11 rounded-xl bg-white/10 flex items-center justify-center shrink-0">
+                <Wallet className="w-5 h-5 text-white" />
+              </div>
+              <div className="flex-1">
+                <p className="text-xs font-medium text-slate-300 uppercase tracking-wide">Total on hand (all accounts)</p>
+                <p className="text-2xl font-bold text-white mt-0.5">{formatCurrency(netTotal)}</p>
+              </div>
+              {netWithdrawnTotal > 0 && (
+                <p className="text-xs text-slate-400 text-right hidden sm:block">
+                  {formatCurrency(netWithdrawnTotal)} already withdrawn<br />and taken off these totals
+                </p>
+              )}
+            </div>
+          </>
+        )}
+
+        {/* Outstanding bochur balance (liability) — all-time, so it belongs with
+            the current-balance figures rather than the date-ranged section. */}
+        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 flex items-center gap-4">
+          <div className="w-11 h-11 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
+            <Users className="w-5 h-5 text-rose-600" />
+          </div>
+          <div className="flex-1">
+            <p className="text-sm font-medium text-slate-600">Outstanding Balance <span className="text-slate-400 font-normal">(owed to students)</span></p>
+            <p className="text-2xl font-bold text-rose-600 mt-0.5">{formatCurrency(bochurBalance)}</p>
+          </div>
+          <p className="text-xs text-slate-400 max-w-[200px] text-right hidden sm:block">
+            Sum of all active student account balances — money the canteen holds on behalf of students, not part of the totals above.
+          </p>
+        </div>
+
+        <p className="text-xs text-slate-400">
+          Counts POS payments, top-ups, cash kept as change-to-balance, tagged Add Funds entries, refunds paid back to
+          students, and every row in the withdrawal log below. Excludes voided cash/credit-card orders&rsquo; original
+          payment — voiding doesn&rsquo;t track whether cash was physically handed back, so log a withdrawal separately
+          if it was. Click any card to see every transaction behind the number.
+        </p>
+      </section>
+
+      {/* ── Section 2: Activity in the selected date range (gross, NOT net) ── */}
+      <section className="space-y-4">
+        <div className="flex items-start justify-between gap-3">
+          <div>
+            <h2 className="text-lg font-semibold text-slate-700">Activity in This Date Range</h2>
+            <p className="text-sm text-slate-400 mt-0.5">
+              How much money came <span className="font-medium text-slate-500">in</span> during the dates below.
+              This is a period report — it does <span className="font-medium text-slate-500">not</span> subtract
+              withdrawals. For what&rsquo;s left in an account, use the cards above.
+            </p>
+          </div>
           <button
             onClick={loadPayments}
             disabled={loadingPayments}
-            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors"
+            className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-700 transition-colors shrink-0"
           >
             <RefreshCw className={`w-4 h-4 ${loadingPayments ? 'animate-spin' : ''}`} />
             Refresh
@@ -515,38 +658,25 @@ export default function AccountsPage() {
           </button>
         </div>
 
-        {/* Balance cards */}
+        {/* Received-in-range cards */}
         <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
-          <PayCard label="Cash" amount={cash} icon={Banknote} color="bg-green-500" />
-          <PayCard label="Zelle" amount={zelle} icon={Smartphone} color="bg-purple-500" />
-          <PayCard label="Credit Card" amount={cc} icon={CreditCard} color="bg-blue-500" />
-          <PayCard label="Balance" amount={balance} icon={DollarSign} color="bg-amber-500" />
-          <PayCard label="Total" amount={grandTotal} icon={Wallet} color="bg-slate-700" />
-        </div>
-
-        {/* Outstanding bochur balance (liability) */}
-        <div className="bg-slate-50 border border-slate-200 rounded-2xl p-5 flex items-center gap-4">
-          <div className="w-11 h-11 rounded-xl bg-rose-100 flex items-center justify-center shrink-0">
-            <Users className="w-5 h-5 text-rose-600" />
-          </div>
-          <div className="flex-1">
-            <p className="text-sm font-medium text-slate-600">Outstanding Balance <span className="text-slate-400 font-normal">(owed to students)</span></p>
-            <p className="text-2xl font-bold text-rose-600 mt-0.5">{formatCurrency(bochurBalance)}</p>
-          </div>
-          <p className="text-xs text-slate-400 max-w-[200px] text-right hidden sm:block">
-            Sum of all active student account balances — represents money the canteen holds on behalf of students.
-          </p>
+          <PayCard label="Cash in" amount={cash} icon={Banknote} color="bg-green-500" />
+          <PayCard label="Zelle in" amount={zelle} icon={Smartphone} color="bg-purple-500" />
+          <PayCard label="Credit Card in" amount={cc} icon={CreditCard} color="bg-blue-500" />
+          <PayCard label="Paid by balance" amount={balance} icon={DollarSign} color="bg-amber-500" />
+          <PayCard label="Total in" amount={grandTotal} icon={Wallet} color="bg-slate-700" />
         </div>
       </section>
 
-      {/* ── Section 1b: Top-up Deposits Received ── */}
+      {/* ── Section 3: Top-up Deposits Received ── */}
       <section className="space-y-4">
         <div>
           <h2 className="text-lg font-semibold text-slate-700">Top-up Deposits Received</h2>
           <p className="text-sm text-slate-400 mt-0.5">
             Parent payments confirmed in the selected date range, grouped by method.
             Uses the &ldquo;Date Received&rdquo; field set at confirmation (falls back to confirmation date if not set).
-            Already included in the Cash/Zelle/Credit Card balances above — shown here as a breakdown, not an addition.
+            Already included in the &ldquo;in&rdquo; cards above — a breakdown of money received, not an addition, and
+            like those cards it does not subtract withdrawals.
           </p>
         </div>
 
@@ -589,47 +719,6 @@ export default function AccountsPage() {
         )}
       </section>
 
-      {/* ── Section 1c: Net Account Balances (all-time) ── */}
-      <section className="space-y-4">
-        <div>
-          <h2 className="text-lg font-semibold text-slate-700">Net Account Balances</h2>
-          <p className="text-sm text-slate-400 mt-0.5">
-            All-time money in minus all-time money out, per account — what should actually be sitting there right now.
-            Counts POS payments, top-ups, cash kept as change-to-balance, tagged Add Funds entries, refunds paid back
-            to students, and the withdrawal log below. Not affected by the date range above. Excludes voided
-            cash/credit-card orders&rsquo; original payment — voiding doesn&rsquo;t track whether cash was physically
-            handed back, so log a withdrawal separately if it was. Click a card to see every transaction behind it.
-          </p>
-        </div>
-
-        {loadingNet ? (
-          <div className="text-sm text-slate-400">Loading…</div>
-        ) : netRows.length === 0 ? (
-          <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-5 text-sm text-slate-400 text-center">
-            No account activity yet.
-          </div>
-        ) : (
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-4">
-            {netRows.map(r => (
-              <button
-                key={r.key}
-                onClick={() => setSelectedAccountKey(r.key)}
-                className="text-left bg-white rounded-2xl shadow-sm border border-slate-200 p-5 hover:border-emerald-300 hover:shadow-md transition-all cursor-pointer"
-              >
-                <p className="text-xs font-medium text-slate-500 uppercase tracking-wide">{r.label}</p>
-                <p className={`text-xl font-bold mt-0.5 ${r.net < 0 ? 'text-red-600' : 'text-slate-800'}`}>
-                  {formatCurrency(r.net)}
-                </p>
-                <p className="text-xs text-slate-400 mt-1">
-                  {formatCurrency(r.received)} in &minus; {formatCurrency(r.withdrawn)} out
-                </p>
-                <p className="text-xs text-emerald-600 mt-2 font-medium">View transactions →</p>
-              </button>
-            ))}
-          </div>
-        )}
-      </section>
-
       {selectedAccountKey && (
         <AccountTransactionsModal
           accountKey={selectedAccountKey}
@@ -638,10 +727,16 @@ export default function AccountsPage() {
         />
       )}
 
-      {/* ── Section 2: Withdrawal Log ── */}
+      {/* ── Section 4: Withdrawal Log ── */}
       <section className="space-y-4">
         <h2 className="text-lg font-semibold text-slate-700">Withdrawal Log</h2>
-        <p className="text-sm text-slate-400 -mt-2">Filtered to the date range selected above.</p>
+        <p className="text-sm text-slate-400 -mt-2">
+          Money taken out of an account. Every row here is already subtracted from &ldquo;Money in Each Account Right
+          Now&rdquo; at the top of this page — the Pending/Confirmed status only records whether the person you paid
+          has acknowledged receiving it, and never changes the balance.
+          {' '}Filtered to the date range selected above
+          {pendingConfirmationCount > 0 && <> · <span className="text-amber-600 font-medium">{pendingConfirmationCount} awaiting confirmation</span></>}.
+        </p>
 
         {/* New withdrawal form */}
         <div className="bg-white rounded-2xl shadow-sm border border-slate-200 p-6">

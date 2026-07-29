@@ -6,6 +6,7 @@ import { createClient } from '@/lib/supabase/client'
 import {
   LayoutDashboard, Users, Package,
   Receipt, Settings, ShoppingBag, LogOut, Menu, X, Wallet, Truck,
+  FlagTriangleRight,
 } from 'lucide-react'
 import { cn } from '@/lib/utils'
 
@@ -16,6 +17,7 @@ const NAV = [
   { href: '/products/products', icon: Package, label: 'Products', activeBase: '/products' },
   { href: '/preorders/orders', icon: Truck, label: 'Preorders', activeBase: '/preorders' },
   { href: '/finance/topups', icon: Wallet, label: 'Finance', activeBase: '/finance' },
+  { href: '/season-close/summary', icon: FlagTriangleRight, label: 'Season Close', activeBase: '/season-close' },
   { href: '/settings/general', icon: Settings, label: 'Settings', activeBase: '/settings' },
 ]
 
