@@ -26,7 +26,7 @@ import { formatCurrency } from '@/lib/utils'
 import { format } from 'date-fns'
 import {
   Users, Package, ClipboardList, FlagTriangleRight, Download, Search,
-  AlertTriangle, ExternalLink, RefreshCw, Clock, Truck, Wallet, ChevronRight,
+  AlertTriangle, ExternalLink, RefreshCw, Clock, Truck, Wallet, ChevronRight, Bot,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import BochurProfileModal from '@/app/(admin)/bochurim/BochurProfileModal'
@@ -39,13 +39,14 @@ import {
   type OutstandingBalances, type InventoryValuation, type LooseEnds,
 } from '@/lib/seasonClose'
 
-type SeasonTab = 'summary' | 'balances' | 'inventory' | 'loose-ends'
-const VALID_TABS: SeasonTab[] = ['summary', 'balances', 'inventory', 'loose-ends']
+type SeasonTab = 'summary' | 'balances' | 'inventory' | 'loose-ends' | 'ai-flags'
+const VALID_TABS: SeasonTab[] = ['summary', 'balances', 'inventory', 'loose-ends', 'ai-flags']
 const TABS: { key: SeasonTab; label: string }[] = [
   { key: 'summary', label: 'Summary' },
   { key: 'balances', label: 'Student Balances' },
   { key: 'inventory', label: 'Leftover Stock' },
   { key: 'loose-ends', label: 'Loose Ends' },
+  { key: 'ai-flags', label: 'AI Flags' },
 ]
 
 export default function SeasonClosePage() {
@@ -71,6 +72,7 @@ export default function SeasonClosePage() {
       {tab === 'balances' && <BalancesTab />}
       {tab === 'inventory' && <InventoryTab />}
       {tab === 'loose-ends' && <LooseEndsTab />}
+      {tab === 'ai-flags' && <AIFlagsTab />}
     </div>
   )
 }
@@ -991,6 +993,164 @@ function LooseEndsTab() {
             </span>
           </div>
         </>
+      )}
+    </div>
+  )
+}
+
+// ─── AI Flags ─────────────────────────────────────────────────────────────────
+//
+// A plain, hand-maintained list — NOT a running detector. Nothing here queries
+// the database or scans for new issues; it's a place to write down something an
+// AI session happened to notice during a one-off manual review (e.g. asking
+// Claude to look into a specific report), so it doesn't just get mentioned in
+// chat and forgotten. Add a new entry to AI_FLAGS below whenever that happens
+// again. A real always-on flagging system (scheduled scans, dismiss/resolve
+// state, its own table) is a deliberately separate, bigger ask — see gotcha
+// #59 — build that only if asked for explicitly.
+
+interface AIFlagOccurrence {
+  bochurId: string
+  bochurName: string
+  amount: number
+  date: string
+  note: string
+}
+
+interface AIFlag {
+  id: string
+  title: string
+  foundOn: string
+  description: string
+  occurrences: AIFlagOccurrence[]
+}
+
+const AI_FLAGS: AIFlag[] = [
+  {
+    id: 'zelle-double-credit-2026-07-12',
+    title: 'Possible duplicate Zelle top-up credits (2026-07-12)',
+    foundOn: '2026-07-29',
+    description:
+      'Two students each show the same-day, same-amount Zelle payment credited twice: once as a direct "Add Funds" balance_ledger entry, and again as a separately-approved parent top-up request (balance_topups). If both were the same physical payment, each student’s balance — and the Zelle account total on the Accounts page — is overstated by that amount.',
+    occurrences: [
+      {
+        bochurId: '3a77b1e0-6179-49c9-92e0-3e592d11d372',
+        bochurName: 'Avi Blachman',
+        amount: 50,
+        date: '2026-07-12',
+        note: '$50 "zelle top-up" Add Funds ledger entry, plus a separately confirmed $50 Zelle balance_topups row — both dated 2026-07-12, confirmed 23:21:54 UTC.',
+      },
+      {
+        bochurId: 'cf6e60ba-006d-4c23-a7cd-e167b9fb0f31',
+        bochurName: 'Mendy Andrusier',
+        amount: 25,
+        date: '2026-07-12',
+        note: '$25 "zelle top-up" Add Funds ledger entry, plus a separately confirmed $25 Zelle balance_topups row — both dated 2026-07-12, confirmed 23:21:25 UTC.',
+      },
+    ],
+  },
+]
+
+function AIFlagsTab() {
+  const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
+  const [profileId, setProfileId] = useState<string | null>(null)
+  const supabase = createClient()
+
+  useEffect(() => {
+    supabase.from('account_types').select('*').order('name').then(({ data }) => setAccountTypes((data || []) as AccountType[]))
+  // supabase client is stable across renders
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [])
+
+  const totalFlagged = AI_FLAGS.reduce((s, f) => s + f.occurrences.reduce((s2, o) => s2 + o.amount, 0), 0)
+
+  return (
+    <div className="p-4 sm:p-6 max-w-5xl mx-auto space-y-5">
+      <PageHeader
+        icon={Bot}
+        title="AI Flags"
+        sub="Things an AI session happened to notice and wrote down here for you to look at — nothing on this tab watches the database or runs on a schedule."
+      />
+
+      <div className="flex items-start gap-3 p-4 bg-indigo-50 border border-indigo-200 rounded-xl text-sm text-indigo-900">
+        <Bot className="w-5 h-5 mt-0.5 shrink-0 text-indigo-600" />
+        <div>
+          <p className="font-semibold">🤖 AI-found, not system-flagged.</p>
+          <p className="mt-1 text-indigo-800">
+            Every entry below was noticed once by an AI session doing a manual review, not by an automated check that runs continuously.
+            Nothing gets added here on its own, and nothing here auto-resolves — it&rsquo;s just a durable place to put a one-off finding
+            instead of it only living in a chat you might not scroll back to. A real always-on flagging system (scheduled scans, per-flag
+            dismiss/resolve, its own history) hasn&rsquo;t been built — ask for that specifically if/when you want it.
+          </p>
+        </div>
+      </div>
+
+      {AI_FLAGS.length === 0 ? (
+        <div className="admin-card p-8 text-center text-slate-400 text-sm">Nothing flagged right now.</div>
+      ) : (
+        <>
+          <StatCard
+            label="Total across all open flags"
+            value={formatCurrency(totalFlagged)}
+            sub={`${AI_FLAGS.length} flag${AI_FLAGS.length === 1 ? '' : 's'} · ${AI_FLAGS.reduce((s, f) => s + f.occurrences.length, 0)} affected record${AI_FLAGS.reduce((s, f) => s + f.occurrences.length, 0) === 1 ? '' : 's'}`}
+            tone="amber"
+          />
+
+          <div className="space-y-4">
+            {AI_FLAGS.map(flag => (
+              <div key={flag.id} className="admin-card p-5 space-y-4">
+                <div className="flex flex-wrap items-start justify-between gap-2">
+                  <div>
+                    <h3 className="font-semibold text-slate-800">{flag.title}</h3>
+                    <p className="text-sm text-slate-500 mt-1 max-w-2xl">{flag.description}</p>
+                  </div>
+                  <span className="inline-flex items-center gap-1 px-2.5 py-1 rounded-full text-xs font-medium bg-indigo-100 text-indigo-700 shrink-0">
+                    <Bot className="w-3 h-3" /> AI-found {flag.foundOn}
+                  </span>
+                </div>
+
+                <div className="overflow-x-auto -mx-1">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="border-b border-slate-100">
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wide">Student</th>
+                        <th className="text-right px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wide">Amount</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wide">Date</th>
+                        <th className="text-left px-3 py-2 text-xs font-semibold text-slate-400 uppercase tracking-wide">What was found</th>
+                      </tr>
+                    </thead>
+                    <tbody className="divide-y divide-slate-50">
+                      {flag.occurrences.map((o, i) => (
+                        <tr key={i}>
+                          <td className="px-3 py-2.5">
+                            <button
+                              onClick={() => setProfileId(o.bochurId)}
+                              className="font-medium text-amber-700 hover:text-amber-900 hover:underline inline-flex items-center gap-1"
+                            >
+                              {o.bochurName} <ExternalLink className="w-3 h-3" />
+                            </button>
+                          </td>
+                          <td className="px-3 py-2.5 text-right font-semibold text-slate-800 whitespace-nowrap">{formatCurrency(o.amount)}</td>
+                          <td className="px-3 py-2.5 text-slate-500 whitespace-nowrap">{format(new Date(o.date + 'T12:00:00'), 'MMM d, yyyy')}</td>
+                          <td className="px-3 py-2.5 text-slate-500">{o.note}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+
+                <p className="text-xs text-slate-400">
+                  This is a data/decision question, not a bug — click a student above to open their profile and use the existing Refund
+                  Balance / ledger tools if you decide a correction is needed. Nothing here changes any balance automatically.
+                </p>
+              </div>
+            ))}
+          </div>
+        </>
+      )}
+
+      {profileId && (
+        <StudentProfilePanel bochurId={profileId} accountTypes={accountTypes} onClose={() => setProfileId(null)} />
       )}
     </div>
   )
