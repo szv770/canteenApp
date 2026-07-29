@@ -7,7 +7,11 @@ import type { SupabaseClient } from '@supabase/supabase-js'
 const PAYMENT_METHODS: Record<string, string[]> = {
   cash: ['cash'],
   stripe: ['credit_card', 'card', 'stripe_terminal'],
-  zelle: [], venmo: [], paypal: [], cashapp: [],
+  // `payments.method` allows 'zelle' and loadNetBalances() buckets it into the
+  // Zelle account — so it has to be listed here too, or a POS sale taken by
+  // Zelle would count toward the card total while being missing from the
+  // drill-down and the CSV export.
+  zelle: ['zelle'], venmo: [], paypal: [], cashapp: [],
 }
 const TOPUP_METHODS: Record<string, string[]> = {
   cash: ['cash'], zelle: ['zelle'], stripe: ['credit_card', 'card'],
