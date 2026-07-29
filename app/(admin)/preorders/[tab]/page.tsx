@@ -59,7 +59,13 @@ function PublicLinkStatusBadge() {
   const [enabled, setEnabled] = useState<boolean | null>(null)
 
   useEffect(() => {
-    supabase.from('settings').select('value').eq('key', 'preorder_public_link_enabled').single().then(({ data }) => {
+    supabase.from('settings').select('value').eq('key', 'preorder_public_link_enabled').maybeSingle().then(({ data, error }) => {
+      // Don't claim "On" off the back of a failed read — that's the opposite of
+      // what this badge exists for. Stay hidden instead.
+      if (error) {
+        console.error('Preorders: failed to read public-link setting', error)
+        return
+      }
       setEnabled(String(data?.value ?? 'true').replace(/"/g, '') !== 'false')
     })
   }, [])
@@ -99,22 +105,45 @@ interface PreorderProductRow {
   is_active: boolean
 }
 
+interface PreorderBundleRow {
+  id: string
+  name: string
+  icon: string | null
+  price: number
+  is_active: boolean
+  bundle_items: { quantity: number; products: { name: string; preorder_source: 'vendor' | 'in_house' | null; cost_price: number | null } | null }[]
+}
+
 function ItemsTab() {
   const supabase = createClient()
   const [rows, setRows] = useState<PreorderProductRow[]>([])
+  const [bundleRows, setBundleRows] = useState<PreorderBundleRow[]>([])
   const [loading, setLoading] = useState(true)
 
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
     setLoading(true)
-    const { data, error } = await supabase
-      .from('products')
-      .select('id, name, icon, price, staff_price, preorder_source, preorder_daily_cap, is_active')
-      .eq('allow_preorder', true)
-      .order('name')
+    const [{ data, error }, { data: bundles, error: bundlesError }] = await Promise.all([
+      supabase
+        .from('products')
+        .select('id, name, icon, price, staff_price, preorder_source, preorder_daily_cap, is_active')
+        .eq('allow_preorder', true)
+        .order('name'),
+      // Combo deals can be opted into Preorders too (Products → Bundles →
+      // "Orderable via Preorders"), and until this listing existed there was no
+      // screen anywhere confirming which ones were actually live — the same
+      // visibility gap this tab was created to close for products.
+      supabase
+        .from('product_bundles')
+        .select('id, name, icon, price, is_active, bundle_items(quantity, products(name, preorder_source, cost_price))')
+        .eq('allow_preorder', true)
+        .order('name'),
+    ])
     if (error) toast.error(error.message)
+    if (bundlesError) toast.error(bundlesError.message)
     setRows((data || []) as PreorderProductRow[])
+    setBundleRows((bundles || []) as unknown as PreorderBundleRow[])
     setLoading(false)
   }
 
@@ -179,6 +208,81 @@ function ItemsTab() {
           </table>
         </div>
       </div>
+
+      {/* Combo deals opted into Preorders */}
+      <div className="flex flex-wrap items-center justify-between gap-3 pt-1">
+        <div>
+          <h2 className="text-lg font-bold text-slate-900 tracking-tight">Preorder Deals</h2>
+          <p className="text-slate-500 text-sm mt-0.5">
+            Combo deals flagged "Orderable via Preorders". Deals always sell at their flat price — staff pricing and account-type discounts never apply to them.
+          </p>
+        </div>
+        <Link href="/products/bundles" className="btn-secondary text-sm">
+          <ExternalLink className="w-4 h-4" /> Manage in Bundles
+        </Link>
+      </div>
+
+      <div className="admin-card overflow-hidden">
+        <div className="overflow-x-auto">
+          <table className="w-full min-w-[640px]">
+            <thead>
+              <tr className="border-b border-slate-100 bg-slate-50/50">
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Deal</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Includes</th>
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Price</th>
+                <th className="text-center text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Status</th>
+              </tr>
+            </thead>
+            <tbody>
+              {loading ? (
+                <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-400 text-sm">Loading...</td></tr>
+              ) : bundleRows.length === 0 ? (
+                <tr><td colSpan={4} className="px-4 py-10 text-center text-slate-400 text-sm">
+                  No deals are flagged "Orderable via Preorders" yet — enable it on a bundle in Products → Bundles.
+                </td></tr>
+              ) : bundleRows.map(b => {
+                // A vendor-sourced component with no cost price contributes
+                // nothing to the Vendor Ledger's "owed" total (see CLAUDE.md) —
+                // and inside a deal that's very easy to miss, since the deal
+                // itself carries no source or cost of its own.
+                const missingCost = (b.bundle_items || []).some(
+                  bi => bi.products?.preorder_source === 'vendor' && !bi.products?.cost_price
+                )
+                return (
+                  <tr key={b.id} className="table-row">
+                    <td className="px-4 py-3">
+                      <span className="text-sm font-semibold text-slate-900">{b.icon} {b.name}</span>
+                      {missingCost && (
+                        <p className="text-xs text-amber-600 mt-0.5">A vendor item in this deal has no cost price — it adds nothing to "owed"</p>
+                      )}
+                    </td>
+                    <td className="px-4 py-3 text-sm text-slate-600">
+                      {(b.bundle_items || []).length === 0
+                        ? <span className="text-slate-300 italic">No items</span>
+                        : (b.bundle_items || []).map((bi, i) => (
+                          <span key={i} className="inline-flex items-center gap-1 mr-2">
+                            {bi.products?.preorder_source === 'vendor'
+                              ? <Truck className="w-3 h-3 text-slate-400" />
+                              : <ChefHat className="w-3 h-3 text-slate-400" />}
+                            {bi.products?.name ?? 'Unknown'} ×{bi.quantity}
+                          </span>
+                        ))}
+                    </td>
+                    <td className="px-4 py-3 text-sm font-semibold text-slate-900 text-right">{formatCurrency(b.price)}</td>
+                    <td className="px-4 py-3 text-center">
+                      {b.is_active ? (
+                        <span className="badge bg-emerald-50 text-emerald-700 border border-emerald-100">Active</span>
+                      ) : (
+                        <span className="badge bg-slate-100 text-slate-500 border border-slate-200">Inactive</span>
+                      )}
+                    </td>
+                  </tr>
+                )
+              })}
+            </tbody>
+          </table>
+        </div>
+      </div>
     </div>
   )
 }
@@ -223,11 +327,23 @@ function OrdersTab() {
   // prompt the admin to refresh for the echo of their own click.
   const suppressToastUntilRef = useRef(0)
 
+  // Called BEFORE a write starts, not just after it finishes: the row changes
+  // (and the realtime broadcast fires) while the request is still in flight, so
+  // a suppression window that only opened once the response came back could let
+  // a slow echo prompt the admin to refresh the change they just made.
+  function markSelfWrite(ms = 8000) {
+    suppressToastUntilRef.current = Math.max(suppressToastUntilRef.current, Date.now() + ms)
+  }
+
   useEffect(() => { loadData() }, [date])
 
   useEffect(() => {
-    supabase.from('settings').select('value').eq('key', 'preorder_vendor_phone').single()
-      .then(({ data }) => setVendorPhone(String(data?.value ?? '').replace(/"/g, '')))
+    supabase.from('settings').select('value').eq('key', 'preorder_vendor_phone').maybeSingle()
+      .then(({ data, error }) => {
+        // Non-fatal — costs the WhatsApp button, never the summary itself.
+        if (error) { console.error('Preorders: failed to read vendor phone', error); return }
+        setVendorPhone(String(data?.value ?? '').replace(/"/g, ''))
+      })
   }, [])
 
   // Live-refresh prompt (never a silent refetch — an admin mid-click on
@@ -258,7 +374,7 @@ function OrdersTab() {
   async function loadData() {
     setLoading(true)
     setVendorSummary(null)
-    suppressToastUntilRef.current = Date.now() + 2500
+    markSelfWrite(2500)
     toast.dismiss(REALTIME_TOAST_ID)
     const { data, error } = await supabase
       .from('preorders')
@@ -306,6 +422,7 @@ function OrdersTab() {
 
   async function confirmReceived(preorderId: string, name: string) {
     setConfirmingId(preorderId)
+    markSelfWrite()
     try {
       const res = await fetch('/api/pos/preorder-confirm', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -316,6 +433,9 @@ function OrdersTab() {
         toast.error(json.error === 'Insufficient balance'
           ? `${name} is short ${formatCurrency(json.shortfall)} — top up first`
           : (json.error || 'Failed to confirm'))
+        // 409 = already confirmed elsewhere (POS counter, another admin tab);
+        // reload so the row stops showing as still pending.
+        if (res.status === 409) loadData()
         return
       }
       toast.success(`Charged ${formatCurrency(json.charged)} to ${name}`)
@@ -327,16 +447,29 @@ function OrdersTab() {
 
   async function cancelOrder(preorderId: string) {
     if (!confirm('Cancel this order? It will never be charged.')) return
-    const { error } = await supabase.from('preorders').update({
+    markSelfWrite()
+    // Guarded on status: cancelling a preorder never refunds anything, so
+    // cancelling one that was confirmed-received a moment ago (in the POS, or
+    // in another admin's tab) would quietly leave the person charged for an
+    // order that now reads "cancelled".
+    const { data: cancelled, error } = await supabase.from('preorders').update({
       status: 'cancelled', cancelled_at: new Date().toISOString(), cancel_reason: 'Cancelled by admin',
-    }).eq('id', preorderId)
+    }).eq('id', preorderId).eq('status', 'pending').select('id')
     if (error) { toast.error(error.message); return }
+    if (!cancelled || cancelled.length === 0) {
+      toast.error('That order was already confirmed or cancelled — refreshing')
+      loadData()
+      return
+    }
     toast.success('Order cancelled')
     loadData()
   }
 
   async function sendToVendor() {
     setSending(true)
+    // Flips sent_to_vendor on every order for the date without a reload after,
+    // so without this the admin gets prompted to refresh their own send.
+    markSelfWrite()
     try {
       const res = await fetch('/api/admin/preorders/send-to-vendor', {
         method: 'POST', headers: { 'Content-Type': 'application/json' },
@@ -624,13 +757,18 @@ function VendorTab() {
 
   async function loadData() {
     setLoading(true)
-    const [summary, { data: nameSetting }, { data: paymentRows }] = await Promise.all([
+    const [summary, { data: nameSetting }, { data: paymentRows, error: paymentsErr }] = await Promise.all([
       computeVendorLedger(supabase),
-      supabase.from('settings').select('value').eq('key', 'preorder_vendor_name').single(),
+      supabase.from('settings').select('value').eq('key', 'preorder_vendor_name').maybeSingle(),
       supabase.from('withdrawal_log').select('*').eq('reason', 'vendor_payment').order('date', { ascending: false }),
     ])
     setLedger(summary)
     if (summary.error) toast.error(summary.error)
+    // "No payments logged yet" must mean exactly that, never a failed query.
+    if (paymentsErr) {
+      console.error('Preorders: failed to load vendor payments', paymentsErr)
+      toast.error('Could not load the vendor payment history')
+    }
     setVendorName(String(nameSetting?.value ?? '').replace(/"/g, ''))
     setPayments(paymentRows || [])
     setLoading(false)

@@ -345,7 +345,16 @@ export async function placePreorder(admin: SupabaseClient, input: PlacePreorderI
       .update({ total_amount: total, is_staff_pricing: staffPricingApplied, updated_at: new Date().toISOString() })
       .eq('id', preorderId)
     if (updErr) return { ok: false, status: 500, error: 'Failed to update order' }
-    await admin.from('preorder_items').delete().eq('preorder_id', preorderId)
+    // Checked: if the old rows survive and the new ones land alongside them,
+    // the order silently doubles up — every line appears twice on the pickup
+    // list and in the vendor/prep tally (the charge itself uses the freshly
+    // computed total_amount, so the mismatch would only surface as too much
+    // food ordered).
+    const { error: delErr } = await admin.from('preorder_items').delete().eq('preorder_id', preorderId)
+    if (delErr) {
+      console.error('placePreorder: failed to clear existing items', delErr)
+      return { ok: false, status: 500, error: 'Failed to update order' }
+    }
   } else {
     const { data: inserted, error: insErr } = await admin
       .from('preorders')
@@ -367,7 +376,25 @@ export async function placePreorder(admin: SupabaseClient, input: PlacePreorderI
   const { error: itemsErr } = await admin.from('preorder_items').insert(
     itemRows.map(row => ({ ...row, preorder_id: preorderId }))
   )
-  if (itemsErr) return { ok: false, status: 500, error: 'Failed to save order items' }
+  if (itemsErr) {
+    // The order row already carries the new total at this point, and on the
+    // edit path its old items have already been deleted — leaving it as-is
+    // would produce a pending order with a real charge and no line items, which
+    // "Confirm Received" would happily debit. Take it out of play instead: a
+    // brand-new order can just be deleted, an edited one is cancelled so it can
+    // never be charged, and either way the customer is told to re-place it.
+    console.error('placePreorder: failed to write order items', itemsErr)
+    if (existingPreorderId) {
+      await admin.from('preorders').update({
+        status: 'cancelled',
+        cancelled_at: new Date().toISOString(),
+        cancel_reason: 'Order items failed to save',
+      }).eq('id', preorderId)
+    } else {
+      await admin.from('preorders').delete().eq('id', preorderId)
+    }
+    return { ok: false, status: 500, error: 'Could not save your items — nothing was ordered, please try again' }
+  }
 
   // Re-check capped items after inserting. The pre-insert check above can
   // still race under two truly simultaneous submissions (see CLAUDE.md

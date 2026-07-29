@@ -245,6 +245,15 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
     return itemsById.get(line.refId)?.name ?? fallbackNames[line.refId] ?? 'Item'
   }
 
+  // A line rebuilt from a saved order can reference something that's since been
+  // switched off for Preorders / this date. It would otherwise sit in the cart
+  // priced at $0 with no explanation, and the update would fail server-side with
+  // no indication of which line caused it.
+  function lineUnavailable(line: CartLine): boolean {
+    if (loadingItems) return false
+    return line.kind === 'bundle' ? !bundlesById.has(line.refId) : !itemsById.has(line.refId)
+  }
+
   const isStaff = !!selected?.account_type?.is_staff_pricing_tier
   const total = lines.reduce((sum, l) => sum + lineUnitPrice(l) * l.quantity, 0)
   const anyStaffPricing = lines.some(l => l.kind === 'product' && itemsById.get(l.refId)?.staff_pricing_applied)
@@ -369,7 +378,12 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
                 accent="amber"
               />
             )}
-            {dates.length === 0 && <p className="text-xs text-red-500 mt-1">No dates currently open — cutoff is {cutoffTime} the evening before.</p>}
+            {dates.length === 0 && (
+              <p className="text-xs text-red-500 mt-1">
+                No dates currently open — orders close at {cutoffTime} the evening before
+                {sameDayCutoffTime ? `, and at ${sameDayCutoffTime} for same-day orders` : ''}.
+              </p>
+            )}
           </div>
 
           {/* Pinned message for this date */}
@@ -444,7 +458,11 @@ export default function PreorderModal({ onClose, onSuccess }: Props) {
                     {line.addonNames.length > 0 && (
                       <p className="text-xs text-slate-400 truncate">+ {line.addonNames.join(', ')}</p>
                     )}
-                    <p className="text-xs text-slate-500">{formatCurrency(lineUnitPrice(line))} each</p>
+                    {lineUnavailable(line) ? (
+                      <p className="text-xs text-red-500">No longer orderable for this date — remove it to continue</p>
+                    ) : (
+                      <p className="text-xs text-slate-500">{formatCurrency(lineUnitPrice(line))} each</p>
+                    )}
                   </div>
                   <div className="flex items-center gap-2 shrink-0">
                     <button onClick={() => setLines(prev => setLineQuantity(prev, line.key, line.quantity - 1))} className="w-7 h-7 flex items-center justify-center bg-slate-100 rounded-lg hover:bg-slate-200"><Minus className="w-3.5 h-3.5" /></button>

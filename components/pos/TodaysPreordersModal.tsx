@@ -75,6 +75,9 @@ export default function TodaysPreordersModal({ onClose }: Props) {
         toast.error(json.error === 'Insufficient balance'
           ? `${name} is short ${formatCurrency(json.shortfall)} — top up first`
           : (json.error || 'Failed to confirm'))
+        // 409 = someone else already confirmed this handover (admin tab, another
+        // register). Reload so the stale row stops inviting another tap.
+        if (res.status === 409) loadData()
         return
       }
       toast.success(`Charged ${formatCurrency(json.charged)} to ${name}`)

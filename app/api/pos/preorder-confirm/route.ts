@@ -65,8 +65,41 @@ export async function POST(req: NextRequest) {
     }, { status: 402 })
   }
 
-  await admin.from('bochurim').update({ balance: balanceAfter }).eq('id', bochur.id)
-  await admin.from('balance_ledger').insert({
+  // Claim the row atomically BEFORE touching the balance — the same
+  // status-claim guard the top-up confirm route uses (see CLAUDE.md gotcha
+  // #13). Confirm Received is reachable from two places at once (the POS
+  // "Today's Preorders" modal and the admin Orders tab), and a double tap or
+  // two staff confirming the same handover would otherwise charge the balance
+  // twice. Exactly one request can flip pending → received; the loser gets a
+  // 409 and never reaches the debit below.
+  const { data: claimed, error: claimErr } = await admin
+    .from('preorders')
+    .update({
+      status: 'received',
+      confirmed_at: new Date().toISOString(),
+      confirmed_by: auth.user.id,
+    })
+    .eq('id', preorderId)
+    .eq('status', 'pending')
+    .select('id')
+  if (claimErr) {
+    console.error('preorder-confirm: failed to claim order', claimErr)
+    return NextResponse.json({ error: 'Could not confirm this order — please try again' }, { status: 500 })
+  }
+  if (!claimed || claimed.length === 0) {
+    return NextResponse.json({ error: 'Already confirmed' }, { status: 409 })
+  }
+
+  const { error: balanceErr } = await admin.from('bochurim').update({ balance: balanceAfter }).eq('id', bochur.id)
+  if (balanceErr) {
+    // Put the order back so it can be confirmed again — never leave it marked
+    // received with no charge actually applied.
+    console.error('preorder-confirm: failed to debit balance, reverting claim', balanceErr)
+    await admin.from('preorders').update({ status: 'pending', confirmed_at: null, confirmed_by: null }).eq('id', preorderId)
+    return NextResponse.json({ error: 'Could not charge the balance — please try again' }, { status: 500 })
+  }
+
+  const { error: ledgerErr } = await admin.from('balance_ledger').insert({
     bochur_id: bochur.id,
     amount: -total,
     type: 'purchase',
@@ -74,11 +107,9 @@ export async function POST(req: NextRequest) {
     cashier_id: auth.user.id,
     note: `Preorder for ${preorder.for_date}`,
   })
-  await admin.from('preorders').update({
-    status: 'received',
-    confirmed_at: new Date().toISOString(),
-    confirmed_by: auth.user.id,
-  }).eq('id', preorderId)
+  // The money already moved at this point — a failed audit row must not undo
+  // the charge, but it must be loud in the logs rather than silently missing.
+  if (ledgerErr) console.error('preorder-confirm: balance charged but ledger entry failed', ledgerErr, { preorderId, bochurId: bochur.id, total })
 
   return NextResponse.json({ ok: true, charged: total, bochur_name: bochur.name })
 }

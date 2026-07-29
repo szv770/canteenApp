@@ -5,7 +5,12 @@ import { placePreorder } from '@/lib/preorderPlace'
 export async function POST(req: NextRequest) {
   const admin = createAdminClient()
 
-  const { data: enabledSetting } = await admin.from('settings').select('value').eq('key', 'preorder_public_link_enabled').single()
+  // Absent row / failed read both fall back to "enabled" — the same default the
+  // rest of the feature uses — but log it, since a persistent failure here means
+  // the admin's kill-switch is silently not being honoured either way.
+  const { data: enabledSetting, error: enabledErr } = await admin
+    .from('settings').select('value').eq('key', 'preorder_public_link_enabled').maybeSingle()
+  if (enabledErr) console.error('preorders/public/place: failed to read public-link setting, defaulting to enabled', enabledErr)
   const enabled = enabledSetting?.value !== false && String(enabledSetting?.value ?? 'true').replace(/"/g, '') !== 'false'
   if (!enabled) return NextResponse.json({ error: 'Online ordering is currently unavailable.' }, { status: 403 })
 
