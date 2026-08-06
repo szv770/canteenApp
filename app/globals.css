@@ -159,3 +159,19 @@
     stroke-dashoffset: 0;
   }
 }
+
+/* The admin shell (app/(admin)/layout.tsx) fixes the sidebar+content area to
+   the viewport height (h-screen) and scrolls content inside it
+   (overflow-y-auto) — correct for screen use, but it caps every printable
+   page (menu, Season Close settlement sheets, etc.) at one screen-height of
+   content: anything a user would have had to scroll to see never reaches the
+   printer/PDF at all, which reads as pages "cutting off" partway through a
+   long list. Printing needs the whole document to lay out at its natural
+   height instead, so page-break-before rules inside it actually have
+   multiple pages worth of content to break across. */
+@media print {
+  html, body, .admin-shell, .admin-scroll {
+    height: auto !important;
+    overflow: visible !important;
+  }
+}

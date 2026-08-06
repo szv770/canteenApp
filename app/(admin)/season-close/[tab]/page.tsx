@@ -559,6 +559,8 @@ function BalancesTab() {
           .no-print { display: none !important; }
           .print-only { display: block !important; }
           body { background: white !important; }
+          .print-only table tr { page-break-inside: avoid; }
+          @page { margin: 0.5in; }
         }
         .print-only { display: none; }
         .print-page-break { page-break-before: always; }
