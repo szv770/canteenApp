@@ -565,7 +565,12 @@ export async function POST(req: NextRequest) {
     await admin.rpc('increment_discount_uses', { code_id: discountCodeId })
   }
 
-  // Stock updates (skip if stock_quantity is null = untracked)
+  // Stock updates — atomic via adjust_product_stock/adjust_variant_stock RPCs
+  // (same pattern as increment_discount_uses, gotcha #12) instead of a JS
+  // read-modify-write, which loses updates under concurrent checkouts on the
+  // same product. A failed adjustment is logged but never blocks the order —
+  // stock tracking is secondary to the money movement that already committed.
+  // Skips (RPC no-ops, returns null) if stock_quantity is null = untracked.
   for (const item of items) {
     if (item.bundle_id) {
       // Deduct stock for each bundle component product
@@ -574,24 +579,37 @@ export async function POST(req: NextRequest) {
         for (const bi of bundle.bundle_items) {
           const prod = productMap.get(bi.product_id)
           if (prod && prod.stock_quantity !== null) {
-            const newStock = Math.max(0, prod.stock_quantity - bi.quantity * item.quantity)
-            await admin.from('products').update({ stock_quantity: newStock }).eq('id', bi.product_id)
+            const { error: stockErr } = await admin.rpc('adjust_product_stock', {
+              p_product_id: bi.product_id,
+              p_delta: -(bi.quantity * item.quantity),
+            })
+            if (stockErr) {
+              console.error('[checkout] Bundle component stock adjust error:', stockErr.message)
+            }
           }
         }
       }
     } else if (item.variant_id) {
       const variant = variantMap.get(item.variant_id)!
       if (variant.stock_quantity !== null) {
-        const newVariantStock = Math.max(0, variant.stock_quantity - item.quantity)
-        await admin.from('product_variants')
-          .update({ stock_quantity: newVariantStock })
-          .eq('id', item.variant_id)
+        const { error: stockErr } = await admin.rpc('adjust_variant_stock', {
+          p_variant_id: item.variant_id,
+          p_delta: -item.quantity,
+        })
+        if (stockErr) {
+          console.error('[checkout] Variant stock adjust error:', stockErr.message)
+        }
       }
     } else {
       const product = productMap.get(item.product_id)
       if (product && product.stock_quantity !== null) {
-        const newStock = Math.max(0, product.stock_quantity - item.quantity)
-        await admin.from('products').update({ stock_quantity: newStock }).eq('id', item.product_id)
+        const { error: stockErr } = await admin.rpc('adjust_product_stock', {
+          p_product_id: item.product_id,
+          p_delta: -item.quantity,
+        })
+        if (stockErr) {
+          console.error('[checkout] Product stock adjust error:', stockErr.message)
+        }
       }
     }
   }
