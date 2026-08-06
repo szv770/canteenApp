@@ -55,6 +55,10 @@ const CASHIER_TOPUP_SETTINGS: SettingRow[] = [
   { key: 'cashier_topup_auto_approve_max', label: 'Auto-Approve Up To ($)', description: 'Cashier top-ups at or under this amount credit instantly. Anything above still goes to the admin approval queue as usual.', type: 'number' },
 ]
 
+const PROGRAM_SETTLEMENTS_SETTINGS: SettingRow[] = [
+  { key: 'cashier_view_program_settlements_enabled', label: 'Let Cashiers View End-of-Program Balances', description: 'Cashiers get a read-only view of who is owed a refund and who owes the canteen, with full dollar amounts. Executing a refund/collection/write-off still requires an admin.', type: 'toggle' },
+]
+
 const PAYMENT_SETTINGS: SettingRow[] = [
   { key: 'canteen_name', label: 'Canteen Name', description: 'Shown on the parent landing page', type: 'text' },
   { key: 'canteen_tagline', label: 'Tagline', description: 'Subtitle shown below the canteen name', type: 'text' },
@@ -271,7 +275,7 @@ function GeneralSettingsContent() {
     })
   }, [])
 
-  const ALL_CONFIG = [...SETTINGS_CONFIG, ...CASHIER_TOPUP_SETTINGS, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS, ...PREORDER_SETTINGS, ...EMAIL_IDENTITY_SETTINGS, ...EMAIL_RECEIVED_SETTINGS, ...EMAIL_APPROVED_SETTINGS, ...EMAIL_REJECTED_SETTINGS]
+  const ALL_CONFIG = [...SETTINGS_CONFIG, ...CASHIER_TOPUP_SETTINGS, ...PROGRAM_SETTLEMENTS_SETTINGS, ...PAYMENT_SETTINGS, ...CC_PAYMENT_SETTINGS, ...TOP_SELLERS_SETTINGS, ...NINE_DAYS_SETTINGS, ...PREORDER_SETTINGS, ...EMAIL_IDENTITY_SETTINGS, ...EMAIL_RECEIVED_SETTINGS, ...EMAIL_APPROVED_SETTINGS, ...EMAIL_REJECTED_SETTINGS]
 
   function parseSettingValue(key: string, raw: string): unknown {
     const config = ALL_CONFIG.find(s => s.key === key)
@@ -322,6 +326,13 @@ function GeneralSettingsContent() {
           <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">Cashier Top-ups (POS)</h2>
           <div className="space-y-3">
             {CASHIER_TOPUP_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
+          </div>
+        </section>
+
+        <section>
+          <h2 className="text-xs font-semibold text-gray-400 uppercase tracking-wider mb-3">End of Program Balances</h2>
+          <div className="space-y-3">
+            {PROGRAM_SETTLEMENTS_SETTINGS.map(s => <SettingControl key={s.key} s={s} settings={settings} set={set} />)}
           </div>
         </section>
 
