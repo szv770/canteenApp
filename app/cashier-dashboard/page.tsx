@@ -3,7 +3,7 @@
 import { useEffect, useState, useCallback } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
-import { ArrowLeft, ShoppingBag, Users, Star, RefreshCw, ChevronDown } from 'lucide-react'
+import { ArrowLeft, ShoppingBag, Users, Star, RefreshCw, ChevronDown, Scale } from 'lucide-react'
 import ProductQuickViewModal from '@/components/admin/ProductQuickViewModal'
 import CashierQuickViewModal from '@/components/admin/CashierQuickViewModal'
 import BochurProfileModal from '../(admin)/bochurim/BochurProfileModal'
@@ -67,10 +67,16 @@ export default function CashierDashboardPage() {
   const [viewBochurId, setViewBochurId] = useState<string | null>(null)
   const [viewCashierId, setViewCashierId] = useState<string | null>(null)
   const [viewProductId, setViewProductId] = useState<string | null>(null)
+  const [showBalancesLink, setShowBalancesLink] = useState(false)
 
   useEffect(() => {
     supabase.from('account_types').select('*').eq('is_active', true).order('name')
       .then(({ data }) => setAccountTypes((data || []) as AccountType[]))
+  }, [])
+
+  useEffect(() => {
+    supabase.from('settings').select('value').eq('key', 'cashier_view_program_settlements_enabled').single()
+      .then(({ data }) => setShowBalancesLink(data?.value === 'true'))
   }, [])
 
   const loadData = useCallback(async () => {
@@ -166,6 +172,15 @@ export default function CashierDashboardPage() {
             Updated {lastRefresh.toLocaleTimeString('en-US', { hour: 'numeric', minute: '2-digit' })}
           </p>
         </div>
+        {showBalancesLink && (
+          <button
+            onClick={() => router.push('/balances')}
+            className="p-2 rounded-xl hover:bg-slate-100 transition-colors"
+            title="End of Program Balances"
+          >
+            <Scale className="w-5 h-5 text-slate-500" />
+          </button>
+        )}
         <button
           onClick={loadData}
           disabled={loading}

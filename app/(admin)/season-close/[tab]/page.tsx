@@ -3,13 +3,18 @@
 /**
  * Season Close — the end-of-summer wind-down hub.
  *
- * Everything here is READ-ONLY on purpose. It answers "who and what is still
- * unresolved" so the owner can work through it, but it never decides policy or
- * moves money on its own: no bulk refund, no bulk balance zeroing, no
- * auto-cancelling of stale preorders, no inventory write-off button. Those are
- * business decisions with real money consequences and they stay in the owner's
- * hands, through the existing per-student refund flow (Students → click a row →
- * Refund Balance) and the existing per-order Preorders cancel.
+ * Summary / Leftover Stock / Loose Ends / AI Flags are READ-ONLY on purpose —
+ * they answer "who and what is still unresolved" without deciding policy or
+ * moving money (no bulk balance zeroing, no auto-cancelling of stale preorders,
+ * no inventory write-off button). Student Balances is the one exception, added
+ * 2026-07-20: it now queues and executes real refund/collection/write-off
+ * settlements inline (see lib/programSettlements.ts) rather than only linking
+ * out to the per-student Refund Balance flow — a deliberate product decision
+ * to consolidate the "who's owed / who owes at program end" workflow into one
+ * place instead of two. Nothing here still does bulk/automatic anything: every
+ * settlement is one student, one admin-reviewed amount, queued first and only
+ * executed on an explicit "Confirm" tap (see gotcha #60 for why cashier access
+ * to a *read-only* view of this same data lives at a separate top-level route).
  *
  * Numbers that already exist elsewhere are imported rather than recomputed:
  *   net cash per account → lib/accountBalances.ts (shared with Finance → Accounts)
@@ -27,6 +32,7 @@ import { format } from 'date-fns'
 import {
   Users, Package, ClipboardList, FlagTriangleRight, Download, Search,
   AlertTriangle, ExternalLink, RefreshCw, Clock, Truck, Wallet, ChevronRight, Bot,
+  Printer, CheckCircle2, X, Smartphone,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import BochurProfileModal from '@/app/(admin)/bochurim/BochurProfileModal'
@@ -38,6 +44,20 @@ import {
   csvLine, downloadCSV, localDateStr,
   type OutstandingBalances, type InventoryValuation, type LooseEnds,
 } from '@/lib/seasonClose'
+import {
+  fetchZelleQueue, queueSettlement, cancelPendingSettlement, confirmSettlement,
+  type ZelleQueueRow,
+} from '@/lib/programSettlements'
+
+const SETTLEMENT_METHOD_LABELS: Record<string, string> = { cash: 'Cash', zelle: 'Zelle', write_off: 'Write-off' }
+
+interface PendingSettlement {
+  id: string
+  direction: 'refund' | 'collection' | 'write_off'
+  amount: number
+  method: 'cash' | 'zelle' | 'write_off'
+  note: string | null
+}
 
 type SeasonTab = 'summary' | 'balances' | 'inventory' | 'loose-ends' | 'ai-flags'
 const VALID_TABS: SeasonTab[] = ['summary', 'balances', 'inventory', 'loose-ends', 'ai-flags']
@@ -441,18 +461,52 @@ function BalancesTab() {
   const [includeArchived, setIncludeArchived] = useState(true)
   const [profileId, setProfileId] = useState<string | null>(null)
 
+  // ── Settlement state (refund/collect/write-off) ──────────────────────────
+  const [pendingByBochur, setPendingByBochur] = useState<Map<string, PendingSettlement>>(new Map())
+  const [zelleQueue, setZelleQueue] = useState<ZelleQueueRow[]>([])
+  const [settleTarget, setSettleTarget] = useState<{ row: OutstandingBalances['rows'][number]; direction: 'refund' | 'collection' | 'write_off' } | null>(null)
+  const [busyId, setBusyId] = useState<string | null>(null)
+
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
     setLoading(true)
-    const [b, { data: types }] = await Promise.all([
+    const [b, { data: types }, { data: pending }, zq] = await Promise.all([
       fetchOutstandingBalances(supabase),
       supabase.from('account_types').select('*').order('name'),
+      supabase.from('program_settlements').select('*').eq('status', 'pending'),
+      fetchZelleQueue(supabase),
     ])
     if (b.error) toast.error(b.error)
     setData(b)
     setAccountTypes((types || []) as AccountType[])
+    setPendingByBochur(new Map((pending || []).map((p: any) => [p.bochur_id, {
+      id: p.id, direction: p.direction, amount: Number(p.amount), method: p.method, note: p.note,
+    }])))
+    setZelleQueue(zq)
     setLoading(false)
+  }
+
+  async function cancelPending(settlementId: string) {
+    setBusyId(settlementId)
+    const { error } = await cancelPendingSettlement(supabase, settlementId)
+    setBusyId(null)
+    if (error) { toast.error('Failed to cancel: ' + error.message); return }
+    toast.success('Pending settlement cancelled')
+    loadData()
+  }
+
+  async function confirmPending(settlementId: string) {
+    setBusyId(settlementId)
+    const res = await confirmSettlement(settlementId)
+    setBusyId(null)
+    if (!res.ok) { toast.error(res.error || 'Failed to confirm'); return }
+    toast.success('Confirmed')
+    loadData()
+  }
+
+  function printSheet() {
+    window.print()
   }
 
   const min = parseFloat(minAmount)
@@ -483,19 +537,43 @@ function BalancesTab() {
     toast.success('CSV downloaded — open it in Google Sheets via File > Import')
   }
 
+  const allCredit = (data?.rows || []).filter(r => r.balance > 0).sort((a, b) => b.balance - a.balance)
+  const allDebt = (data?.rows || []).filter(r => r.balance < 0).sort((a, b) => a.balance - b.balance)
+
   return (
     <div className="p-4 sm:p-6 max-w-6xl mx-auto space-y-5">
-      <PageHeader
-        icon={Users}
-        title="Student Balances"
-        sub="Every account still holding money — in either direction — sorted biggest first. Use it as a refund checklist: click a name to open their profile, where the existing Refund Balance flow logs the payout properly."
-        action={
-          <button onClick={exportCSV} disabled={loading} className="btn-secondary text-sm">
-            <Download className="w-4 h-4" /> Export CSV
-          </button>
+      {/* Print-only styles — same @media print pattern as menu/page.tsx.
+          Print always covers every account (both signs), regardless of the
+          on-screen filters, since it's meant as a complete handoff sheet. */}
+      <style>{`
+        @media print {
+          .no-print { display: none !important; }
+          .print-only { display: block !important; }
+          body { background: white !important; }
         }
-      />
+        .print-only { display: none; }
+        .print-page-break { page-break-before: always; }
+      `}</style>
 
+      <div className="no-print">
+        <PageHeader
+          icon={Users}
+          title="Student Balances"
+          sub="Every account still holding money — in either direction — sorted biggest first. Queue a refund/collection/write-off inline, or click a name for their full profile."
+          action={
+            <div className="flex gap-2">
+              <button onClick={printSheet} disabled={loading} className="btn-secondary text-sm">
+                <Printer className="w-4 h-4" /> Print
+              </button>
+              <button onClick={exportCSV} disabled={loading} className="btn-secondary text-sm">
+                <Download className="w-4 h-4" /> Export CSV
+              </button>
+            </div>
+          }
+        />
+      </div>
+
+      <div className="no-print">
       <ErrorBanner message={data?.error} />
 
       {data && data.lastOrderTruncated && (
@@ -593,7 +671,7 @@ function BalancesTab() {
       {/* Table */}
       <div className="admin-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[720px]">
+          <table className="w-full min-w-[860px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">ID</th>
@@ -602,13 +680,14 @@ function BalancesTab() {
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Phone</th>
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Last Purchase</th>
                 <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Balance</th>
+                <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Settlement</th>
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-slate-400 text-sm">Loading…</td></tr>
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={6} className="px-4 py-12 text-center text-slate-400 text-sm">
+                <tr><td colSpan={7} className="px-4 py-12 text-center text-slate-400 text-sm">
                   No accounts match these filters.
                 </td></tr>
               ) : rows.map(r => (
@@ -633,11 +712,168 @@ function BalancesTab() {
                   <td className={`px-4 py-3 text-sm font-bold text-right ${r.balance >= 0 ? 'text-emerald-600' : 'text-red-500'}`}>
                     {formatCurrency(r.balance)}
                   </td>
+                  <td className="px-4 py-3" onClick={e => e.stopPropagation()}>
+                    {(() => {
+                      const pending = pendingByBochur.get(r.id)
+                      if (pending) {
+                        return (
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="badge bg-amber-50 text-amber-700 border border-amber-100 whitespace-nowrap">
+                              {formatCurrency(pending.amount)} via {SETTLEMENT_METHOD_LABELS[pending.method] ?? pending.method}
+                            </span>
+                            <button
+                              onClick={() => confirmPending(pending.id)}
+                              disabled={busyId === pending.id}
+                              className="flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 disabled:opacity-50"
+                            >
+                              <CheckCircle2 className="w-3.5 h-3.5" /> Confirm
+                            </button>
+                            <button
+                              onClick={() => cancelPending(pending.id)}
+                              disabled={busyId === pending.id}
+                              title="Cancel pending settlement"
+                              className="text-amber-500 hover:text-amber-700 disabled:opacity-50"
+                            >
+                              <X className="w-3.5 h-3.5" />
+                            </button>
+                          </div>
+                        )
+                      }
+                      if (r.balance > 0) {
+                        return (
+                          <button
+                            onClick={() => setSettleTarget({ row: r, direction: 'refund' })}
+                            className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-emerald-600 text-white hover:bg-emerald-700 transition-colors whitespace-nowrap"
+                          >
+                            Refund
+                          </button>
+                        )
+                      }
+                      if (r.balance < 0) {
+                        return (
+                          <div className="flex items-center gap-1.5">
+                            <button
+                              onClick={() => setSettleTarget({ row: r, direction: 'collection' })}
+                              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-red-600 text-white hover:bg-red-700 transition-colors whitespace-nowrap"
+                            >
+                              Collect
+                            </button>
+                            <button
+                              onClick={() => setSettleTarget({ row: r, direction: 'write_off' })}
+                              className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white border border-slate-300 text-slate-600 hover:bg-slate-50 transition-colors whitespace-nowrap"
+                            >
+                              Write Off
+                            </button>
+                          </div>
+                        )
+                      }
+                      return <span className="text-slate-300 text-xs">—</span>
+                    })()}
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
         </div>
+      </div>
+
+      {/* Zelle Payout Queue — Zelle has no API, so pending Zelle settlements
+          (refunds out or collections in) are worked through manually and
+          confirmed here as each is actually sent/received. */}
+      <section className="space-y-3">
+        <div>
+          <h2 className="text-lg font-semibold text-slate-700 flex items-center gap-2">
+            <Smartphone className="w-4 h-4 text-slate-400" /> Zelle Payout Queue
+          </h2>
+          <p className="text-sm text-slate-400 mt-0.5">
+            Every pending settlement queued for Zelle. Send or collect manually, then confirm below.
+          </p>
+        </div>
+        <div className="admin-card overflow-hidden">
+          {zelleQueue.length === 0 ? (
+            <div className="p-6 text-center text-sm text-slate-400">Nothing queued for Zelle right now.</div>
+          ) : (
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="border-b border-slate-100 bg-slate-50/50">
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Name</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Phone</th>
+                    <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Direction</th>
+                    <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Amount</th>
+                    <th className="px-4 py-3" />
+                  </tr>
+                </thead>
+                <tbody>
+                  {zelleQueue.map(z => (
+                    <tr key={z.settlementId} className="table-row">
+                      <td className="px-4 py-3 font-medium text-slate-800 whitespace-nowrap">{z.name}</td>
+                      <td className="px-4 py-3 text-slate-500 whitespace-nowrap">{z.phone || '—'}</td>
+                      <td className="px-4 py-3">
+                        <span className={`badge ${z.direction === 'refund' ? 'bg-emerald-50 text-emerald-700 border border-emerald-100' : 'bg-red-50 text-red-600 border border-red-100'}`}>
+                          {z.direction === 'refund' ? 'Refund' : 'Collect'}
+                        </span>
+                      </td>
+                      <td className="px-4 py-3 text-right font-semibold text-slate-800 whitespace-nowrap">{formatCurrency(z.amount)}</td>
+                      <td className="px-4 py-3 text-right">
+                        <button
+                          onClick={() => confirmPending(z.settlementId)}
+                          disabled={busyId === z.settlementId}
+                          className="flex items-center gap-1 text-xs font-semibold text-emerald-700 hover:text-emerald-800 disabled:opacity-50 whitespace-nowrap"
+                        >
+                          <CheckCircle2 className="w-3.5 h-3.5" /> Confirm Sent
+                        </button>
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
+        </div>
+      </section>
+      </div>
+
+      {/* ── Print-only settlement sheet — two letter-page sections, name +
+          amount only, always the full unfiltered list (a handoff checklist
+          shouldn't silently depend on whatever the on-screen filters were
+          last set to). ── */}
+      <div className="print-only p-8">
+        <section>
+          <h2 className="text-xl font-bold text-slate-900 mb-4">Refunds Owed to Families</h2>
+          <table className="w-full text-sm">
+            <tbody>
+              {allCredit.map(r => (
+                <tr key={r.id} className="border-b border-slate-200">
+                  <td className="py-1.5">{r.name}{r.bochurId ? ` (${r.bochurId})` : ''}</td>
+                  <td className="py-1.5 text-right font-medium">{formatCurrency(r.balance)}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-slate-800 font-bold">
+                <td className="py-2">Total</td>
+                <td className="py-2 text-right">{formatCurrency(allCredit.reduce((s, r) => s + r.balance, 0))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
+
+        <section className="print-page-break">
+          <h2 className="text-xl font-bold text-slate-900 mb-4">Balances Owed to Canteen</h2>
+          <table className="w-full text-sm">
+            <tbody>
+              {allDebt.map(r => (
+                <tr key={r.id} className="border-b border-slate-200">
+                  <td className="py-1.5">{r.name}{r.bochurId ? ` (${r.bochurId})` : ''}</td>
+                  <td className="py-1.5 text-right font-medium">{formatCurrency(Math.abs(r.balance))}</td>
+                </tr>
+              ))}
+              <tr className="border-t-2 border-slate-800 font-bold">
+                <td className="py-2">Total</td>
+                <td className="py-2 text-right">{formatCurrency(Math.abs(allDebt.reduce((s, r) => s + r.balance, 0)))}</td>
+              </tr>
+            </tbody>
+          </table>
+        </section>
       </div>
 
       {profileId && (
@@ -647,6 +883,103 @@ function BalancesTab() {
           onClose={() => { setProfileId(null); loadData() }}
         />
       )}
+
+      {settleTarget && (
+        <SettleModal
+          row={settleTarget.row}
+          direction={settleTarget.direction}
+          onClose={() => setSettleTarget(null)}
+          onDone={() => { setSettleTarget(null); loadData() }}
+        />
+      )}
+    </div>
+  )
+}
+
+function SettleModal({
+  row, direction, onClose, onDone,
+}: {
+  row: OutstandingBalances['rows'][number]
+  direction: 'refund' | 'collection' | 'write_off'
+  onClose: () => void
+  onDone: () => void
+}) {
+  const supabase = createClient()
+  const owed = Math.abs(row.balance)
+  const [amount, setAmount] = useState(owed.toFixed(2))
+  const [method, setMethod] = useState<'cash' | 'zelle'>('cash')
+  const [note, setNote] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  const title = direction === 'refund' ? 'Refund Balance' : direction === 'collection' ? 'Collect Debt' : 'Write Off Debt'
+
+  async function submit() {
+    const amt = parseFloat(amount)
+    if (!amount || isNaN(amt) || amt <= 0) { toast.error('Enter a valid amount'); return }
+    if (direction === 'write_off' && !note.trim()) { toast.error('A note explaining the write-off is required'); return }
+    setSubmitting(true)
+    const { error } = await queueSettlement(supabase, {
+      bochurId: row.id,
+      direction,
+      amount: amt,
+      method: direction === 'write_off' ? 'write_off' : method,
+      note: note.trim() || null,
+    })
+    setSubmitting(false)
+    if (error) { toast.error('Failed to queue: ' + error.message); return }
+    toast.success('Settlement queued — confirm it once sent/received')
+    onDone()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-sm p-5 space-y-4">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-slate-900 text-lg">{title}</h3>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
+        <div className="p-3 bg-slate-50 rounded-xl flex justify-between">
+          <span className="text-sm text-slate-600">{row.name}</span>
+          <span className="font-bold text-slate-800">{formatCurrency(owed)} {direction === 'refund' ? 'owed to them' : 'owed to canteen'}</span>
+        </div>
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Amount ($)</label>
+          <input
+            type="number" min="0.01" step="0.01" value={amount} onChange={e => setAmount(e.target.value)}
+            className="input-admin"
+          />
+        </div>
+        {direction !== 'write_off' && (
+          <div>
+            <label className="block text-sm font-medium text-slate-700 mb-1">Method</label>
+            <select value={method} onChange={e => setMethod(e.target.value as 'cash' | 'zelle')} className="input-admin">
+              <option value="cash">Cash</option>
+              <option value="zelle">Zelle</option>
+            </select>
+          </div>
+        )}
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">
+            Note {direction === 'write_off' ? <span className="text-red-500">(required)</span> : <span className="text-slate-300">(optional)</span>}
+          </label>
+          <input
+            type="text" value={note} onChange={e => setNote(e.target.value)}
+            placeholder={direction === 'write_off' ? 'Why is this being written off?' : 'Any extra detail'}
+            className="input-admin"
+          />
+        </div>
+        <div className="flex gap-2">
+          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button
+            onClick={submit} disabled={submitting}
+            className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+          >
+            {submitting ? 'Queuing…' : 'Queue'}
+          </button>
+        </div>
+      </div>
     </div>
   )
 }
