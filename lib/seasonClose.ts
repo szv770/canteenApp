@@ -149,9 +149,17 @@ export interface InventoryValuationRow {
   costValue: number
   /** Sum of units × sell price — what it would be worth if it all sold. */
   retailValue: number
+  /** Effective cost-per-unit used above (falls back to $0 like the rest of
+   *  this function) — carried through so a physical count can log a
+   *  shrinkage row at the same cost this valuation already used. */
+  costPerUnit: number
   hasVariants: boolean
   /** Per-variant breakdown, empty for a plain product. */
-  variants: { label: string; units: number; costValue: number; retailValue: number }[]
+  variants: { variantId: string; label: string; units: number; costValue: number; retailValue: number; costPerUnit: number; lastCountedAt: string | null }[]
+  /** Most recent `stock_counts` row for this product (non-variant products
+   *  only — see `variants[].lastCountedAt` for variant products). Null means
+   *  it has never been physically counted. */
+  lastCountedAt: string | null
 }
 
 export interface InventoryValuation {
@@ -170,16 +178,22 @@ export interface InventoryValuation {
    *  to the cost total, silently under-reporting it. Same failure mode as the
    *  vendor ledger's blank-cost gap (CLAUDE.md gotcha #43). */
   missingCostProductNames: string[]
+  /** Products (or variant products with at least one un-counted variant) that
+   *  have never had a physical stock count taken — another reason the number
+   *  above might not match reality, same spirit as the two lists above. */
+  neverCountedProductNames: string[]
   error?: string
 }
 
 export async function fetchInventoryValuation(supabase: SupabaseClient): Promise<InventoryValuation> {
-  const [{ data: products, error: pErr }, { data: variants, error: vErr }] = await Promise.all([
+  const [{ data: products, error: pErr }, { data: variants, error: vErr }, { data: counts, error: scErr }] = await Promise.all([
     supabase.from('products').select('id, name, icon, price, cost_price, stock_quantity, has_variants, is_active').order('name'),
-    supabase.from('product_variants').select('product_id, label, price, cost_price, stock_quantity, is_active'),
+    supabase.from('product_variants').select('id, product_id, label, price, cost_price, stock_quantity, is_active'),
+    supabase.from('stock_counts').select('product_id, variant_id, created_at').order('created_at', { ascending: false }),
   ])
   if (pErr) console.error('seasonClose: products query failed', pErr)
   if (vErr) console.error('seasonClose: variants query failed', vErr)
+  if (scErr) console.error('seasonClose: stock_counts query failed', scErr)
 
   const variantsByProduct = new Map<string, any[]>()
   for (const v of (variants || []) as any[]) {
@@ -188,9 +202,23 @@ export async function fetchInventoryValuation(supabase: SupabaseClient): Promise
     variantsByProduct.set(v.product_id, list)
   }
 
+  // Rows arrive newest-first, so the first time a product/variant key is seen
+  // is its most recent count — same "page newest-first, first-seen wins"
+  // trick as fetchLastOrderMap above.
+  const lastCountByProduct = new Map<string, string>() // product-level (non-variant) counts only
+  const lastCountByVariant = new Map<string, string>()
+  for (const c of (counts || []) as any[]) {
+    if (c.variant_id) {
+      if (!lastCountByVariant.has(c.variant_id)) lastCountByVariant.set(c.variant_id, c.created_at)
+    } else {
+      if (!lastCountByProduct.has(c.product_id)) lastCountByProduct.set(c.product_id, c.created_at)
+    }
+  }
+
   const rows: InventoryValuationRow[] = []
   const untrackedProductNames: string[] = []
   const missingCostProductNames: string[] = []
+  const neverCountedProductNames: string[] = []
 
   for (const p of (products || []) as any[]) {
     const productCost = p.cost_price == null ? null : Number(p.cost_price)
@@ -211,19 +239,24 @@ export async function fetchInventoryValuation(supabase: SupabaseClient): Promise
         const cost = v.cost_price == null ? productCost : Number(v.cost_price)
         const price = v.price == null ? productPrice : Number(v.price)
         return {
+          variantId: v.id as string,
           label: v.label as string,
           units,
           costValue: Math.round(units * (cost ?? 0) * 100) / 100,
           retailValue: Math.round(units * price * 100) / 100,
+          costPerUnit: cost ?? 0,
+          lastCountedAt: lastCountByVariant.get(v.id) ?? null,
         }
       })
       const units = breakdown.reduce((s, b) => s + b.units, 0)
       const costValue = Math.round(breakdown.reduce((s, b) => s + b.costValue, 0) * 100) / 100
       const retailValue = Math.round(breakdown.reduce((s, b) => s + b.retailValue, 0) * 100) / 100
       if (costValue === 0 && units > 0) missingCostProductNames.push(p.name)
+      if (breakdown.some(b => !b.lastCountedAt)) neverCountedProductNames.push(p.name)
       rows.push({
         productId: p.id, name: p.name, icon: p.icon ?? null, isActive: !!p.is_active,
-        units, costValue, retailValue, hasVariants: true, variants: breakdown,
+        units, costValue, retailValue, costPerUnit: 0, hasVariants: true, variants: breakdown,
+        lastCountedAt: null,
       })
       continue
     }
@@ -234,14 +267,19 @@ export async function fetchInventoryValuation(supabase: SupabaseClient): Promise
     }
     const units = Number(p.stock_quantity)
     if (units <= 0) continue
-    const costValue = Math.round(units * (productCost ?? 0) * 100) / 100
+    const costPerUnit = productCost ?? 0
+    const costValue = Math.round(units * costPerUnit * 100) / 100
     if (productCost == null || productCost === 0) missingCostProductNames.push(p.name)
+    const lastCountedAt = lastCountByProduct.get(p.id) ?? null
+    if (!lastCountedAt) neverCountedProductNames.push(p.name)
     rows.push({
       productId: p.id, name: p.name, icon: p.icon ?? null, isActive: !!p.is_active,
       units,
       costValue,
       retailValue: Math.round(units * productPrice * 100) / 100,
+      costPerUnit,
       hasVariants: false, variants: [],
+      lastCountedAt,
     })
   }
 
@@ -254,7 +292,38 @@ export async function fetchInventoryValuation(supabase: SupabaseClient): Promise
     totalUnits: rows.reduce((s, r) => s + r.units, 0),
     untrackedProductNames,
     missingCostProductNames,
-    error: (pErr || vErr) ? 'Some inventory data failed to load — these values are incomplete' : undefined,
+    neverCountedProductNames,
+    error: (pErr || vErr || scErr) ? 'Some inventory data failed to load — these values are incomplete' : undefined,
+  }
+}
+
+// ─── Shrinkage from physical counts ──────────────────────────────────────────
+
+export interface ShrinkageTotal {
+  total: number
+  count: number
+  error?: string
+}
+
+/**
+ * Sum of every `wastage_log` row tagged `reason = 'shrinkage'` — the rows a
+ * physical stock count creates automatically when it finds LESS on the shelf
+ * than the system expected (see lib/stockCounts.ts). All-time, no date filter
+ * — this is an end-of-season figure, not a period report. Kept as its own
+ * distinct number rather than folded into the general Wastage total shown on
+ * Dashboard/Reports/COGS, so the owner can see how much loss came from
+ * "counted-missing, no reason known" versus regular logged spoilage. Those
+ * other totals are unchanged and keep summing ALL of wastage_log, shrinkage
+ * rows included.
+ */
+export async function fetchShrinkageTotal(supabase: SupabaseClient): Promise<ShrinkageTotal> {
+  const { data, error } = await supabase.from('wastage_log').select('quantity, unit_cost').eq('reason', 'shrinkage')
+  if (error) console.error('seasonClose: shrinkage total query failed', error)
+  const rows = (data || []) as any[]
+  return {
+    total: Math.round(rows.reduce((s, r) => s + Number(r.unit_cost || 0) * Number(r.quantity || 0), 0) * 100) / 100,
+    count: rows.length,
+    error: error ? 'Could not load shrinkage total' : undefined,
   }
 }
 

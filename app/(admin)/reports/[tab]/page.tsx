@@ -34,6 +34,12 @@ interface RawOrderItem {
   unit_price: number
   total: number
   order_id: string
+  // $0-revenue rollup row for a bundle's component product (CLAUDE.md gotcha
+  // #22/#46) — real for COGS (the component really was consumed) but must be
+  // excluded from anything that compares unit_price against cost_price, since
+  // its unit_price is always 0 by design and would otherwise look like every
+  // bundle sale was a below-cost markdown.
+  is_bundle_component: boolean
   orders: { id: string; created_at: string; status: string } | null
   products: { cost_price: number | null; product_categories: { categories: { name: string } | null }[] } | null
 }
@@ -287,7 +293,7 @@ export default function ReportsPage() {
         .gte('created_at', fromISO).lt('created_at', toISO),
 
       supabase.from('order_items')
-        .select('order_id, product_id, product_name, variant_label, quantity, unit_price, total, orders!inner(id, created_at, status), products(cost_price, product_categories(categories(name)))')
+        .select('order_id, product_id, product_name, variant_label, quantity, unit_price, total, is_bundle_component, orders!inner(id, created_at, status), products(cost_price, product_categories(categories(name)))')
         .eq('orders.status', 'completed').gte('orders.created_at', fromISO).lt('orders.created_at', toISO),
 
       supabase.from('payments').select('method, amount, status').gte('created_at', fromISO).lt('created_at', toISO),
@@ -548,6 +554,27 @@ export default function ReportsPage() {
   }, [rawItems])
   const net = gross - cogs - expenses - wastageTotal
   const margin = gross > 0 ? (net / gross) * 100 : 0
+
+  // ── Markdown losses (visibility only — see comment on the card below) ────
+  // Deliberately reuses rawItems (already fetched for cogs/cogsBreakdown
+  // above) rather than firing a second order_items query for the same range.
+  // Bundle-component rows are excluded (CLAUDE.md gotcha #22/#46): their
+  // unit_price is always $0 by design, which would otherwise look like every
+  // bundle sale was sold below cost.
+  const markdownLosses = useMemo(() => {
+    let total = 0
+    let itemCount = 0
+    for (const item of rawItems) {
+      if (item.is_bundle_component) continue
+      const cost = Number((item.products as any)?.cost_price || 0)
+      if (cost <= 0) continue
+      const unitPrice = Number(item.unit_price || 0)
+      if (unitPrice >= cost) continue
+      total += (cost - unitPrice) * item.quantity
+      itemCount += item.quantity
+    }
+    return { total: Math.round(total * 100) / 100, itemCount }
+  }, [rawItems])
 
   const topSpenders = useMemo(() => {
     const map: Record<string, { id: string; name: string; total: number; orders: number }> = {}
@@ -1098,6 +1125,28 @@ export default function ReportsPage() {
                 </Card>
               </>}
             </div>
+
+            {/* Markdown losses — decomposition/visibility only, NOT subtracted
+                from Net Profit again. Revenue above already reflects the
+                lower price charged and COGS above already reflects the full
+                cost, so a below-cost sale is already correctly baked into Net
+                Profit with no changes needed there — this card just explains
+                where some of that margin compression came from. */}
+            {!loading && markdownLosses.total > 0 && (
+              <div className="flex items-start gap-3 p-4 bg-amber-50 border border-amber-200 rounded-xl">
+                <div className="w-9 h-9 rounded-xl bg-amber-100 flex items-center justify-center shrink-0">
+                  <DollarSign className="w-4 h-4 text-amber-600" />
+                </div>
+                <div>
+                  <p className="text-sm font-semibold text-amber-900">
+                    Markdown Losses: {formatCurrency(markdownLosses.total)} across {markdownLosses.itemCount} item{markdownLosses.itemCount === 1 ? '' : 's'} sold below cost
+                  </p>
+                  <p className="text-xs text-amber-700 mt-1 max-w-2xl">
+                    Already reflected in Net Profit above — shown here for visibility only, not subtracted a second time. This is how much of this period&apos;s margin came from deliberate clearance pricing (selling below cost instead of letting stock spoil) rather than from a costing or pricing mistake.
+                  </p>
+                </div>
+              </div>
+            )}
 
             {/* COGS breakdown table */}
             {!loading && cogsBreakdown.length > 0 && (
