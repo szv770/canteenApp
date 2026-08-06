@@ -32,7 +32,7 @@ import { format } from 'date-fns'
 import {
   Users, Package, ClipboardList, FlagTriangleRight, Download, Search,
   AlertTriangle, ExternalLink, RefreshCw, Clock, Truck, Wallet, ChevronRight, Bot,
-  Printer, CheckCircle2, X, Smartphone,
+  Printer, CheckCircle2, X, Smartphone, ClipboardCheck,
 } from 'lucide-react'
 import toast from 'react-hot-toast'
 import BochurProfileModal from '@/app/(admin)/bochurim/BochurProfileModal'
@@ -40,14 +40,15 @@ import type { AccountType, BochurWithId } from '@/types/database'
 import { computeNetAccountBalances, ACCOUNT_ORDER, ACCOUNT_LABELS } from '@/lib/accountBalances'
 import { computeVendorLedger, type VendorLedgerSummary } from '@/lib/preorderVendorLedger'
 import {
-  fetchOutstandingBalances, fetchInventoryValuation, fetchLooseEnds,
+  fetchOutstandingBalances, fetchInventoryValuation, fetchLooseEnds, fetchShrinkageTotal,
   csvLine, downloadCSV, localDateStr,
-  type OutstandingBalances, type InventoryValuation, type LooseEnds,
+  type OutstandingBalances, type InventoryValuation, type InventoryValuationRow, type LooseEnds, type ShrinkageTotal,
 } from '@/lib/seasonClose'
 import {
   fetchZelleQueue, queueSettlement, cancelPendingSettlement, confirmSettlement,
   type ZelleQueueRow,
 } from '@/lib/programSettlements'
+import { recordStockCount } from '@/lib/stockCounts'
 
 const SETTLEMENT_METHOD_LABELS: Record<string, string> = { cash: 'Cash', zelle: 'Zelle', write_off: 'Write-off' }
 
@@ -186,6 +187,7 @@ function SummaryTab() {
   const supabase = createClient()
   const [balances, setBalances] = useState<OutstandingBalances | null>(null)
   const [inventory, setInventory] = useState<InventoryValuation | null>(null)
+  const [shrinkage, setShrinkage] = useState<ShrinkageTotal | null>(null)
   const [loose, setLoose] = useState<LooseEnds | null>(null)
   const [vendor, setVendor] = useState<VendorLedgerSummary | null>(null)
   const [net, setNet] = useState<{ received: Record<string, number>; withdrawn: Record<string, number> } | null>(null)
@@ -196,15 +198,16 @@ function SummaryTab() {
 
   async function loadAll() {
     setLoading(true)
-    const [b, inv, l, v, n] = await Promise.all([
+    const [b, inv, sh, l, v, n] = await Promise.all([
       fetchOutstandingBalances(supabase),
       fetchInventoryValuation(supabase),
+      fetchShrinkageTotal(supabase),
       fetchLooseEnds(supabase),
       computeVendorLedger(supabase),
       computeNetAccountBalances(supabase),
     ])
-    setBalances(b); setInventory(inv); setLoose(l); setVendor(v); setNet(n)
-    const firstErr = b.error || inv.error || l.error || v.error || n.error
+    setBalances(b); setInventory(inv); setShrinkage(sh); setLoose(l); setVendor(v); setNet(n)
+    const firstErr = b.error || inv.error || sh.error || l.error || v.error || n.error
     if (firstErr) toast.error(firstErr)
     setLoading(false)
   }
@@ -366,10 +369,16 @@ function SummaryTab() {
                 Full breakdown →
               </Link>
             </div>
-            <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+            <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
               <StatCard label="Value at cost" value={formatCurrency(inventory?.totalCostValue ?? 0)} sub="What you paid for what's left" />
               <StatCard label="Value at retail" value={formatCurrency(inventory?.totalRetailValue ?? 0)} sub="What it'd bring in if it all sold" />
               <StatCard label="Units left" value={String(inventory?.totalUnits ?? 0)} sub={`${inventory?.rows.length ?? 0} products with stock`} />
+              <StatCard
+                label="Shrinkage (Physical Count)"
+                value={formatCurrency(shrinkage?.total ?? 0)}
+                sub="Missing-at-count losses, separate from general Wastage"
+                tone={(shrinkage?.total ?? 0) > 0 ? 'amber' : 'slate'}
+              />
             </div>
           </section>
 
@@ -989,16 +998,20 @@ function SettleModal({
 function InventoryTab() {
   const supabase = createClient()
   const [data, setData] = useState<InventoryValuation | null>(null)
+  const [shrinkage, setShrinkage] = useState<ShrinkageTotal | null>(null)
   const [loading, setLoading] = useState(true)
   const [search, setSearch] = useState('')
+  const [countTarget, setCountTarget] = useState<InventoryValuationRow | null>(null)
 
   useEffect(() => { loadData() }, [])
 
   async function loadData() {
     setLoading(true)
-    const inv = await fetchInventoryValuation(supabase)
+    const [inv, sh] = await Promise.all([fetchInventoryValuation(supabase), fetchShrinkageTotal(supabase)])
     if (inv.error) toast.error(inv.error)
+    if (sh.error) toast.error(sh.error)
     setData(inv)
+    setShrinkage(sh)
     setLoading(false)
   }
 
@@ -1036,14 +1049,20 @@ function InventoryTab() {
 
       <ErrorBanner message={data?.error} />
 
-      <div className="grid grid-cols-2 lg:grid-cols-3 gap-3">
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <StatCard label="Value at cost" value={formatCurrency(data?.totalCostValue ?? 0)} sub="What you paid for what's left" />
         <StatCard label="Value at retail" value={formatCurrency(data?.totalRetailValue ?? 0)} sub="If every unit still sold" tone="emerald" />
         <StatCard label="Units left" value={String(data?.totalUnits ?? 0)} sub={`across ${data?.rows.length ?? 0} products`} />
+        <StatCard
+          label="Shrinkage (Physical Count)"
+          value={formatCurrency(shrinkage?.total ?? 0)}
+          sub={`${shrinkage?.count ?? 0} count${(shrinkage?.count ?? 0) === 1 ? '' : 's'} found stock missing, all season — separate from general Wastage below`}
+          tone={(shrinkage?.total ?? 0) > 0 ? 'amber' : 'slate'}
+        />
       </div>
 
       {/* Honesty caveats — these numbers are a floor, not a full count */}
-      {(data?.untrackedProductNames.length || data?.missingCostProductNames.length) ? (
+      {(data?.untrackedProductNames.length || data?.missingCostProductNames.length || data?.neverCountedProductNames.length) ? (
         <div className="space-y-2">
           {data.untrackedProductNames.length > 0 && (
             <div className="flex items-start gap-2 p-3 bg-slate-50 border border-slate-200 rounded-xl text-sm text-slate-600">
@@ -1058,6 +1077,14 @@ function InventoryTab() {
               <AlertTriangle className="w-4 h-4 mt-0.5 shrink-0" />
               <span>
                 <span className="font-semibold">{data.missingCostProductNames.length} product{data.missingCostProductNames.length !== 1 ? 's' : ''}</span> have leftover units but no cost price set, so they add $0 to the cost total above — it&apos;s under-reported until those are filled in: {data.missingCostProductNames.slice(0, 8).join(', ')}{data.missingCostProductNames.length > 8 ? `, +${data.missingCostProductNames.length - 8} more` : ''}.
+              </span>
+            </div>
+          )}
+          {data.neverCountedProductNames.length > 0 && (
+            <div className="flex items-start gap-2 p-3 bg-blue-50 border border-blue-200 rounded-xl text-sm text-blue-800">
+              <ClipboardCheck className="w-4 h-4 mt-0.5 shrink-0" />
+              <span>
+                <span className="font-semibold">{data.neverCountedProductNames.length} product{data.neverCountedProductNames.length !== 1 ? 's' : ''}</span> {data.neverCountedProductNames.length !== 1 ? 'have' : 'has'} never been physically counted — the number shown is still just what the system thinks is left, unverified: {data.neverCountedProductNames.slice(0, 8).join(', ')}{data.neverCountedProductNames.length > 8 ? `, +${data.neverCountedProductNames.length - 8} more` : ''}.
               </span>
             </div>
           )}
@@ -1079,20 +1106,21 @@ function InventoryTab() {
 
       <div className="admin-card overflow-hidden">
         <div className="overflow-x-auto">
-          <table className="w-full min-w-[620px]">
+          <table className="w-full min-w-[720px]">
             <thead>
               <tr className="border-b border-slate-100 bg-slate-50/50">
                 <th className="text-left text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Product</th>
-                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Units Left</th>
+                <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">System Qty</th>
                 <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Value at Cost</th>
                 <th className="text-right text-xs font-semibold text-slate-400 uppercase tracking-wide px-4 py-3">Value at Retail</th>
+                <th className="px-4 py-3" />
               </tr>
             </thead>
             <tbody>
               {loading ? (
-                <tr><td colSpan={4} className="px-4 py-12 text-center text-slate-400 text-sm">Loading…</td></tr>
+                <tr><td colSpan={5} className="px-4 py-12 text-center text-slate-400 text-sm">Loading…</td></tr>
               ) : rows.length === 0 ? (
-                <tr><td colSpan={4} className="px-4 py-12 text-center text-slate-400 text-sm">
+                <tr><td colSpan={5} className="px-4 py-12 text-center text-slate-400 text-sm">
                   No products with leftover stock.
                 </td></tr>
               ) : rows.map(r => (
@@ -1102,11 +1130,17 @@ function InventoryTab() {
                       <span className="text-sm font-semibold text-slate-900">{r.icon ? `${r.icon} ` : ''}{r.name}</span>
                       {!r.isActive && <span className="badge bg-slate-100 text-slate-500 border border-slate-200">Inactive</span>}
                     </div>
+                    {!r.hasVariants && (
+                      <p className="text-xs text-slate-400 mt-0.5">
+                        {r.lastCountedAt ? `Last counted: ${format(new Date(r.lastCountedAt), 'MMM d, yyyy')}` : 'Never physically counted'}
+                      </p>
+                    )}
                     {r.variants.length > 0 && (
                       <ul className="mt-1 space-y-0.5">
                         {r.variants.map(v => (
-                          <li key={v.label} className="text-xs text-slate-400">
+                          <li key={v.variantId} className="text-xs text-slate-400">
                             {v.label} — {v.units} left, {formatCurrency(v.costValue)} at cost
+                            {' · '}{v.lastCountedAt ? `counted ${format(new Date(v.lastCountedAt), 'MMM d')}` : 'never counted'}
                           </li>
                         ))}
                       </ul>
@@ -1115,10 +1149,139 @@ function InventoryTab() {
                   <td className="px-4 py-3 text-sm text-slate-700 text-right font-medium">{r.units}</td>
                   <td className="px-4 py-3 text-sm font-semibold text-slate-900 text-right">{formatCurrency(r.costValue)}</td>
                   <td className="px-4 py-3 text-sm text-slate-500 text-right">{formatCurrency(r.retailValue)}</td>
+                  <td className="px-4 py-3 text-right">
+                    <button
+                      onClick={() => setCountTarget(r)}
+                      className="px-2.5 py-1 text-xs font-semibold rounded-lg bg-white border border-slate-300 text-slate-600 hover:border-amber-300 hover:text-amber-700 transition-colors whitespace-nowrap inline-flex items-center gap-1"
+                    >
+                      <ClipboardCheck className="w-3.5 h-3.5" /> Count
+                    </button>
+                  </td>
                 </tr>
               ))}
             </tbody>
           </table>
+        </div>
+      </div>
+
+      {countTarget && (
+        <PhysicalCountModal
+          row={countTarget}
+          onClose={() => setCountTarget(null)}
+          onDone={() => { setCountTarget(null); loadData() }}
+        />
+      )}
+    </div>
+  )
+}
+
+// Per-product (or per-variant) physical count entry. Mirrors SettleModal's
+// shape (fixed-size modal, queue-then-toast) but submits every field that was
+// filled in as its own recordStockCount() call — a "Save Counts" bulk flow
+// scoped to one product's variants at a time, since that's the natural unit
+// someone stands at a shelf and counts.
+function PhysicalCountModal({
+  row, onClose, onDone,
+}: { row: InventoryValuationRow; onClose: () => void; onDone: () => void }) {
+  const supabase = createClient()
+  const targets = row.hasVariants
+    ? row.variants.map(v => ({ key: v.variantId, variantId: v.variantId as string | null, label: v.label as string | null, systemQty: v.units, costPerUnit: v.costPerUnit }))
+    : [{ key: 'main', variantId: null as string | null, label: null as string | null, systemQty: row.units, costPerUnit: row.costPerUnit }]
+
+  const [counts, setCounts] = useState<Record<string, string>>(
+    () => Object.fromEntries(targets.map(t => [t.key, String(t.systemQty)]))
+  )
+  const [note, setNote] = useState('')
+  const [submitting, setSubmitting] = useState(false)
+
+  async function submit() {
+    // Validate everything before writing anything — a count left blank means
+    // "skip this variant", not "count it as zero".
+    const toSave: { variantId: string | null; systemQty: number; costPerUnit: number; countedQuantity: number }[] = []
+    for (const t of targets) {
+      const raw = counts[t.key]
+      if (raw === undefined || raw.trim() === '') continue
+      const n = parseInt(raw, 10)
+      if (isNaN(n) || n < 0) { toast.error(`Enter a valid count for ${t.label ?? row.name}`); return }
+      toSave.push({ variantId: t.variantId, systemQty: t.systemQty, costPerUnit: t.costPerUnit, countedQuantity: n })
+    }
+    if (toSave.length === 0) { toast.error('Enter at least one count'); return }
+
+    setSubmitting(true)
+    let missingTotal = 0
+    let foundExtraTotal = 0
+    let errorMsg: string | null = null
+    for (const t of toSave) {
+      const res = await recordStockCount(supabase, {
+        productId: row.productId,
+        variantId: t.variantId,
+        productName: row.name,
+        systemQuantity: t.systemQty,
+        countedQuantity: t.countedQuantity,
+        costPrice: t.costPerUnit,
+        note: note || null,
+      })
+      if (res.error) { errorMsg = res.error; break }
+      if (res.variance > 0) missingTotal += res.variance
+      else if (res.variance < 0) foundExtraTotal += Math.abs(res.variance)
+    }
+    setSubmitting(false)
+
+    if (errorMsg) { toast.error(errorMsg); return }
+    if (missingTotal > 0) toast.success(`Count saved — ${missingTotal} unit${missingTotal === 1 ? '' : 's'} missing, logged as shrinkage`)
+    else if (foundExtraTotal > 0) toast.success(`Count saved — found ${foundExtraTotal} more than expected (no wastage or profit effect)`)
+    else toast.success('Count saved — matched the system exactly')
+    onDone()
+  }
+
+  return (
+    <div className="fixed inset-0 bg-black/60 backdrop-blur-sm z-[70] flex items-center justify-center p-4">
+      <div className="bg-white rounded-2xl shadow-xl w-full max-w-md p-5 space-y-4 max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between">
+          <h3 className="font-bold text-slate-900 text-lg">Physical Count</h3>
+          <button onClick={onClose} className="p-2 hover:bg-slate-100 rounded-xl transition-colors">
+            <X className="w-4 h-4 text-slate-400" />
+          </button>
+        </div>
+        <p className="text-sm font-medium text-slate-700">{row.icon ? `${row.icon} ` : ''}{row.name}</p>
+        <p className="text-xs text-slate-400 -mt-3">
+          Enter what&apos;s actually on the shelf. Missing stock is logged as shrinkage at cost automatically; finding more than expected is recorded but never treated as a gain. Leave a field blank to skip it.
+        </p>
+
+        <div className="space-y-2">
+          {targets.map(t => (
+            <div key={t.key} className="flex items-center justify-between gap-3 p-3 bg-slate-50 rounded-xl">
+              <div>
+                {t.label && <p className="text-sm font-medium text-slate-700">{t.label}</p>}
+                <p className="text-xs text-slate-400">System says {t.systemQty}</p>
+              </div>
+              <input
+                type="number" min="0" step="1"
+                value={counts[t.key] ?? ''}
+                onChange={e => setCounts(prev => ({ ...prev, [t.key]: e.target.value }))}
+                className="input-admin w-24 text-right"
+              />
+            </div>
+          ))}
+        </div>
+
+        <div>
+          <label className="block text-sm font-medium text-slate-700 mb-1">Note <span className="text-slate-300">(optional)</span></label>
+          <input
+            type="text" value={note} onChange={e => setNote(e.target.value)}
+            placeholder="Anything worth remembering about this count"
+            className="input-admin"
+          />
+        </div>
+
+        <div className="flex gap-2">
+          <button onClick={onClose} className="btn-secondary flex-1">Cancel</button>
+          <button
+            onClick={submit} disabled={submitting}
+            className="flex-1 px-4 py-2 rounded-xl bg-emerald-600 hover:bg-emerald-700 text-white text-sm font-semibold transition-colors disabled:opacity-50"
+          >
+            {submitting ? 'Saving…' : 'Save Count'}
+          </button>
         </div>
       </div>
     </div>
