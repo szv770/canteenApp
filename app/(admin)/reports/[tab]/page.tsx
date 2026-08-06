@@ -12,7 +12,7 @@ import {
 import {
   TrendingUp, Download, RefreshCw, Users, ShoppingBag, DollarSign,
   BarChart2, ChevronLeft, ChevronRight, Table2, BarChart3, Printer,
-  Trash2, Pencil, Search, X, Check,
+  Trash2, Pencil, Search, X, Check, FileText,
 } from 'lucide-react'
 import BochurProfileModal from '@/app/(admin)/bochurim/BochurProfileModal'
 import ProductQuickViewModal from '@/components/admin/ProductQuickViewModal'
@@ -212,6 +212,7 @@ export default function ReportsPage() {
   const [selectedCategory, setSelectedCategory] = useState<string | null>(null)
   const [loading, setLoading] = useState(true)
   const [exporting, setExporting] = useState(false)
+  const [summaryExporting, setSummaryExporting] = useState(false)
   const [tableViews, setTableViews] = useState<Set<string>>(new Set())
   const [profileBochurId, setProfileBochurId] = useState<string | null>(null)
   const [viewingProductId, setViewingProductId] = useState<string | null>(null)
@@ -584,6 +585,58 @@ export default function ReportsPage() {
     return Object.entries(map).map(([name, revenue]) => ({ name, revenue })).sort((a, b) => b.revenue - a.revenue)
   }, [completedOrders])
 
+  // ── Summary CSV export (Overview tab) ────────────────────────────────────
+  // Deliberately builds from data this component already has in state/memos —
+  // no new Supabase queries. This is a short, human-readable "headline numbers"
+  // export for forwarding to someone without app access (see the detailed
+  // row-per-order `exportCSV` above for the granular version), so it's plain
+  // label/value rows rather than a big table.
+  function exportSummaryCSV() {
+    setSummaryExporting(true)
+    try {
+      const presetLabel = PRESETS.find(p => p.value === range)?.label
+      const rangeText = presetLabel && range !== 'custom'
+        ? `${presetLabel} (${customFrom} to ${customTo})`
+        : `${customFrom} to ${customTo}`
+
+      const lines: string[] = []
+      const row = (label: string, value: string | number = '') =>
+        lines.push([`"${label.replace(/"/g, '""')}"`, `"${String(value).replace(/"/g, '""')}"`].join(','))
+
+      row('Canteen Summary Report')
+      row('Date Range', rangeText)
+      row('Generated', new Date().toLocaleString('en-US'))
+      row('')
+      row('REVENUE')
+      row('Gross Revenue', formatCurrency(gross))
+      for (const p of paymentData) row(`  ${p.name}`, formatCurrency(p.value))
+      row('')
+      row('COSTS')
+      row('Product COGS', formatCurrency(cogs))
+      row('Expenses', formatCurrency(expenses))
+      row('Wastage', formatCurrency(wastageTotal))
+      row('')
+      row('NET PROFIT', formatCurrency(net))
+      row('Profit Margin', `${margin.toFixed(1)}%`)
+      row('')
+      row('ACTIVITY')
+      row('Total Orders', orderCount)
+      row('Avg Order Size', formatCurrency(avgOrder))
+      row('Unique Students Served', uniqueStudents)
+      row('')
+      row('TOP SELLING PRODUCTS')
+      if (topSellers.length === 0) row('  (no sales in this period)')
+      topSellers.slice(0, 5).forEach((p, i) => row(`  ${i + 1}. ${p.name}`, `${p.units} units — ${formatCurrency(p.revenue)}`))
+
+      const csv = lines.join('\n')
+      const a = Object.assign(document.createElement('a'), {
+        href: URL.createObjectURL(new Blob([csv], { type: 'text/csv' })),
+        download: `canteen-summary-${customFrom}-to-${customTo}.csv`,
+      })
+      document.body.appendChild(a); a.click(); document.body.removeChild(a)
+    } finally { setSummaryExporting(false) }
+  }
+
   // ── Render ────────────────────────────────────────────────────────────────
   const TABS: { id: Tab; label: string; icon: React.ReactNode }[] = [
     { id: 'overview', label: 'Overview', icon: <TrendingUp className="w-3.5 h-3.5" /> },
@@ -652,6 +705,14 @@ export default function ReportsPage() {
               <button onClick={() => window.print()} title="Print" className="p-2 text-slate-400 hover:text-slate-600 hover:bg-slate-100 rounded-lg transition-colors">
                 <Printer className="w-4 h-4" />
               </button>
+              {tab === 'overview' && (
+                <button onClick={exportSummaryCSV} disabled={summaryExporting || loading}
+                  title="Export a short headline-numbers summary — for sharing with someone who doesn't log into the app"
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-indigo-600 hover:bg-indigo-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all">
+                  <FileText className="w-3.5 h-3.5" />
+                  <span className="hidden sm:inline">Summary</span>
+                </button>
+              )}
               <button onClick={exportCSV} disabled={exporting || loading}
                 className="flex items-center gap-1.5 px-3 py-1.5 bg-emerald-600 hover:bg-emerald-700 disabled:opacity-50 text-white text-xs font-semibold rounded-lg transition-all">
                 <Download className="w-3.5 h-3.5" />
