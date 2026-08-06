@@ -384,12 +384,22 @@ function RestockModal({ product, suppliers, onClose, onSaved }: {
       })
       if (entryErr) { toast.error(entryErr.message); return }
 
-      const newStock = (product.stock_quantity ?? 0) + qty
-      const updatePayload: any = { stock_quantity: newStock }
-      if (updatePrice) updatePayload.cost_price = costPerUnit
+      // Atomic stock adjustment via RPC (same pattern as increment_discount_uses,
+      // gotcha #12) instead of a JS read-modify-write off this modal's prop
+      // snapshot — avoids losing a concurrent restock/sale on the same product.
+      const { error: stockErr } = await supabase.rpc('adjust_product_stock', {
+        p_product_id: product.id,
+        p_delta: qty,
+      })
+      if (stockErr) { toast.error(stockErr.message); return }
 
-      const { error: prodErr } = await supabase.from('products').update(updatePayload).eq('id', product.id)
-      if (prodErr) { toast.error(prodErr.message); return }
+      if (updatePrice) {
+        const { error: prodErr } = await supabase
+          .from('products')
+          .update({ cost_price: costPerUnit })
+          .eq('id', product.id)
+        if (prodErr) { toast.error(prodErr.message); return }
+      }
 
       toast.success(`Restocked ${product.name} (+${qty})`)
       onSaved()

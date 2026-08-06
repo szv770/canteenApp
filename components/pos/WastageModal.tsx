@@ -65,17 +65,22 @@ export default function WastageModal({ onClose, onSuccess }: Props) {
       })
       if (wasteErr) throw wasteErr
 
-      // Deduct stock if applicable
+      // Deduct stock if applicable — atomic via RPC (same pattern as
+      // increment_discount_uses, gotcha #12) instead of a JS read-modify-write
+      // off this modal's load-time snapshot, which could lose a concurrent
+      // sale/restock on the same product. Never blocks the wastage log itself.
       if (
         deductStock &&
         selectedProduct.stock_quantity !== null &&
         !selectedProduct.has_variants
       ) {
-        const newQty = Math.max(0, (selectedProduct.stock_quantity ?? 0) - quantity)
-        await supabase
-          .from('products')
-          .update({ stock_quantity: newQty })
-          .eq('id', selectedProduct.id)
+        const { error: stockErr } = await supabase.rpc('adjust_product_stock', {
+          p_product_id: selectedProduct.id,
+          p_delta: -quantity,
+        })
+        if (stockErr) {
+          console.error('[WastageModal] Stock adjust error:', stockErr.message)
+        }
       }
 
       // Insert admin notification
