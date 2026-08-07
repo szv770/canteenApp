@@ -1523,31 +1523,14 @@ interface AIFlag {
   occurrences: AIFlagOccurrence[]
 }
 
-const AI_FLAGS: AIFlag[] = [
-  {
-    id: 'zelle-double-credit-2026-07-12',
-    title: 'Possible duplicate Zelle top-up credits (2026-07-12)',
-    foundOn: '2026-07-29',
-    description:
-      'Two students each show the same-day, same-amount Zelle payment credited twice: once as a direct "Add Funds" balance_ledger entry, and again as a separately-approved parent top-up request (balance_topups). If both were the same physical payment, each student’s balance — and the Zelle account total on the Accounts page — is overstated by that amount.',
-    occurrences: [
-      {
-        bochurId: '3a77b1e0-6179-49c9-92e0-3e592d11d372',
-        bochurName: 'Avi Blachman',
-        amount: 50,
-        date: '2026-07-12',
-        note: '$50 "zelle top-up" Add Funds ledger entry, plus a separately confirmed $50 Zelle balance_topups row — both dated 2026-07-12, confirmed 23:21:54 UTC.',
-      },
-      {
-        bochurId: 'cf6e60ba-006d-4c23-a7cd-e167b9fb0f31',
-        bochurName: 'Mendy Andrusier',
-        amount: 25,
-        date: '2026-07-12',
-        note: '$25 "zelle top-up" Add Funds ledger entry, plus a separately confirmed $25 Zelle balance_topups row — both dated 2026-07-12, confirmed 23:21:25 UTC.',
-      },
-    ],
-  },
-]
+// 2026-08-07: the one seeded flag below ('zelle-double-credit-2026-07-12') was
+// investigated with the owner during season-close reconciliation and
+// confirmed to be a FALSE POSITIVE — both campers really did each get their
+// own separate Zelle top-up that happened to land the same day; it was never
+// the same physical payment counted twice. Removed from the list below.
+// CLAUDE.md gotcha #54 has been corrected to match — don't resurrect this as
+// an open item or "fix" it by deleting either ledger/topup row, both are real.
+const AI_FLAGS: AIFlag[] = []
 
 function AIFlagsTab() {
   const [accountTypes, setAccountTypes] = useState<AccountType[]>([])
